@@ -1,0 +1,64 @@
+# GitForge — Domain Context
+
+## Project
+
+GitForge is a Linux-first Git GUI client built with GPUI (Zed's GPU-accelerated UI framework) and gix (pure Rust Git backend). It visualises repository history as an interactive commit graph, with a diff viewer, sidebar ref tree, and AI-powered features.
+
+## Core Domain Terms
+
+**Repository** — a Git working tree opened by the user. The `gitforge-git` crate wraps `gix::Repository` and exposes a `Repository` struct with read operations (log, status, references, diff, worktree list). The Repository persists for the session lifetime (stored in `GitForgeApp.open_repo`), so it is not re-opened per operation.
+
+**RepoState** — a snapshot of repository data (commits, references, status, worktrees). Created from a `Repository` via `RepoState::from_repository(&repo)`. Owned by `GitForgeApp.repo_state`.
+
+**Commit** — a point in repository history. Represented as `CommitInfo` (id, short_id, summary, author, dates, parent_ids). Commits are rendered as rows in the Commit Graph.
+
+**Commit Graph** — a DAG visualisation where commits are placed on horizontal lanes, connected by arcs. The `gitforge-graph` crate provides the pure layout algorithm (`Graph::build`); the app renders it as a GPUI canvas with nodes, arcs, and continuing lane lines.
+
+**Lane** — a vertical column in the commit graph. `LaneAssigner` decides which lane each commit occupies, keeping the main line straight.
+
+**Reference** — a named pointer (branch, tag, remote branch, stash). `RefInfo` holds the name, kind (`RefKind`), target commit, and HEAD status. Displayed as coloured pills in the graph and listed in the Sidebar.
+
+**Status** — the working tree state (staged, unstaged, untracked, conflicted files). `RepoStatus` aggregates `FileEntry` records with `FileStatus` classification.
+
+**Diff** — a set of file changes between two trees or a commit against its parent. The `gitforge-diff` crate parses unified diff text into `FileDiff` with `DiffLine` records and `DiffHunk` ranges (populated by the parser, not re-derived). Displayed in the Diff Panel.
+
+**Sidebar** — the left panel showing branches, remote branches, tags, and worktrees.
+
+**Toolbar** — the top bar showing the app name and current repository path.
+
+**Graph Panel** — a state-owning panel struct (`GraphPanel`) that holds commits, references, the Graph, selection state, and scroll handle. Renders the commit graph with virtual scrolling.
+
+**Diff Panel** — a state-owning panel struct (`DiffPanel`) that holds diff state and scroll handle. Renders commit metadata, file list, and line-level diff content.
+
+**Theme** — a JSON-defined colour palette (`Theme` → `AppColors`) providing all colour tokens for the UI.
+
+## Crate Structure
+
+```
+gitforge-app        Binary entry point, window lifecycle, view modules
+gitforge-ui         Reusable GPUI components, theme engine, icons
+gitforge-git        gix wrapper, porcelain API, status, diff, worktree operations
+gitforge-graph      Commit graph layout algorithm (pure logic, no UI)
+gitforge-diff       Diff parsing, highlighting, patch generation
+gitforge-hosting    GitHub/GitLab/Codeberg API clients (full implementation)
+gitforge-ai         AI backend — local ollama + cloud APIs (stubs)
+gitforge-syntax     Syntax highlighting (tree-sitter)
+```
+
+## View Module Structure
+
+```
+gitforge-app/src/views/
+  app.rs            GitForgeApp — state management, action handlers, Render composition
+  graph_panel.rs    GraphPanel — owns graph state, renders commit graph (canvas, nodes, arcs, lanes)
+  diff_panel.rs     DiffPanel — owns diff state, renders file list and diff content
+  sidebar.rs        Sidebar rendering (branches, remotes, tags)
+  toolbar.rs        Toolbar rendering (app name, repo path, shortcuts)
+```
+
+## Key Patterns
+
+- **Repository loading** goes through `RepoState::from_repository(&repo)` which takes a snapshot from an already-open repo. The `Repository` object persists for the session, stored in `GitForgeApp.open_repo` behind `Arc<Mutex<Option<Repository>>>`.
+- **Panel ownership** — `GraphPanel` and `DiffPanel` own their own state and scroll handles. `GitForgeApp` delegates rendering and selection to them via method calls. Panels are not GPUI entities; they are plain structs owned by the app.
+- **Async work** uses `tokio::spawn_blocking` for blocking git I/O. Results are moved into `this.update(cx, ...)` closures to update panel state on the GPUI main thread. Only the `open_repo` handle uses `Arc<Mutex<>>` for cross-thread access.
+- **Rendering** is declarative GPUI — each panel has a `render` method that produces GPUI elements from its owned state + colours.

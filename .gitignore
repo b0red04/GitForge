@@ -1,0 +1,19 @@
+/target/
+**/*.rs.bk
+*.pdb
+
+# Local env / secrets
+.env
+.env.*
+
+# Editor
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Duplicate of assets/app-icon/source.png
+/GitForge_nobg.png

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=GitForge
+Comment=Git repository forge
+Exec=gitforge
+Icon=dev.gitforge.GitForge
+Terminal=false
+Categories=Development;
+StartupWMClass=dev.gitforge.GitForge
+X-KDE-StartupNotify=true

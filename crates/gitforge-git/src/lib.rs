@@ -1,0 +1,25 @@
+pub mod repository;
+pub mod status;
+pub mod error;
+pub mod commit;
+pub mod reference;
+pub mod diff;
+pub mod loader;
+pub mod blame;
+pub mod ssh;
+pub mod credential;
+pub mod worktree;
+
+pub use repository::Repository;
+pub use repository::log_impl::{CommitLogOptions, is_standard_git_ref};
+pub use error::GitError;
+pub use diff::{FileChange, FileChangeKind};
+pub use status::{FileEntry, FileStatus, RepoStatus};
+pub use commit::CommitInfo;
+pub use reference::{RefInfo, RefKind};
+pub use loader::RepoLoader;
+pub use loader::RepoState;
+pub use blame::BlameLine;
+pub use ssh::{SshKey, SshKeyType, SshAgentStatus};
+pub use credential::{StoredCredential, CredentialEntry};
+pub use worktree::WorktreeInfo;

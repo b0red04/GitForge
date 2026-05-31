@@ -1,0 +1,59 @@
+mod views;
+
+use gpui::*;
+use views::GitForgeApp;
+use tracing_subscriber::EnvFilter;
+
+fn main() {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| EnvFilter::new("info")),
+        )
+        .init();
+
+    tracing::info!("GitForge starting...");
+
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("Failed to create Tokio runtime");
+    let _guard = rt.enter();
+
+    Application::new().run(|cx: &mut App| {
+        cx.bind_keys([
+            KeyBinding::new("ctrl-o", views::OpenRepository, None),
+            KeyBinding::new("escape", views::CloseDialog, None),
+            KeyBinding::new("up", views::SelectPrevCommit, None),
+            KeyBinding::new("down", views::SelectNextCommit, None),
+            KeyBinding::new("ctrl-n", views::CreateBranch, None),
+            KeyBinding::new("ctrl-shift-s", views::StashPush, None),
+            KeyBinding::new("ctrl-shift-p", views::StashPop, None),
+            KeyBinding::new("ctrl-shift-f", views::FetchAll, None),
+            KeyBinding::new("ctrl-shift-u", views::PullCurrent, None),
+            KeyBinding::new("ctrl-shift-h", views::PushCurrent, None),
+        ]);
+
+        cx.open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
+                    None,
+                    size(px(1440.0), px(900.0)),
+                    cx,
+                ))),
+                titlebar: Some(TitlebarOptions {
+                    title: Some("GitForge".into()),
+                    ..Default::default()
+                }),
+                app_id: Some("dev.gitforge.GitForge".into()),
+                ..Default::default()
+            },
+            |_window, cx| {
+                let view = cx.new(|cx| GitForgeApp::new(cx));
+                view.focus_handle(cx).focus(_window);
+                view
+            },
+        )
+        .expect("Failed to open window");
+    });
+}

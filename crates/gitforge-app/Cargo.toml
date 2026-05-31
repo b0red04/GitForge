@@ -1,0 +1,29 @@
+[package]
+name = "gitforge-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "gitforge"
+path = "src/main.rs"
+
+[dependencies]
+gitforge-ui = { path = "../gitforge-ui" }
+gitforge-git = { path = "../gitforge-git" }
+gitforge-graph = { path = "../gitforge-graph" }
+gitforge-diff = { path = "../gitforge-diff" }
+gitforge-syntax = { path = "../gitforge-syntax" }
+gitforge-hosting = { path = "../gitforge-hosting" }
+gitforge-ai = { path = "../gitforge-ai" }
+gpui.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+parking_lot.workspace = true
+chrono.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+dirs.workspace = true
+rfd = "0.15"
+anyhow.workspace = true

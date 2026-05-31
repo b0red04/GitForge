@@ -1,0 +1,11 @@
+[package]
+name = "gitforge-diff"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+regex-lite = "0.1.9"

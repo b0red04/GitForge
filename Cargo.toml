@@ -1,0 +1,50 @@
+[workspace]
+members = [
+    "crates/gitforge-app",
+    "crates/gitforge-ui",
+    "crates/gitforge-git",
+    "crates/gitforge-graph",
+    "crates/gitforge-diff",
+    "crates/gitforge-hosting",
+    "crates/gitforge-ai",
+    "crates/gitforge-syntax",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+authors = ["Jason"]
+repository = "https://github.com/b0red04/gitforge"
+
+[workspace.dependencies]
+gpui = "0.2"
+gix = { version = "0.72", default-features = false, features = [
+    "blocking-network-client",
+    "blocking-http-transport-reqwest",
+    "max-performance-safe",
+    "revision",
+    "status",
+    "worktree-mutation",
+    "index",
+] }
+gix-diff = "0.52"
+gix-status = "0.19"
+gix-dir = "0.14"
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", features = ["json"] }
+anyhow = "1"
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4"] }
+parking_lot = "0.12"
+futures = "0.3"
+smallvec = "1"
+gitforge-syntax = { path = "crates/gitforge-syntax" }
+dirs = "6"
+keyring = "3"

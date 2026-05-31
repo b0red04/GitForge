@@ -1,0 +1,20 @@
+[package]
+name = "gitforge-git"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+gix.workspace = true
+gix-diff.workspace = true
+gix-status.workspace = true
+gix-dir.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+chrono.workspace = true
+tracing.workspace = true
+parking_lot.workspace = true
+dirs.workspace = true
+keyring.workspace = true
