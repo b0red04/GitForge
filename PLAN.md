@@ -264,31 +264,39 @@ Files: `assets/themes/default-dark.json`, `assets/themes/default-light.json`
 - [x] Visual indicator showing which worktree you're in
 - [x] Switch between worktrees (open in new tab or window)
 
-### Phase 12: Polish & Linux Distribution (Weeks 43-48)
+### Phase 12: Polish & Linux Distribution (Weeks 43-48) — IN PROGRESS
 
 **Goal**: Production-ready Linux release.
 
-- [ ] Performance profiling and optimization
+- [x] Performance profiling and optimization
   - [ ] Large repo handling (100k+ commits, Linux kernel scale)
   - [ ] Memory usage optimization
-  - [ ] Smooth 60fps scrolling in graph view
-- [ ] Additional themes (community theme format documented)
-- [ ] Keyboard-first workflow (all operations accessible via keyboard)
-  - [ ] Command palette (like Zed's Ctrl+Shift+P)
-  - [ ] External tool integration:
-  - [ ] Configurable diff/merge tools (Meld, Beyond Compare, etc.)
-  - [ ] Open in editor (VS Code, Vim, etc.)
-  - [ ] Open in terminal
-- [ ] User-defined custom commands with placeholders
-- [ ] Accessibility (GPUI has accesskit integration)
-- [ ] i18n for first release (English + your preferred languages)
-- [ ] Packaging:
-  - [ ] AppImage
-  - [ ] Flatpak
-  - [ ] Arch AUR
-  - [ ] Debian/RPM packages (via cargo-bundle or custom)
-- [ ] Website + documentation
-- [ ] CI/CD (GitHub Actions: build, test, release)
+  - [x] Smooth 60fps scrolling in graph view (virtual scrolling + canvas culling already in place)
+  - [x] Criterion benchmarks for graph build
+  - [x] Fix O(n²) branch filter → O(n) with HashMap index
+  - [x] Parser reuse in syntax highlighter (thread-local pool)
+  - [x] Instrumentation for Graph::build timing
+- [x] Additional themes (community theme format documented)
+  - [x] Runtime theme switching (Ctrl+Shift+T)
+  - [x] Theme discovery from ~/.config/gitforge/themes/
+  - [x] Theme format docs (docs/THEMES.md)
+- [x] Keyboard-first workflow (all operations accessible via keyboard)
+  - [x] Command palette (Ctrl+Shift+P, fuzzy search)
+  - [x] External tool integration:
+  - [x] Configurable diff/merge tools (Meld, Beyond Compare, etc.)
+  - [x] Open in editor (VS Code, Vim, etc.)
+  - [x] Open in terminal
+- [x] User-defined custom commands with placeholders ({file}, {line}, {commit}, {repo})
+- [ ] Accessibility (GPUI has accesskit integration) — deferred
+- [x] i18n infrastructure (fluent, English .ftl file)
+  - [ ] Wire up Localization to all UI strings
+- [x] Packaging:
+  - [x] AppImage build script
+  - [x] Flatpak manifest
+  - [x] Arch AUR PKGBUILD
+  - [x] Debian package (cargo-deb)
+- [x] Documentation (README, CONTRIBUTING, keyboard shortcuts, theme format)
+- [x] CI/CD (GitHub Actions: build, test, clippy, fmt, release with artifacts)
 
 ---
 

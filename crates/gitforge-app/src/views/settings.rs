@@ -11,9 +11,12 @@ pub struct AppSettings {
     pub window_width: f32,
     pub window_height: f32,
     pub ai: AiSettings,
-    /// Include non-standard refs (e.g. `refs/t3/checkpoints/`) in commit history.
     #[serde(default)]
     pub show_checkpoint_refs: bool,
+    #[serde(default)]
+    pub tools: ToolSettings,
+    #[serde(default)]
+    pub custom_commands: Vec<CustomCommand>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -23,6 +26,63 @@ pub struct AiSettings {
     pub conventional_commits: bool,
     pub tone: String,
     pub ollama_url: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolSettings {
+    #[serde(default = "default_editor_command")]
+    pub editor_command: String,
+    #[serde(default = "default_terminal_command")]
+    pub terminal_command: String,
+    #[serde(default)]
+    pub diff_tool: String,
+    #[serde(default)]
+    pub merge_tool: String,
+}
+
+fn default_editor_command() -> String {
+    std::env::var("EDITOR")
+        .or_else(|_| std::env::var("VISUAL"))
+        .unwrap_or_else(|_| "xdg-open".into())
+}
+
+fn default_terminal_command() -> String {
+    std::env::var("TERMINAL")
+        .unwrap_or_else(|_| {
+            for cmd in &["alacritty", "kitty", "wezterm", "gnome-terminal", "konsole", "xterm"] {
+                if which_exists(cmd) {
+                    return cmd.to_string();
+                }
+            }
+            "xterm".into()
+        })
+}
+
+fn which_exists(cmd: &str) -> bool {
+    std::process::Command::new("which")
+        .arg(cmd)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+impl Default for ToolSettings {
+    fn default() -> Self {
+        Self {
+            editor_command: default_editor_command(),
+            terminal_command: default_terminal_command(),
+            diff_tool: String::new(),
+            merge_tool: String::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CustomCommand {
+    pub name: String,
+    pub command: String,
+    #[serde(default)]
+    pub description: String,
 }
 
 impl Default for AiSettings {
@@ -49,6 +109,8 @@ impl Default for AppSettings {
             window_height: 800.0,
             ai: AiSettings::default(),
             show_checkpoint_refs: false,
+            tools: ToolSettings::default(),
+            custom_commands: Vec::new(),
         }
     }
 }

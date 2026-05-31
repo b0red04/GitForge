@@ -1,5 +1,5 @@
 use gpui::*;
-use gitforge_ui::{Theme, AppColors, rgba_to_hsla};
+use gitforge_ui::{Theme, ThemeEntry, AppColors, rgba_to_hsla};
 use gitforge_git::{Repository, RepoState, GitError};
 use gitforge_graph::{Graph, CommitEntry};
 
@@ -11,7 +11,8 @@ use super::graph_panel::GraphPanel;
 use super::diff_panel::DiffPanel;
 use super::sidebar::SidebarState;
 use super::status_panel::StatusPanel;
-use super::settings::AppSettings;
+use super::settings::{AppSettings, CustomCommand};
+use super::command_palette::CommandPalette;
 
 actions!(
     gitforge,
@@ -19,7 +20,7 @@ actions!(
         OpenRepository, CloseDialog, SelectPrevCommit, SelectNextCommit,
         ViewFileAtCommit, BackToDiff, ShowStatusPanel, RefreshRepository,
         SoftReset, CreateBranch, StashPush, StashPop,
-        FetchAll, PushCurrent, PullCurrent,
+        FetchAll, PushCurrent, PullCurrent, ToggleTheme, ShowCommandPalette,
     ]
 );
 
@@ -80,6 +81,7 @@ pub struct GitForgeApp {
     ai_generating: bool,
     last_error: Option<String>,
     toolbar_more_open: bool,
+    pub command_palette: CommandPalette,
 }
 
 impl Focusable for GitForgeApp {
@@ -92,9 +94,11 @@ impl Focusable for GitForgeApp {
 impl GitForgeApp {
     pub fn new(cx: &mut App) -> Self {
         let settings = AppSettings::load();
+        let theme = Theme::load_by_name(&settings.theme).unwrap_or_else(|_| Theme::default_dark());
+        let colors = AppColors::from_theme(&theme);
         let sidebar_state = SidebarState::new(cx);
         let mut app = Self {
-            colors: AppColors::from_theme(&Theme::default_dark()),
+            colors,
             open_repo: Arc::new(Mutex::new(None)),
             repo_state: None,
             graph_panel: GraphPanel::new(),
@@ -118,6 +122,7 @@ impl GitForgeApp {
             ai_generating: false,
             last_error: None,
             toolbar_more_open: false,
+            command_palette: CommandPalette::new(cx),
         };
         app.sidebar_state.branches_expanded = app.settings.sidebar_branches_expanded;
         app.sidebar_state.remotes_expanded = app.settings.sidebar_remotes_expanded;
@@ -137,6 +142,135 @@ impl GitForgeApp {
             self.toolbar_more_open = false;
             cx.notify();
         }
+    }
+
+    pub fn set_theme(&mut self, name: &str, cx: &mut Context<Self>) {
+        match Theme::load_by_name(name) {
+            Ok(theme) => {
+                self.colors = AppColors::from_theme(&theme);
+                self.settings.theme = name.to_string();
+                self.settings.save();
+                cx.notify();
+            }
+            Err(e) => {
+                tracing::warn!("Failed to load theme '{}': {}", name, e);
+            }
+        }
+    }
+
+    fn handle_toggle_theme(&mut self, _action: &ToggleTheme, _window: &mut Window, cx: &mut Context<Self>) {
+        let new_theme = if self.settings.theme == "default-dark" {
+            "default-light"
+        } else {
+            "default-dark"
+        };
+        self.set_theme(new_theme, cx);
+    }
+
+    fn handle_show_command_palette(&mut self, _action: &ShowCommandPalette, _window: &mut Window, cx: &mut Context<Self>) {
+        self.command_palette.show(cx);
+    }
+
+    pub fn execute_command_palette_action(&mut self, action: &str, cx: &mut Context<Self>) {
+        self.command_palette.hide(cx);
+        match action {
+            "open_repository" => { self.loading = true; cx.notify(); self.spawn_open_dialog(cx); }
+            "refresh" => self.refresh_repository(cx),
+            "create_branch" => self.open_create_branch_dialog(None, cx),
+            "stash_push" => self.open_stash_push_dialog(cx),
+            "stash_pop" => self.stash_pop(cx),
+            "fetch_all" => self.fetch_all(cx),
+            "pull" => self.open_pull_dialog(cx),
+            "push" => self.open_push_dialog(cx),
+            "toggle_theme" => self.set_theme(
+                if self.settings.theme == "default-dark" { "default-light" } else { "default-dark" },
+                cx,
+            ),
+            "clone" => self.open_clone_dialog(cx),
+            "add_remote" => self.open_add_remote_dialog(cx),
+            "ssh_key" => self.open_ssh_generate_key_dialog(cx),
+            "accounts" => self.open_manage_accounts_dialog(cx),
+            "ai_settings" => self.open_ai_settings_dialog(cx),
+            "open_browser" => self.open_repo_in_browser(cx),
+            "worktree" => self.open_create_worktree_dialog(cx),
+            "show_status" => { self.view_mode = MainViewMode::Status; self.load_status(cx); }
+            "soft_reset" => self.soft_reset(cx),
+            "open_editor" => { if let Some(path) = self.repo_state.as_ref().map(|r| r.path.clone()) { self.open_in_editor(path, cx); } }
+            "open_terminal" => { if let Some(path) = self.repo_state.as_ref().map(|r| r.path.clone()) { self.open_in_terminal(path, cx); } }
+            _ => {}
+        }
+    }
+
+    fn spawn_open_dialog(&mut self, cx: &mut Context<Self>) {
+        let open_repo_arc = self.open_repo.clone();
+        let include_custom_refs = self.settings.show_checkpoint_refs;
+
+        cx.spawn(async move |this, cx| {
+            let path = cx.update(|_cx| {
+                rfd::AsyncFileDialog::new()
+                    .set_title("Open Git Repository")
+            });
+            let folder = match path {
+                Ok(dialog) => {
+                    let result = dialog.pick_folder().await;
+                    result
+                }
+                Err(_) => None,
+            };
+
+            let Some(folder) = folder else {
+                this.update(cx, |this, cx| {
+                    this.loading = false;
+                    cx.notify();
+                }).ok();
+                return;
+            };
+
+            let path_buf = std::path::PathBuf::from(folder.path());
+            let log_options = gitforge_git::CommitLogOptions { include_custom_refs };
+
+            let result = tokio::task::spawn_blocking(move || -> Result<(Repository, RepoState), GitError> {
+                let repo = Repository::discover(&path_buf)?;
+                let repo_state = RepoState::from_repository_with_options(&repo, log_options)?;
+                Ok((repo, repo_state))
+            }).await;
+
+            match result {
+                Ok(Ok((repo, repo_state_data))) => {
+                    *open_repo_arc.lock() = Some(repo);
+                    this.update(cx, |this, cx| {
+                        this.last_error = None;
+                        this.apply_repo_state(repo_state_data);
+                        this.loading = false;
+                        cx.notify();
+                    }).ok();
+                }
+                Ok(Err(e)) => {
+                    this.update(cx, |this, cx| {
+                        this.last_error = Some(format!("Failed to load repository: {}", e));
+                        this.loading = false;
+                        cx.notify();
+                    }).ok();
+                }
+                Err(e) => {
+                    this.update(cx, |this, cx| {
+                        this.last_error = Some(format!("Task panicked: {}", e));
+                        this.loading = false;
+                        cx.notify();
+                    }).ok();
+                }
+            }
+        }).detach();
+    }
+
+    pub fn execute_command_palette_selection(&mut self, cx: &mut Context<Self>) {
+        if let Some(action) = self.command_palette.selected_action().map(String::from) {
+            self.execute_command_palette_action(&action, cx);
+        }
+    }
+
+    pub fn available_themes() -> Vec<ThemeEntry> {
+        Theme::discover_themes()
     }
 
     fn handle_open_repository(&mut self, _action: &OpenRepository, _window: &mut Window, cx: &mut Context<Self>) {
@@ -282,11 +416,22 @@ impl GitForgeApp {
     fn apply_repo_state(&mut self, repo_state_data: RepoState) {
         let has_uncommitted = repo_state_data.status.has_changes();
 
+        let commit_count = repo_state_data.commits.len();
+        let start = std::time::Instant::now();
+
         let commit_entries: Vec<CommitEntry> = repo_state_data.commits
             .iter()
             .map(|c| CommitEntry::new(c.id.clone(), c.parent_ids.clone()))
             .collect();
         let built_graph = Graph::build(&commit_entries);
+
+        let elapsed = start.elapsed();
+        tracing::info!(
+            "Graph::build: {} commits in {:.2}ms ({:.0} commits/ms)",
+            commit_count,
+            elapsed.as_secs_f64() * 1000.0,
+            commit_count as f64 / elapsed.as_secs_f64().max(0.001) / 1000.0,
+        );
 
         self.graph_panel.set_data(
             repo_state_data.commits.clone(),
@@ -1810,6 +1955,100 @@ impl GitForgeApp {
             .spawn();
     }
 
+    pub fn open_in_editor(&mut self, path: std::path::PathBuf, _cx: &mut Context<Self>) {
+        let cmd = &self.settings.tools.editor_command;
+        let _ = std::process::Command::new(cmd)
+            .arg(&path)
+            .spawn();
+    }
+
+    pub fn open_in_terminal(&mut self, path: std::path::PathBuf, _cx: &mut Context<Self>) {
+        let cmd = &self.settings.tools.terminal_command;
+        let _ = std::process::Command::new(cmd)
+            .arg("--working-directory")
+            .arg(&path)
+            .spawn()
+            .or_else(|_| {
+                std::process::Command::new(cmd)
+                    .arg("--dir")
+                    .arg(&path)
+                    .spawn()
+            })
+            .or_else(|_| {
+                std::process::Command::new(cmd)
+                    .current_dir(&path)
+                    .spawn()
+            })
+            .ok();
+    }
+
+    pub fn open_file_in_editor(&mut self, file_path: String, line: Option<usize>, _cx: &mut Context<Self>) {
+        let cmd = &self.settings.tools.editor_command;
+        let path = std::path::PathBuf::from(&file_path);
+        let formatted = match line {
+            Some(l) => format!("{}:{}", file_path, l),
+            None => file_path.clone(),
+        };
+        let _ = std::process::Command::new(cmd)
+            .arg(&formatted)
+            .spawn()
+            .or_else(|_| {
+                std::process::Command::new(cmd)
+                    .arg("+")
+                    .arg(line.unwrap_or(1).to_string())
+                    .arg(&file_path)
+                    .spawn()
+            })
+            .or_else(|_| {
+                std::process::Command::new(cmd)
+                    .arg(&path)
+                    .spawn()
+            })
+            .ok();
+    }
+
+    pub fn open_diff_tool(&mut self, old_path: &str, new_path: &str, _cx: &mut Context<Self>) {
+        let tool = &self.settings.tools.diff_tool;
+        if tool.is_empty() {
+            return;
+        }
+        let _ = std::process::Command::new(tool)
+            .arg(old_path)
+            .arg(new_path)
+            .spawn();
+    }
+
+    pub fn open_merge_tool(&mut self, file_path: &str, _cx: &mut Context<Self>) {
+        let tool = &self.settings.tools.merge_tool;
+        if tool.is_empty() {
+            let _ = std::process::Command::new("git")
+                .args(["mergetool", file_path])
+                .spawn();
+            return;
+        }
+        let _ = std::process::Command::new(tool)
+            .arg(file_path)
+            .spawn();
+    }
+
+    pub fn run_custom_command(&mut self, command: &CustomCommand, repo_path: &std::path::Path, file: Option<&str>, line: Option<usize>, commit: Option<&str>) {
+        let mut cmd_str = command.command.clone();
+        if let Some(f) = file {
+            cmd_str = cmd_str.replace("{file}", f);
+        }
+        if let Some(l) = line {
+            cmd_str = cmd_str.replace("{line}", &l.to_string());
+        }
+        if let Some(c) = commit {
+            cmd_str = cmd_str.replace("{commit}", c);
+        }
+        cmd_str = cmd_str.replace("{repo}", &repo_path.to_string_lossy());
+        let _ = std::process::Command::new("sh")
+            .args(["-c", &cmd_str])
+            .current_dir(repo_path)
+            .spawn();
+    }
+
     pub fn open_repo_in_browser(&mut self, _cx: &mut Context<Self>) {
         let Some(rs) = &self.repo_state else { return };
 
@@ -2127,7 +2366,9 @@ impl Render for GitForgeApp {
             .on_action(cx.listener(Self::handle_stash_pop))
             .on_action(cx.listener(Self::handle_fetch_all))
             .on_action(cx.listener(Self::handle_push_current))
-            .on_action(cx.listener(Self::handle_pull_current));
+            .on_action(cx.listener(Self::handle_pull_current))
+            .on_action(cx.listener(Self::handle_toggle_theme))
+            .on_action(cx.listener(Self::handle_show_command_palette));
 
         if let Some(banner) = error_banner {
             root = root.child(banner);
@@ -2156,12 +2397,16 @@ impl Render for GitForgeApp {
                 &self.dialog_input_2,
                 &self.dialog_input_focus,
                 &self.colors,
-                entity,
+                entity.clone(),
                 window,
                 &self.hosting_repos,
                 self.hosting_repos_loading,
                 &self.hosting_accounts,
             ));
+        }
+
+        if let Some(palette) = self.command_palette.render(&self.colors, entity, window) {
+            root = root.child(palette);
         }
 
         root

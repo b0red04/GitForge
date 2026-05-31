@@ -1,0 +1,49 @@
+# Maintainer: Jason <jason@gitforge.dev>
+pkgname=gitforge-git
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="A Linux-first Git GUI client built with GPUI and gix"
+arch=('x86_64')
+url="https://github.com/b0red04/gitforge"
+license=('Apache-2.0')
+depends=(
+  'gcc' 'openssl' 'freetype2' 'fontconfig' 'wayland'
+  'libx11' 'mesa' 'vulkan-driver' 'vulkan-icd-loader'
+)
+makedepends=('cargo' 'pkg-config' 'clang')
+provides=('gitforge')
+conflicts=('gitforge')
+source=("git+https://github.com/b0red04/gitforge.git")
+sha256sums=('SKIP')
+
+pkgver() {
+  cd "$srcdir/gitforge"
+  cargo metadata --format-version 1 --no-deps 2>/dev/null \
+    | grep -o '"version":"[^"]*"' \
+    | head -1 \
+    | cut -d'"' -f4
+}
+
+build() {
+  cd "$srcdir/gitforge"
+  cargo build --release -p gitforge-app
+}
+
+package() {
+  cd "$srcdir/gitforge"
+
+  install -Dm755 "target/release/gitforge" "$pkgdir/usr/bin/gitforge"
+  install -Dm644 "packaging/dev.gitforge.GitForge.desktop" \
+    "$pkgdir/usr/share/applications/dev.gitforge.GitForge.desktop"
+
+  for size in 16 22 32 48 64 128 256 512; do
+    local icon="assets/icons/hicolor/${size}x${size}/apps/dev.gitforge.GitForge.png"
+    if [[ -f "$icon" ]]; then
+      install -Dm644 "$icon" \
+        "$pkgdir/usr/share/icons/hicolor/${size}x${size}/apps/dev.gitforge.GitForge.png"
+    fi
+  done
+
+  install -d "$pkgdir/usr/share/gitforge/themes"
+  install -Dm644 assets/themes/*.json "$pkgdir/usr/share/gitforge/themes/"
+}

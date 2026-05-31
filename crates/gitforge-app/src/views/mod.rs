@@ -6,8 +6,12 @@ pub mod toolbar;
 pub mod status_panel;
 pub mod settings;
 pub mod layout;
+pub mod command_palette;
+pub mod i18n;
 
 pub use app::GitForgeApp;
 pub use app::{OpenRepository, CloseDialog, SelectPrevCommit, SelectNextCommit};
 pub use app::{CreateBranch, StashPush, StashPop};
 pub use app::{FetchAll, PushCurrent, PullCurrent};
+pub use app::ToggleTheme;
+pub use app::ShowCommandPalette;

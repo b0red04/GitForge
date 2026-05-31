@@ -1,5 +1,10 @@
 use crate::theme::HighlightScope;
+use std::cell::RefCell;
 use std::path::Path;
+
+thread_local! {
+    static PARSER_POOL: RefCell<Option<tree_sitter::Parser>> = RefCell::new(None);
+}
 
 #[derive(Debug, Clone)]
 pub struct HighlightedLine {
@@ -61,11 +66,13 @@ impl SyntaxHighlighter {
         _byte_offset: usize,
         language: &tree_sitter::Language,
     ) -> HighlightedLine {
-        let mut parser = tree_sitter::Parser::new();
-        parser.set_language(language).ok();
-
         let full_line = format!("{}\n", line);
-        let tree = parser.parse(&full_line, None);
+        let tree = PARSER_POOL.with(|cell| {
+            let mut pool = cell.borrow_mut();
+            let parser = pool.get_or_insert_with(tree_sitter::Parser::new);
+            parser.set_language(language).ok();
+            parser.parse(&full_line, None)
+        });
 
         let mut highlights: Vec<(usize, usize, HighlightScope)> = Vec::new();
 

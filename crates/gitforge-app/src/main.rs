@@ -28,10 +28,12 @@ fn main() {
             KeyBinding::new("down", views::SelectNextCommit, None),
             KeyBinding::new("ctrl-n", views::CreateBranch, None),
             KeyBinding::new("ctrl-shift-s", views::StashPush, None),
-            KeyBinding::new("ctrl-shift-p", views::StashPop, None),
+            KeyBinding::new("ctrl-shift-o", views::StashPop, None),
+            KeyBinding::new("ctrl-shift-p", views::ShowCommandPalette, None),
             KeyBinding::new("ctrl-shift-f", views::FetchAll, None),
             KeyBinding::new("ctrl-shift-u", views::PullCurrent, None),
             KeyBinding::new("ctrl-shift-h", views::PushCurrent, None),
+            KeyBinding::new("ctrl-shift-t", views::ToggleTheme, None),
         ]);
 
         cx.open_window(

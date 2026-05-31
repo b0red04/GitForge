@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Theme {
@@ -174,4 +174,72 @@ impl Theme {
         ];
         colors[lane % colors.len()]
     }
+
+    pub fn load_by_name(name: &str) -> anyhow::Result<Self> {
+        if name == "default-dark" {
+            return Ok(Self::default_dark());
+        }
+        if name == "default-light" {
+            return Ok(Self::default_light());
+        }
+
+        let user_themes_dir = dirs::config_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("gitforge")
+            .join("themes");
+
+        let user_path = user_themes_dir.join(format!("{}.json", name));
+        if user_path.exists() {
+            return Self::load_from_file(&user_path);
+        }
+
+        anyhow::bail!("Theme '{}' not found", name)
+    }
+
+    pub fn discover_themes() -> Vec<ThemeEntry> {
+        let mut themes = Vec::new();
+
+        themes.push(ThemeEntry {
+            name: "default-dark".into(),
+            display_name: "GitForge Dark".into(),
+            appearance: Appearance::Dark,
+        });
+        themes.push(ThemeEntry {
+            name: "default-light".into(),
+            display_name: "GitForge Light".into(),
+            appearance: Appearance::Light,
+        });
+
+        let user_themes_dir = dirs::config_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("gitforge")
+            .join("themes");
+
+        if let Ok(entries) = std::fs::read_dir(&user_themes_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|e| e.to_str()) == Some("json") {
+                    if let Ok(theme) = Self::load_from_file(&path) {
+                        let stem = path.file_stem()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("unknown");
+                        themes.push(ThemeEntry {
+                            name: stem.to_string(),
+                            display_name: theme.name.clone(),
+                            appearance: theme.appearance,
+                        });
+                    }
+                }
+            }
+        }
+
+        themes
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ThemeEntry {
+    pub name: String,
+    pub display_name: String,
+    pub appearance: Appearance,
 }

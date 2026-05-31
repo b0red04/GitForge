@@ -8,6 +8,21 @@ license.workspace = true
 name = "gitforge"
 path = "src/main.rs"
 
+[package.metadata.deb]
+name = "gitforge"
+maintainer = "Jason <jason@gitforge.dev>"
+copyright = "2025, Jason"
+license-file = ["../../LICENSE", "0"]
+depends = "libssl3, libfreetype6, libfontconfig1, libwayland-client0, libx11-6, libegl1, libvulkan1"
+section = "devel"
+priority = "optional"
+assets = [
+    ["target/release/gitforge", "usr/bin/gitforge", "755"],
+    ["../../packaging/dev.gitforge.GitForge.desktop", "usr/share/applications/dev.gitforge.GitForge.desktop", "644"],
+    ["../../assets/icons/hicolor/*/apps/dev.gitforge.GitForge.png", "usr/share/icons/hicolor/", "644"],
+    ["../../assets/themes/*.json", "usr/share/gitforge/themes/", "644"],
+]
+
 [dependencies]
 gitforge-ui = { path = "../gitforge-ui" }
 gitforge-git = { path = "../gitforge-git" }
@@ -27,3 +42,6 @@ serde_json.workspace = true
 dirs.workspace = true
 rfd = "0.15"
 anyhow.workspace = true
+fluent.workspace = true
+fluent-bundle.workspace = true
+sys-locale.workspace = true

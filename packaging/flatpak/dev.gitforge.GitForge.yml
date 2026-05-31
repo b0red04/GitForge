@@ -1,0 +1,40 @@
+app-id: dev.gitforge.GitForge
+runtime: org.freedesktop.Platform
+runtime-version: '24.08'
+sdk: org.freedesktop.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: gitforge
+finish-args:
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --socket=ssh-auth
+  - --share=network
+  - --device=dri
+  - --filesystem=host
+  - --talk-name=org.freedesktop.secrets
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+  env:
+    CARGO_HOME: /run/build/gitforge/cargo
+    RUST_BACKTRACE: '1'
+modules:
+  - name: gitforge
+    buildsystem: simple
+    build-commands:
+      - cargo --offline build --release -p gitforge-app
+      - install -Dm755 target/release/gitforge ${FLATPAK_DEST}/bin/gitforge
+      - install -Dm644 packaging/dev.gitforge.GitForge.desktop ${FLATPAK_DEST}/share/applications/${FLATPAK_ID}.desktop
+      - |
+        for size in 16 22 32 48 64 128 256 512; do
+          src="assets/icons/hicolor/${size}x${size}/apps/${FLATPAK_ID}.png"
+          if [ -f "$src" ]; then
+            install -Dm644 "$src" "${FLATPAK_DEST}/share/icons/hicolor/${size}x${size}/apps/${FLATPAK_ID}.png"
+          fi
+        done
+      - install -d ${FLATPAK_DEST}/share/gitforge/themes
+      - install -Dm644 assets/themes/*.json ${FLATPAK_DEST}/share/gitforge/themes/
+    sources:
+      - type: dir
+        path: ..

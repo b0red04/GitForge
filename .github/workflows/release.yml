@@ -1,0 +1,69 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libssl-dev \
+            libfreetype-dev \
+            libfontconfig-dev \
+            libwayland-dev \
+            libx11-dev \
+            libegl-dev \
+            libvulkan-dev \
+            libclang-dev \
+            pkg-config
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build release binary
+        run: cargo build -p gitforge-app --release
+
+      - name: Generate AppImage
+        run: bash scripts/build-appimage.sh
+        continue-on-error: true
+
+      - name: Build .deb package
+        run: |
+          cargo install cargo-deb
+          cargo deb -p gitforge-app
+        continue-on-error: true
+
+      - name: Compute checksums
+        run: |
+          cd target/release
+          sha256sum gitforge > gitforge.sha256
+          if [ -f ../gitforge-app_*.deb ]; then
+            sha256sum ../gitforge-app_*.deb > ../gitforge-app.deb.sha256
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            target/release/gitforge
+            target/release/gitforge.sha256
+            target/gitforge-app_*.deb
+            target/gitforge-app.deb.sha256
+            GitForge-*.AppImage
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref, '-rc') || contains(github.ref, '-beta') || contains(github.ref, '-alpha') }}

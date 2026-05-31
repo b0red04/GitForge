@@ -23,6 +23,7 @@ pub struct GraphPanel {
     branch_filter: Option<String>,
     filtered_indices: Vec<usize>,
     use_filtered: bool,
+    commit_index: std::collections::HashMap<String, usize>,
 }
 
 impl GraphPanel {
@@ -37,6 +38,7 @@ impl GraphPanel {
             branch_filter: None,
             filtered_indices: Vec::new(),
             use_filtered: false,
+            commit_index: std::collections::HashMap::new(),
         }
     }
 
@@ -47,6 +49,11 @@ impl GraphPanel {
         graph: Graph,
         has_uncommitted: bool,
     ) {
+        self.commit_index.clear();
+        for (i, c) in commits.iter().enumerate() {
+            self.commit_index.insert(c.id.clone(), i);
+            self.commit_index.insert(c.short_id.clone(), i);
+        }
         self.commits = commits;
         self.references = references;
         self.graph = graph;
@@ -78,9 +85,11 @@ impl GraphPanel {
                 continue;
             }
             reachable.insert(id.clone());
-            if let Some(commit) = self.commits.iter().find(|c| c.id == id || c.short_id == id) {
-                for pid in &commit.parent_ids {
-                    queue.push(pid.clone());
+            if let Some(&idx) = self.commit_index.get(&id) {
+                if let Some(commit) = self.commits.get(idx) {
+                    for pid in &commit.parent_ids {
+                        queue.push(pid.clone());
+                    }
                 }
             }
         }
@@ -113,6 +122,7 @@ impl GraphPanel {
         self.branch_filter = None;
         self.filtered_indices.clear();
         self.use_filtered = false;
+        self.commit_index.clear();
     }
 
     pub fn selected_idx(&self) -> Option<usize> {
