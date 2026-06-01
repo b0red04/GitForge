@@ -1,9 +1,9 @@
-use gpui::*;
+use gitforge_diff::{DiffLineType, FileDiff};
+use gitforge_git::{FileEntry, FileStatus, RepoStatus};
 use gitforge_ui::{AppColors, rgba_to_hsla};
-use gitforge_git::{RepoStatus, FileStatus, FileEntry};
-use gitforge_diff::{FileDiff, DiffLineType};
-use std::ops::Range;
+use gpui::*;
 use std::collections::HashMap;
+use std::ops::Range;
 
 use super::layout::{FILE_LIST_WIDTH, RIGHT_MIN_WIDTH};
 
@@ -142,7 +142,8 @@ impl StatusPanel {
     }
 
     pub fn visible_summary(&self) -> Option<&str> {
-        self.ai_file_summary_visible.as_ref()
+        self.ai_file_summary_visible
+            .as_ref()
             .and_then(|p| self.ai_file_summaries.get(p).map(|s| s.as_str()))
     }
 
@@ -197,10 +198,19 @@ impl StatusPanel {
         let muted = rgba_to_hsla(colors.text_muted);
 
         let header = div()
-            .px_3().py_2()
-            .border_b_1().border_color(border)
-            .flex().items_center()
-            .child(div().text_xs().font_weight(FontWeight::BOLD).text_color(muted).child("CHANGES"));
+            .px_3()
+            .py_2()
+            .border_b_1()
+            .border_color(border)
+            .flex()
+            .items_center()
+            .child(
+                div()
+                    .text_xs()
+                    .font_weight(FontWeight::BOLD)
+                    .text_color(muted)
+                    .child("CHANGES"),
+            );
 
         let mut panel = match &self.status {
             Some(status) if status.has_changes() || self.view_mode == StatusViewMode::Commit => {
@@ -208,49 +218,57 @@ impl StatusPanel {
                     StatusViewMode::Status | StatusViewMode::Commit => {
                         let file_list = self.render_file_list(status, colors, entity.clone());
                         if self.view_mode == StatusViewMode::Commit {
-                            let editor = self.render_commit_editor(colors, entity.clone(), window, ai_generating);
-                            let p = status_panel_shell(surface)
-                                .child(header)
-                                .child(
-                                    div().flex_1().flex().flex_row()
-                                        .child(file_list)
-                                        .child(editor)
-                                );
+                            let editor = self.render_commit_editor(
+                                colors,
+                                entity.clone(),
+                                window,
+                                ai_generating,
+                            );
+                            let p = status_panel_shell(surface).child(header).child(
+                                div()
+                                    .flex_1()
+                                    .flex()
+                                    .flex_row()
+                                    .child(file_list)
+                                    .child(editor),
+                            );
                             return p;
                         }
                         let placeholder = self.render_placeholder(colors);
-                        status_panel_shell(surface)
-                            .child(header)
-                            .child(
-                                div().flex_1().flex().flex_row()
-                                    .child(file_list)
-                                    .child(placeholder)
-                            )
+                        status_panel_shell(surface).child(header).child(
+                            div()
+                                .flex_1()
+                                .flex()
+                                .flex_row()
+                                .child(file_list)
+                                .child(placeholder),
+                        )
                     }
                     StatusViewMode::Diff => {
                         let file_list = self.render_file_list(status, colors, entity.clone());
                         let diff_content = self.render_selected_diff(colors, entity.clone());
-                        status_panel_shell(surface)
-                            .child(header)
-                            .child(
-                                div().flex_1().flex().flex_row()
-                                    .child(file_list)
-                                    .child(diff_content)
-                            )
+                        status_panel_shell(surface).child(header).child(
+                            div()
+                                .flex_1()
+                                .flex()
+                                .flex_row()
+                                .child(file_list)
+                                .child(diff_content),
+                        )
                     }
                     StatusViewMode::Code => {
                         return self.render_placeholder(colors);
                     }
                 }
             }
-            _ => {
-                status_panel_shell(surface)
-                    .child(header)
-                    .child(
-                        div().flex_1().flex().items_center().justify_center()
-                            .child(div().text_sm().text_color(muted).child("No uncommitted changes"))
-                    )
-            }
+            _ => status_panel_shell(surface).child(header).child(
+                div().flex_1().flex().items_center().justify_center().child(
+                    div()
+                        .text_sm()
+                        .text_color(muted)
+                        .child("No uncommitted changes"),
+                ),
+            ),
         };
 
         if let Some(summary) = self.visible_summary() {
@@ -275,28 +293,40 @@ impl StatusPanel {
             .id(ElementId::Name("status-file-list".into()))
             .w(px(STATUS_FILE_WIDTH))
             .h_full()
-            .border_r_1().border_color(border)
-            .flex().flex_col()
+            .border_r_1()
+            .border_color(border)
+            .flex()
+            .flex_col()
             .overflow_y_scroll();
 
         if !status.staged.is_empty() {
             let unstage_ent = entity.clone();
             list = list.child(
-                div().px_2().py_1()
-                    .border_b_1().border_color(border)
-                    .flex().items_center()
+                div()
+                    .px_2()
+                    .py_1()
+                    .border_b_1()
+                    .border_color(border)
+                    .flex()
+                    .items_center()
                     .child(
-                        div().text_xs().font_weight(FontWeight::BOLD).text_color(muted)
-                            .child(format!("STAGED CHANGES ({})", status.staged.len()))
+                        div()
+                            .text_xs()
+                            .font_weight(FontWeight::BOLD)
+                            .text_color(muted)
+                            .child(format!("STAGED CHANGES ({})", status.staged.len())),
                     )
                     .child(div().flex_1())
                     .child(
                         div()
                             .id("unstage-all-btn")
-                            .px_1().rounded(px(2.0))
-                            .border_1().border_color(border)
+                            .px_1()
+                            .rounded(px(2.0))
+                            .border_1()
+                            .border_color(border)
                             .cursor_pointer()
-                            .text_xs().text_color(accent)
+                            .text_xs()
+                            .text_color(accent)
                             .child("-All")
                             .on_click(move |_ev, _window, cx| {
                                 if let Some(e) = unstage_ent.upgrade() {
@@ -304,14 +334,20 @@ impl StatusPanel {
                                         this.unstage_all(cx);
                                     });
                                 }
-                            })
-                    )
+                            }),
+                    ),
             );
             for (i, entry) in status.staged.iter().enumerate() {
-                let is_sel = self.selection.as_ref()
-                    .map_or(false, |s| s.section == StatusFileSection::Staged && s.file_idx == i);
+                let is_sel = self.selection.as_ref().map_or(false, |s| {
+                    s.section == StatusFileSection::Staged && s.file_idx == i
+                });
                 list = list.child(render_status_file_entry(
-                    entry, is_sel, StatusFileSection::Staged, i, colors, entity.clone(),
+                    entry,
+                    is_sel,
+                    StatusFileSection::Staged,
+                    i,
+                    colors,
+                    entity.clone(),
                 ));
             }
         }
@@ -319,21 +355,32 @@ impl StatusPanel {
         if !status.unstaged.is_empty() {
             let stage_ent = entity.clone();
             list = list.child(
-                div().px_2().py_1().mt_1()
-                    .border_b_1().border_color(border)
-                    .flex().items_center()
+                div()
+                    .px_2()
+                    .py_1()
+                    .mt_1()
+                    .border_b_1()
+                    .border_color(border)
+                    .flex()
+                    .items_center()
                     .child(
-                        div().text_xs().font_weight(FontWeight::BOLD).text_color(muted)
-                            .child(format!("UNSTAGED CHANGES ({})", status.unstaged.len()))
+                        div()
+                            .text_xs()
+                            .font_weight(FontWeight::BOLD)
+                            .text_color(muted)
+                            .child(format!("UNSTAGED CHANGES ({})", status.unstaged.len())),
                     )
                     .child(div().flex_1())
                     .child(
                         div()
                             .id("stage-all-unstaged-btn")
-                            .px_1().rounded(px(2.0))
-                            .border_1().border_color(border)
+                            .px_1()
+                            .rounded(px(2.0))
+                            .border_1()
+                            .border_color(border)
                             .cursor_pointer()
-                            .text_xs().text_color(accent)
+                            .text_xs()
+                            .text_color(accent)
                             .child("+All")
                             .on_click(move |_ev, _window, cx| {
                                 if let Some(e) = stage_ent.upgrade() {
@@ -341,14 +388,20 @@ impl StatusPanel {
                                         this.stage_all(cx);
                                     });
                                 }
-                            })
-                    )
+                            }),
+                    ),
             );
             for (i, entry) in status.unstaged.iter().enumerate() {
-                let is_sel = self.selection.as_ref()
-                    .map_or(false, |s| s.section == StatusFileSection::Unstaged && s.file_idx == i);
+                let is_sel = self.selection.as_ref().map_or(false, |s| {
+                    s.section == StatusFileSection::Unstaged && s.file_idx == i
+                });
                 list = list.child(render_status_file_entry(
-                    entry, is_sel, StatusFileSection::Unstaged, i, colors, entity.clone(),
+                    entry,
+                    is_sel,
+                    StatusFileSection::Unstaged,
+                    i,
+                    colors,
+                    entity.clone(),
                 ));
             }
         }
@@ -356,21 +409,32 @@ impl StatusPanel {
         if !status.untracked.is_empty() {
             let stage_ent = entity.clone();
             list = list.child(
-                div().px_2().py_1().mt_1()
-                    .border_b_1().border_color(border)
-                    .flex().items_center()
+                div()
+                    .px_2()
+                    .py_1()
+                    .mt_1()
+                    .border_b_1()
+                    .border_color(border)
+                    .flex()
+                    .items_center()
                     .child(
-                        div().text_xs().font_weight(FontWeight::BOLD).text_color(muted)
-                            .child(format!("UNTRACKED FILES ({})", status.untracked.len()))
+                        div()
+                            .text_xs()
+                            .font_weight(FontWeight::BOLD)
+                            .text_color(muted)
+                            .child(format!("UNTRACKED FILES ({})", status.untracked.len())),
                     )
                     .child(div().flex_1())
                     .child(
                         div()
                             .id("stage-all-untracked-btn")
-                            .px_1().rounded(px(2.0))
-                            .border_1().border_color(border)
+                            .px_1()
+                            .rounded(px(2.0))
+                            .border_1()
+                            .border_color(border)
                             .cursor_pointer()
-                            .text_xs().text_color(accent)
+                            .text_xs()
+                            .text_color(accent)
                             .child("+All")
                             .on_click(move |_ev, _window, cx| {
                                 if let Some(e) = stage_ent.upgrade() {
@@ -378,64 +442,91 @@ impl StatusPanel {
                                         this.stage_all(cx);
                                     });
                                 }
-                            })
-                    )
+                            }),
+                    ),
             );
             for (i, entry) in status.untracked.iter().enumerate() {
-                let is_sel = self.selection.as_ref()
-                    .map_or(false, |s| s.section == StatusFileSection::Untracked && s.file_idx == i);
+                let is_sel = self.selection.as_ref().map_or(false, |s| {
+                    s.section == StatusFileSection::Untracked && s.file_idx == i
+                });
                 list = list.child(render_status_file_entry(
-                    entry, is_sel, StatusFileSection::Untracked, i, colors, entity.clone(),
+                    entry,
+                    is_sel,
+                    StatusFileSection::Untracked,
+                    i,
+                    colors,
+                    entity.clone(),
                 ));
             }
         }
 
         if !status.conflicted.is_empty() {
             list = list.child(
-                div().px_2().py_1().mt_1()
-                    .border_b_1().border_color(border)
-                    .flex().items_center().gap_1()
-                    .child(div().text_xs().font_weight(FontWeight::BOLD).text_color(rgba_to_hsla(colors.warning))
-                        .child(format!("CONFLICTS ({})", status.conflicted.len())))
+                div()
+                    .px_2()
+                    .py_1()
+                    .mt_1()
+                    .border_b_1()
+                    .border_color(border)
+                    .flex()
+                    .items_center()
+                    .gap_1()
+                    .child(
+                        div()
+                            .text_xs()
+                            .font_weight(FontWeight::BOLD)
+                            .text_color(rgba_to_hsla(colors.warning))
+                            .child(format!("CONFLICTS ({})", status.conflicted.len())),
+                    ),
             );
             for (i, entry) in status.conflicted.iter().enumerate() {
-                let is_sel = self.selection.as_ref()
-                    .map_or(false, |s| s.section == StatusFileSection::Conflicted && s.file_idx == i);
+                let is_sel = self.selection.as_ref().map_or(false, |s| {
+                    s.section == StatusFileSection::Conflicted && s.file_idx == i
+                });
                 list = list.child(render_status_file_entry(
-                    entry, is_sel, StatusFileSection::Conflicted, i, colors, entity.clone(),
+                    entry,
+                    is_sel,
+                    StatusFileSection::Conflicted,
+                    i,
+                    colors,
+                    entity.clone(),
                 ));
             }
         }
 
         let commit_ent = entity.clone();
         let can_commit = !status.staged.is_empty();
-        list = list.child(
-            div().p_2().border_t_1().border_color(border)
-                .child({
-                    let commit_ent2 = commit_ent.clone();
-                    let btn_bg = if can_commit { rgba_to_hsla(colors.accent) } else { muted };
-                    div()
-                        .id("commit-btn")
-                        .w_full()
-                        .py_1()
-                        .rounded(px(4.0))
-                        .flex().items_center().justify_center()
-                        .bg(btn_bg)
-                        .cursor_pointer()
-                        .text_xs().text_color(rgba_to_hsla(colors.background))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child("Commit")
-                        .on_click(move |_ev, _window, cx| {
-                            if can_commit {
-                                if let Some(e) = commit_ent2.upgrade() {
-                                    e.update(cx, |this, cx| {
-                                        this.show_commit_dialog(cx);
-                                    });
-                                }
-                            }
-                        })
+        list = list.child(div().p_2().border_t_1().border_color(border).child({
+            let commit_ent2 = commit_ent.clone();
+            let btn_bg = if can_commit {
+                rgba_to_hsla(colors.accent)
+            } else {
+                muted
+            };
+            div()
+                .id("commit-btn")
+                .w_full()
+                .py_1()
+                .rounded(px(4.0))
+                .flex()
+                .items_center()
+                .justify_center()
+                .bg(btn_bg)
+                .cursor_pointer()
+                .text_xs()
+                .text_color(rgba_to_hsla(colors.background))
+                .font_weight(FontWeight::SEMIBOLD)
+                .child("Commit")
+                .on_click(move |_ev, _window, cx| {
+                    if can_commit {
+                        if let Some(e) = commit_ent2.upgrade() {
+                            e.update(cx, |this, cx| {
+                                this.show_commit_dialog(cx);
+                            });
+                        }
+                    }
                 })
-        );
+        }));
 
         list
     }
@@ -453,12 +544,23 @@ impl StatusPanel {
 
         let Some(diff) = &self.diff_for_selected else {
             return div()
-                .flex_1().h_full().bg(surface)
-                .flex().items_center().justify_center()
-                .child(div().text_sm().text_color(muted).child("Select a file to view diff"));
+                .flex_1()
+                .h_full()
+                .bg(surface)
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(
+                    div()
+                        .text_sm()
+                        .text_color(muted)
+                        .child("Select a file to view diff"),
+                );
         };
 
-        let path_label = diff.new_path.as_deref()
+        let path_label = diff
+            .new_path
+            .as_deref()
             .or(diff.old_path.as_deref())
             .unwrap_or("(unknown)");
 
@@ -474,27 +576,43 @@ impl StatusPanel {
         let has_selection = sel_range.is_some();
 
         let mut file_header = div()
-            .px_3().py_2()
-            .border_b_1().border_color(border)
-            .flex().items_center().gap_2()
+            .px_3()
+            .py_2()
+            .border_b_1()
+            .border_color(border)
+            .flex()
+            .items_center()
+            .gap_2()
             .child(
-                div().text_sm().font_family("monospace").text_color(rgba_to_hsla(colors.text))
-                    .child(path_label.to_string())
+                div()
+                    .text_sm()
+                    .font_family("monospace")
+                    .text_color(rgba_to_hsla(colors.text))
+                    .child(path_label.to_string()),
             )
             .child(div().flex_1());
 
         if has_selection {
-            let is_staged = matches!(sel.as_ref().map(|s| s.section), Some(StatusFileSection::Staged));
-            let label = if is_staged { "Unstage Lines" } else { "Stage Lines" };
+            let is_staged = matches!(
+                sel.as_ref().map(|s| s.section),
+                Some(StatusFileSection::Staged)
+            );
+            let label = if is_staged {
+                "Unstage Lines"
+            } else {
+                "Stage Lines"
+            };
             let lines_ent = entity.clone();
             file_header = file_header.child(
                 div()
                     .id("stage-lines-btn")
-                    .px_2().py_0()
+                    .px_2()
+                    .py_0()
                     .rounded(px(3.0))
                     .bg(accent)
                     .cursor_pointer()
-                    .text_xs().text_color(rgba_to_hsla(colors.background))
+                    .text_xs()
+                    .text_color(rgba_to_hsla(colors.background))
                     .font_weight(FontWeight::SEMIBOLD)
                     .child(label.to_string())
                     .on_click(move |_ev, _window, cx| {
@@ -507,13 +625,11 @@ impl StatusPanel {
                                 }
                             });
                         }
-                    })
+                    }),
             );
         }
 
-        file_header = file_header.child(
-            div().text_xs().text_color(muted).child(section_label)
-        );
+        file_header = file_header.child(div().text_xs().text_color(muted).child(section_label));
 
         let total_lines = diff.lines.len();
         let lines_data = diff.lines.clone();
@@ -535,7 +651,9 @@ impl StatusPanel {
                 let surf = rgba_to_hsla(cl.surface);
 
                 for line_i in visible_range {
-                    let Some(line) = lines_data.get(line_i) else { continue };
+                    let Some(line) = lines_data.get(line_i) else {
+                        continue;
+                    };
 
                     let is_conflict_marker = line.content.starts_with("<<<<<<< ")
                         || line.content.starts_with("=======\n")
@@ -544,7 +662,11 @@ impl StatusPanel {
                         || line.content.starts_with(">>>>>>> ");
 
                     let (base_bg, line_fg, prefix) = if is_conflict_marker {
-                        (rgba_to_hsla(cl.warning).alpha(0.15), rgba_to_hsla(cl.warning), "\u{26a0}")
+                        (
+                            rgba_to_hsla(cl.warning).alpha(0.15),
+                            rgba_to_hsla(cl.warning),
+                            "\u{26a0}",
+                        )
                     } else {
                         match line.line_type {
                             DiffLineType::Added => (added_bg, added_fg, "+"),
@@ -558,40 +680,86 @@ impl StatusPanel {
                     let is_selected = sel_range.as_ref().map_or(false, |r| r.contains(&line_i));
                     let row_bg = if is_selected { selection_bg } else { base_bg };
 
-                    let old_num = line.old_line.map(|n| format!("{:>4}", n)).unwrap_or_else(|| "    ".to_string());
-                    let new_num = line.new_line.map(|n| format!("{:>4}", n)).unwrap_or_else(|| "    ".to_string());
+                    let old_num = line
+                        .old_line
+                        .map(|n| format!("{:>4}", n))
+                        .unwrap_or_else(|| "    ".to_string());
+                    let new_num = line
+                        .new_line
+                        .map(|n| format!("{:>4}", n))
+                        .unwrap_or_else(|| "    ".to_string());
                     let display: String = line.content.chars().take(200).collect();
 
                     let click_ent = entity.clone();
                     let row = div()
                         .id(ElementId::Name(format!("sdl-{line_i}").into()))
                         .h(px(STATUS_DIFF_LINE_HEIGHT))
-                        .flex().flex_row().items_center()
+                        .flex()
+                        .flex_row()
+                        .items_center()
                         .bg(row_bg)
                         .cursor_pointer()
-                        .on_mouse_down(MouseButton::Left, move |ev: &MouseDownEvent, _window, cx| {
-                            if let Some(e) = click_ent.upgrade() {
-                                let extend = ev.modifiers.shift;
-                                e.update(cx, |this, cx| {
-                                    this.select_status_diff_line(line_i, extend, cx);
-                                });
-                            }
-                        })
-                        .child(
-                            div().w(px(STATUS_DIFF_LINE_NUM_WIDTH)).h_full()
-                                .flex().flex_row().items_center().bg(row_bg)
-                                .border_r_1().border_color(bdr)
-                                .child(div().w(px(STATUS_DIFF_LINE_NUM_WIDTH / 2.0)).text_xs().font_family("monospace").text_color(muted).pl_2().child(old_num))
-                                .child(div().w(px(STATUS_DIFF_LINE_NUM_WIDTH / 2.0)).text_xs().font_family("monospace").text_color(muted).pl_1().child(new_num))
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            move |ev: &MouseDownEvent, _window, cx| {
+                                if let Some(e) = click_ent.upgrade() {
+                                    let extend = ev.modifiers.shift;
+                                    e.update(cx, |this, cx| {
+                                        this.select_status_diff_line(line_i, extend, cx);
+                                    });
+                                }
+                            },
                         )
                         .child(
-                            div().w(px(14.0)).h_full().flex().items_center().justify_center()
-                                .text_xs().font_family("monospace").text_color(line_fg)
-                                .child(prefix.to_string())
+                            div()
+                                .w(px(STATUS_DIFF_LINE_NUM_WIDTH))
+                                .h_full()
+                                .flex()
+                                .flex_row()
+                                .items_center()
+                                .bg(row_bg)
+                                .border_r_1()
+                                .border_color(bdr)
+                                .child(
+                                    div()
+                                        .w(px(STATUS_DIFF_LINE_NUM_WIDTH / 2.0))
+                                        .text_xs()
+                                        .font_family("monospace")
+                                        .text_color(muted)
+                                        .pl_2()
+                                        .child(old_num),
+                                )
+                                .child(
+                                    div()
+                                        .w(px(STATUS_DIFF_LINE_NUM_WIDTH / 2.0))
+                                        .text_xs()
+                                        .font_family("monospace")
+                                        .text_color(muted)
+                                        .pl_1()
+                                        .child(new_num),
+                                ),
                         )
                         .child(
-                            div().flex_1().text_xs().font_family("monospace").text_color(line_fg).pr_3().overflow_hidden()
-                                .child(display)
+                            div()
+                                .w(px(14.0))
+                                .h_full()
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .text_xs()
+                                .font_family("monospace")
+                                .text_color(line_fg)
+                                .child(prefix.to_string()),
+                        )
+                        .child(
+                            div()
+                                .flex_1()
+                                .text_xs()
+                                .font_family("monospace")
+                                .text_color(line_fg)
+                                .pr_3()
+                                .overflow_hidden()
+                                .child(display),
                         );
 
                     rows.push(row.into_any_element());
@@ -602,8 +770,11 @@ impl StatusPanel {
         .track_scroll(self.scroll_handle.clone());
 
         div()
-            .flex_1().h_full().bg(surface)
-            .flex().flex_col()
+            .flex_1()
+            .h_full()
+            .bg(surface)
+            .flex()
+            .flex_col()
             .child(file_header)
             .child(div().flex_1().child(diff_lines))
     }
@@ -646,23 +817,41 @@ impl StatusPanel {
         let ent4 = entity.clone();
         let has_message = !self.commit_message.trim().is_empty();
 
-        let generate_label = if ai_generating { "Generating..." } else { "Generate" };
+        let generate_label = if ai_generating {
+            "Generating..."
+        } else {
+            "Generate"
+        };
         let generate_color = if ai_generating { muted } else { accent };
 
         let mut editor = div()
             .id("commit-editor-panel")
-            .flex_1().h_full().bg(surface)
-            .flex().flex_col()
+            .flex_1()
+            .h_full()
+            .bg(surface)
+            .flex()
+            .flex_col()
             .child(
-                div().px_3().py_2()
-                    .border_b_1().border_color(border)
-                    .text_xs().font_weight(FontWeight::BOLD).text_color(muted)
-                    .child("COMMIT")
+                div()
+                    .px_3()
+                    .py_2()
+                    .border_b_1()
+                    .border_color(border)
+                    .text_xs()
+                    .font_weight(FontWeight::BOLD)
+                    .text_color(muted)
+                    .child("COMMIT"),
             );
 
         if self.ai_message_alternatives.len() > 1 {
-            let mut alt_row = div().px_3().py_1().border_b_1().border_color(border)
-                .flex().flex_wrap().gap_1();
+            let mut alt_row = div()
+                .px_3()
+                .py_1()
+                .border_b_1()
+                .border_color(border)
+                .flex()
+                .flex_wrap()
+                .gap_1();
             for (i, alt) in self.ai_message_alternatives.iter().enumerate() {
                 let ent_alt = entity.clone();
                 let first_line = alt.lines().next().unwrap_or(alt);
@@ -671,19 +860,27 @@ impl StatusPanel {
                 } else {
                     first_line.to_string()
                 };
-                let is_selected = self.commit_message.lines().next().unwrap_or("") == alt.lines().next().unwrap_or("");
+                let is_selected = self.commit_message.lines().next().unwrap_or("")
+                    == alt.lines().next().unwrap_or("");
                 let pill_bg = if is_selected { accent } else { surface };
-                let pill_tc = if is_selected { rgba_to_hsla(colors.background) } else { text_color };
+                let pill_tc = if is_selected {
+                    rgba_to_hsla(colors.background)
+                } else {
+                    text_color
+                };
                 let pill_bc = if is_selected { accent } else { border };
                 alt_row = alt_row.child(
                     div()
                         .id(ElementId::Name(format!("ai-alt-{}", i).into()))
-                        .px_2().py(px(1.0))
-                        .border_1().border_color(pill_bc)
+                        .px_2()
+                        .py(px(1.0))
+                        .border_1()
+                        .border_color(pill_bc)
                         .rounded(px(3.0))
                         .bg(pill_bg)
                         .cursor_pointer()
-                        .text_xs().text_color(pill_tc)
+                        .text_xs()
+                        .text_color(pill_tc)
                         .child(label)
                         .on_click(move |_ev, _window, cx| {
                             if let Some(e) = ent_alt.upgrade() {
@@ -692,19 +889,22 @@ impl StatusPanel {
                                     this.select_ai_alternative(idx, cx);
                                 });
                             }
-                        })
+                        }),
                 );
             }
             editor = editor.child(alt_row);
         }
 
-        editor = editor            .child(
+        editor = editor
+            .child(
                 div()
                     .id("commit-msg-input")
                     .track_focus(&self.commit_message_focus)
-                    .m_3().p_2()
+                    .m_3()
+                    .p_2()
                     .min_h(px(120.0))
-                    .border_1().border_color(border_color)
+                    .border_1()
+                    .border_color(border_color)
                     .rounded(px(4.0))
                     .bg(bg)
                     .on_click(move |_ev, window, _cx| {
@@ -755,23 +955,34 @@ impl StatusPanel {
                         }
                     })
                     .child(
-                        div().text_sm().font_family("monospace").text_color(display_color)
-                            .child(display_text)
-                    )
+                        div()
+                            .text_sm()
+                            .font_family("monospace")
+                            .text_color(display_color)
+                            .child(display_text),
+                    ),
             )
             .child(div().flex_1())
             .child(
-                div().px_3().py_2().border_t_1().border_color(border)
-                    .flex().gap_2()
+                div()
+                    .px_3()
+                    .py_2()
+                    .border_t_1()
+                    .border_color(border)
+                    .flex()
+                    .gap_2()
                     .child({
                         let ent_gen = ent4.clone();
                         div()
                             .id("ai-generate-btn")
-                            .px_3().py_1()
+                            .px_3()
+                            .py_1()
                             .rounded(px(4.0))
-                            .border_1().border_color(generate_color)
+                            .border_1()
+                            .border_color(generate_color)
                             .cursor_pointer()
-                            .text_xs().text_color(generate_color)
+                            .text_xs()
+                            .text_color(generate_color)
                             .child(generate_label)
                             .on_click(move |_ev, _window, cx| {
                                 if let Some(e) = ent_gen.upgrade() {
@@ -785,11 +996,13 @@ impl StatusPanel {
                         let btn_bg = if has_message { accent } else { muted };
                         div()
                             .id("submit-commit-btn")
-                            .px_4().py_1()
+                            .px_4()
+                            .py_1()
                             .rounded(px(4.0))
                             .bg(btn_bg)
                             .cursor_pointer()
-                            .text_xs().text_color(rgba_to_hsla(colors.background))
+                            .text_xs()
+                            .text_color(rgba_to_hsla(colors.background))
                             .font_weight(FontWeight::SEMIBOLD)
                             .child("Commit")
                             .on_click(move |_ev, _window, cx| {
@@ -805,11 +1018,14 @@ impl StatusPanel {
                     .child({
                         div()
                             .id("amend-commit-btn")
-                            .px_4().py_1()
+                            .px_4()
+                            .py_1()
                             .rounded(px(4.0))
-                            .border_1().border_color(border)
+                            .border_1()
+                            .border_color(border)
                             .cursor_pointer()
-                            .text_xs().text_color(text_color)
+                            .text_xs()
+                            .text_color(text_color)
                             .child("Amend")
                             .on_click(move |_ev, _window, cx| {
                                 if has_message {
@@ -820,7 +1036,7 @@ impl StatusPanel {
                                     }
                                 }
                             })
-                    })
+                    }),
             );
 
         editor
@@ -830,9 +1046,18 @@ impl StatusPanel {
         let surface = rgba_to_hsla(colors.surface);
         let muted = rgba_to_hsla(colors.text_muted);
         div()
-            .flex_1().h_full().bg(surface)
-            .flex().items_center().justify_center()
-            .child(div().text_sm().text_color(muted).child("Select a file to view changes"))
+            .flex_1()
+            .h_full()
+            .bg(surface)
+            .flex()
+            .items_center()
+            .justify_center()
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(muted)
+                    .child("Select a file to view changes"),
+            )
     }
 }
 
@@ -857,9 +1082,13 @@ fn render_status_file_entry(
     let surface = rgba_to_hsla(colors.surface);
     let selected_bg = rgba_to_hsla(colors.sidebar_selected);
     let bg = if is_selected { selected_bg } else { surface };
-     let text_color = if is_selected { rgba_to_hsla(colors.text) } else { rgba_to_hsla(colors.text_muted) };
+    let text_color = if is_selected {
+        rgba_to_hsla(colors.text)
+    } else {
+        rgba_to_hsla(colors.text_muted)
+    };
 
-     let (status_char, status_color) = status_badge(&entry.status, colors);
+    let (status_char, status_color) = status_badge(&entry.status, colors);
 
     let ent = entity.clone();
     let path_owned = entry.path.clone();
@@ -879,9 +1108,12 @@ fn render_status_file_entry(
     let show_conflict_actions = matches!(section, StatusFileSection::Conflicted);
 
     let mut entry_row = div()
-        .id(ElementId::Name(format!("status-file-{:?}-{}", section, idx).into()))
+        .id(ElementId::Name(
+            format!("status-file-{:?}-{}", section, idx).into(),
+        ))
         .w_full()
-        .px_2().py_1()
+        .px_2()
+        .py_1()
         .bg(bg)
         .cursor_pointer()
         .hover(|s| s.bg(rgba_to_hsla(colors.sidebar_hover)))
@@ -894,35 +1126,53 @@ fn render_status_file_entry(
             }
         });
 
-    let show_ai_summary = matches!(section, StatusFileSection::Staged | StatusFileSection::Unstaged);
+    let show_ai_summary = matches!(
+        section,
+        StatusFileSection::Staged | StatusFileSection::Unstaged
+    );
     let ai_ent = entity.clone();
     let ai_path = entry.path.clone();
 
-    let mut inner_row = div().flex().items_center().gap_1()
+    let mut inner_row = div()
+        .flex()
+        .items_center()
+        .gap_1()
         .child(
             div()
-                .w(px(16.0)).h(px(16.0))
-                .flex().items_center().justify_center()
+                .w(px(16.0))
+                .h(px(16.0))
+                .flex()
+                .items_center()
+                .justify_center()
                 .rounded(px(2.0))
                 .bg(status_color)
-                .text_xs().font_weight(FontWeight::BOLD)
+                .text_xs()
+                .font_weight(FontWeight::BOLD)
                 .text_color(rgba_to_hsla(colors.background))
-                .child(status_char.clone())
+                .child(status_char.clone()),
         )
         .child(
-            div().flex_1().text_xs().text_color(text_color)
-                .overflow_hidden().text_ellipsis()
-                .child(entry.path.clone())
+            div()
+                .flex_1()
+                .text_xs()
+                .text_color(text_color)
+                .overflow_hidden()
+                .text_ellipsis()
+                .child(entry.path.clone()),
         );
 
     if show_ai_summary {
         inner_row = inner_row.child(
             div()
-                .id(ElementId::Name(format!("ai-summary-{:?}-{}", section, idx).into()))
-                .px(px(2.0)).py(px(0.0))
+                .id(ElementId::Name(
+                    format!("ai-summary-{:?}-{}", section, idx).into(),
+                ))
+                .px(px(2.0))
+                .py(px(0.0))
                 .rounded(px(2.0))
                 .cursor_pointer()
-                .text_xs().text_color(rgba_to_hsla(colors.accent))
+                .text_xs()
+                .text_color(rgba_to_hsla(colors.accent))
                 .child("AI")
                 .on_click(move |_ev, _window, cx| {
                     if let Some(e) = ai_ent.upgrade() {
@@ -931,33 +1181,38 @@ fn render_status_file_entry(
                             this.summarize_file_diff(p, cx);
                         });
                     }
-                })
+                }),
         );
     }
 
     inner_row = inner_row.child(
         div()
-            .id(ElementId::Name(format!("action-{:?}-{}", section, idx).into()))
-            .w(px(18.0)).h(px(18.0))
-            .flex().items_center().justify_center()
+            .id(ElementId::Name(
+                format!("action-{:?}-{}", section, idx).into(),
+            ))
+            .w(px(18.0))
+            .h(px(18.0))
+            .flex()
+            .items_center()
+            .justify_center()
             .rounded(px(2.0))
-            .border_1().border_color(action_color)
+            .border_1()
+            .border_color(action_color)
             .cursor_pointer()
-            .text_xs().font_weight(FontWeight::BOLD)
+            .text_xs()
+            .font_weight(FontWeight::BOLD)
             .text_color(action_color)
             .child(action_label.to_string())
             .on_click(move |_ev, _window, cx| {
                 if let Some(e) = action_ent.upgrade() {
                     let p = action_path.clone();
-                    e.update(cx, |this, cx| {
-                        match action_section {
-                            StatusFileSection::Staged => this.unstage_file(p, cx),
-                            StatusFileSection::Conflicted => this.stage_file(p, cx),
-                            _ => this.stage_file(p, cx),
-                        }
+                    e.update(cx, |this, cx| match action_section {
+                        StatusFileSection::Staged => this.unstage_file(p, cx),
+                        StatusFileSection::Conflicted => this.stage_file(p, cx),
+                        _ => this.stage_file(p, cx),
                     });
                 }
-            })
+            }),
     );
 
     entry_row = entry_row.child(inner_row);
@@ -967,13 +1222,20 @@ fn render_status_file_entry(
         let discard_path = entry.path.clone();
         entry_row = entry_row.child(
             div()
-                .id(ElementId::Name(format!("discard-{:?}-{}", section, idx).into()))
-                .w(px(18.0)).h(px(18.0))
-                .flex().items_center().justify_center()
+                .id(ElementId::Name(
+                    format!("discard-{:?}-{}", section, idx).into(),
+                ))
+                .w(px(18.0))
+                .h(px(18.0))
+                .flex()
+                .items_center()
+                .justify_center()
                 .rounded(px(2.0))
-                .border_1().border_color(rgba_to_hsla(colors.diff_removed))
+                .border_1()
+                .border_color(rgba_to_hsla(colors.diff_removed))
                 .cursor_pointer()
-                .text_xs().text_color(rgba_to_hsla(colors.diff_removed))
+                .text_xs()
+                .text_color(rgba_to_hsla(colors.diff_removed))
                 .child("\u{00d7}")
                 .on_click(move |_ev, _window, cx| {
                     if let Some(e) = discard_ent.upgrade() {
@@ -982,7 +1244,7 @@ fn render_status_file_entry(
                             this.discard_file(p, cx);
                         });
                     }
-                })
+                }),
         );
     }
 
@@ -991,13 +1253,20 @@ fn render_status_file_entry(
         let remove_path = entry.path.clone();
         entry_row = entry_row.child(
             div()
-                .id(ElementId::Name(format!("remove-{:?}-{}", section, idx).into()))
-                .w(px(18.0)).h(px(18.0))
-                .flex().items_center().justify_center()
+                .id(ElementId::Name(
+                    format!("remove-{:?}-{}", section, idx).into(),
+                ))
+                .w(px(18.0))
+                .h(px(18.0))
+                .flex()
+                .items_center()
+                .justify_center()
                 .rounded(px(2.0))
-                .border_1().border_color(rgba_to_hsla(colors.diff_removed))
+                .border_1()
+                .border_color(rgba_to_hsla(colors.diff_removed))
                 .cursor_pointer()
-                .text_xs().text_color(rgba_to_hsla(colors.diff_removed))
+                .text_xs()
+                .text_color(rgba_to_hsla(colors.diff_removed))
                 .child("\u{00d7}")
                 .on_click(move |_ev, _window, cx| {
                     if let Some(e) = remove_ent.upgrade() {
@@ -1006,7 +1275,7 @@ fn render_status_file_entry(
                             this.remove_untracked_file(p, cx);
                         });
                     }
-                })
+                }),
         );
     }
 
@@ -1015,12 +1284,16 @@ fn render_status_file_entry(
         let gitignore_path = entry.path.clone();
         entry_row = entry_row.child(
             div()
-                .id(ElementId::Name(format!("gitignore-{:?}-{}", section, idx).into()))
+                .id(ElementId::Name(
+                    format!("gitignore-{:?}-{}", section, idx).into(),
+                ))
                 .px_1()
                 .rounded(px(2.0))
-                .border_1().border_color(rgba_to_hsla(colors.border))
+                .border_1()
+                .border_color(rgba_to_hsla(colors.border))
                 .cursor_pointer()
-                .text_xs().text_color(rgba_to_hsla(colors.text_muted))
+                .text_xs()
+                .text_color(rgba_to_hsla(colors.text_muted))
                 .child("ign")
                 .on_click(move |_ev, _window, cx| {
                     if let Some(e) = gitignore_ent.upgrade() {
@@ -1029,7 +1302,7 @@ fn render_status_file_entry(
                             this.add_to_gitignore(p, cx);
                         });
                     }
-                })
+                }),
         );
     }
 
@@ -1039,15 +1312,20 @@ fn render_status_file_entry(
         let conflict_path = entry.path.clone();
         let conflict_path2 = entry.path.clone();
         entry_row = entry_row.child(
-            div().flex().gap_0().ml_1()
+            div()
+                .flex()
+                .gap_0()
+                .ml_1()
                 .child(
                     div()
                         .id(ElementId::Name(format!("use-ours-{}", idx).into()))
                         .px_1()
                         .rounded(px(2.0))
-                        .border_1().border_color(rgba_to_hsla(colors.accent))
+                        .border_1()
+                        .border_color(rgba_to_hsla(colors.accent))
                         .cursor_pointer()
-                        .text_xs().text_color(rgba_to_hsla(colors.accent))
+                        .text_xs()
+                        .text_color(rgba_to_hsla(colors.accent))
                         .child("Ours")
                         .on_click(move |_ev, _window, cx| {
                             if let Some(e) = ours_ent.upgrade() {
@@ -1056,16 +1334,18 @@ fn render_status_file_entry(
                                     this.resolve_conflict_ours(p, cx);
                                 });
                             }
-                        })
+                        }),
                 )
                 .child(
                     div()
                         .id(ElementId::Name(format!("use-theirs-{}", idx).into()))
                         .px_1()
                         .rounded(px(2.0))
-                        .border_1().border_color(rgba_to_hsla(colors.warning))
+                        .border_1()
+                        .border_color(rgba_to_hsla(colors.warning))
                         .cursor_pointer()
-                        .text_xs().text_color(rgba_to_hsla(colors.warning))
+                        .text_xs()
+                        .text_color(rgba_to_hsla(colors.warning))
                         .child("Theirs")
                         .on_click(move |_ev, _window, cx| {
                             if let Some(e) = theirs_ent.upgrade() {
@@ -1074,8 +1354,8 @@ fn render_status_file_entry(
                                     this.resolve_conflict_theirs(p, cx);
                                 });
                             }
-                        })
-                )
+                        }),
+                ),
         );
     }
 
@@ -1097,21 +1377,35 @@ fn render_ai_summary_popup(
     div()
         .id("ai-summary-popup")
         .absolute()
-        .left(px(0.0)).top(px(24.0))
+        .left(px(0.0))
+        .top(px(24.0))
         .w(px(280.0))
         .bg(surface)
-        .border_1().border_color(accent)
+        .border_1()
+        .border_color(accent)
         .rounded(px(4.0))
         .p_2()
         .child(
-            div().flex().items_center().gap_1().mb_1()
-                .child(div().text_xs().font_weight(FontWeight::BOLD).text_color(accent).child("AI Summary"))
+            div()
+                .flex()
+                .items_center()
+                .gap_1()
+                .mb_1()
+                .child(
+                    div()
+                        .text_xs()
+                        .font_weight(FontWeight::BOLD)
+                        .text_color(accent)
+                        .child("AI Summary"),
+                )
                 .child(div().flex_1())
                 .child(
                     div()
                         .id("ai-summary-close")
-                        .px_1().cursor_pointer()
-                        .text_xs().text_color(muted)
+                        .px_1()
+                        .cursor_pointer()
+                        .text_xs()
+                        .text_color(muted)
                         .child("x")
                         .on_click(move |_ev, _window, cx| {
                             if let Some(e) = ent.upgrade() {
@@ -1119,11 +1413,14 @@ fn render_ai_summary_popup(
                                     this.dismiss_file_summary(cx);
                                 });
                             }
-                        })
-                )
+                        }),
+                ),
         )
         .child(
-            div().text_xs().text_color(text_color).child(summary.to_string())
+            div()
+                .text_xs()
+                .text_color(text_color)
+                .child(summary.to_string()),
         )
 }
 
@@ -1136,6 +1433,8 @@ fn status_badge(status: &FileStatus, colors: &AppColors) -> (String, Hsla) {
         FileStatus::Copied => ("C".to_string(), rgba_to_hsla(colors.accent)),
         FileStatus::Untracked => ("?".to_string(), rgba_to_hsla(colors.text_muted)),
         FileStatus::Conflicted => ("!".to_string(), rgba_to_hsla(colors.diff_removed)),
-        FileStatus::Unmodified | FileStatus::Ignored => (" ".to_string(), rgba_to_hsla(colors.text_muted)),
+        FileStatus::Unmodified | FileStatus::Ignored => {
+            (" ".to_string(), rgba_to_hsla(colors.text_muted))
+        }
     }
 }

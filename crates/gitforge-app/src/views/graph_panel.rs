@@ -1,7 +1,7 @@
-use gpui::*;
+use gitforge_git::{CommitInfo, RefInfo, RefKind};
 use gitforge_graph::{CommitLineSegment, CurveKind, Graph};
-use gitforge_git::{CommitInfo, RefKind, RefInfo};
 use gitforge_ui::{AppColors, rgba_to_hsla};
+use gpui::*;
 use std::ops::Range;
 
 use super::layout::{self, HASH_COL, REF_COL_MIN, ROW_HEIGHT, TIME_COL};
@@ -109,22 +109,6 @@ impl GraphPanel {
         self.update_filtered_indices();
     }
 
-    pub fn branch_filter(&self) -> Option<&str> {
-        self.branch_filter.as_deref()
-    }
-
-    pub fn clear(&mut self) {
-        self.commits.clear();
-        self.references.clear();
-        self.graph = Graph::new();
-        self.selected_idx = None;
-        self.has_uncommitted = false;
-        self.branch_filter = None;
-        self.filtered_indices.clear();
-        self.use_filtered = false;
-        self.commit_index.clear();
-    }
-
     pub fn selected_idx(&self) -> Option<usize> {
         self.selected_idx
     }
@@ -168,10 +152,6 @@ impl GraphPanel {
         self.commits.iter().position(|c| c.id == commit_id)
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.commits.is_empty()
-    }
-
     pub fn render(
         &self,
         colors: &AppColors,
@@ -190,11 +170,7 @@ impl GraphPanel {
         } else {
             "Checkpoints: off"
         };
-        let checkpoint_color = if show_checkpoint_refs {
-            accent
-        } else {
-            muted
-        };
+        let checkpoint_color = if show_checkpoint_refs { accent } else { muted };
 
         let header = div()
             .px_3()
@@ -240,11 +216,7 @@ impl GraphPanel {
                         .flex()
                         .items_center()
                         .justify_center()
-                        .child(
-                            div()
-                                .text_color(accent)
-                                .child("No commits to display"),
-                        ),
+                        .child(div().text_color(accent).child("No commits to display")),
                 );
         }
 
@@ -300,11 +272,7 @@ impl GraphPanel {
                         continue;
                     }
 
-                    let commit_idx = if has_uncommitted {
-                        item_i - 1
-                    } else {
-                        item_i
-                    };
+                    let commit_idx = if has_uncommitted { item_i - 1 } else { item_i };
                     let commit = &commits[commit_idx];
                     let is_selected = selected_idx == Some(commit_idx);
                     let row_bg = if is_selected {
@@ -316,8 +284,7 @@ impl GraphPanel {
                     let refs_for_commit: Vec<&RefInfo> = references
                         .iter()
                         .filter(|r| {
-                            r.target_commit_id == commit.id
-                                || r.target_commit_id == commit.short_id
+                            r.target_commit_id == commit.id || r.target_commit_id == commit.short_id
                         })
                         .collect();
 
@@ -522,7 +489,13 @@ fn paint_graph_overlay(
     // Uncommitted changes indicator.
     if has_uncommitted && first_visible_list_row == 0 {
         let x = lane_center_x(bounds, 0.0);
-        let y = list_row_center_y(0, first_visible_list_row, row_height, vertical_scroll_offset, bounds);
+        let y = list_row_center_y(
+            0,
+            first_visible_list_row,
+            row_height,
+            vertical_scroll_offset,
+            bounds,
+        );
         let r = px(COMMIT_CIRCLE_RADIUS);
         window.paint_quad(
             fill(
@@ -625,8 +598,7 @@ fn paint_graph_overlay(
                                 -curve_width
                             };
                             let curve_start = point(current_column, to_row_y - curve_height);
-                            let curve_end =
-                                point(current_column + signed_curve_width, to_row_y);
+                            let curve_end = point(current_column + signed_curve_width, to_row_y);
                             let curve_control = point(current_column, to_row_y);
 
                             builder.move_to(point(current_column, current_row));
@@ -655,8 +627,7 @@ fn paint_graph_overlay(
                             };
                             let curve_start =
                                 point(to_column_x - signed_curve_width, merge_start.y);
-                            let curve_end =
-                                point(to_column_x, merge_start.y + curve_height);
+                            let curve_end = point(to_column_x, merge_start.y + curve_height);
                             let curve_control = point(to_column_x, merge_start.y);
 
                             builder.move_to(merge_start);
@@ -748,12 +719,7 @@ fn render_column_headers(border: Hsla, muted: Hsla) -> Div {
         .items_center()
         .text_xs()
         .text_color(muted)
-        .child(
-            div()
-                .w(px(REF_COL_MIN))
-                .flex_shrink_0()
-                .child("REFS"),
-        )
+        .child(div().w(px(REF_COL_MIN)).flex_shrink_0().child("REFS"))
         .child(
             div()
                 .w(px(GRAPH_COL_WIDTH))
@@ -761,13 +727,7 @@ fn render_column_headers(border: Hsla, muted: Hsla) -> Div {
                 .text_align(TextAlign::Center)
                 .child("GRAPH"),
         )
-        .child(
-            div()
-                .w(px(HASH_COL))
-                .flex_shrink_0()
-                .pl_2()
-                .child("SHA"),
-        )
+        .child(div().w(px(HASH_COL)).flex_shrink_0().pl_2().child("SHA"))
         .child(div().flex_1().pl_1().child("MESSAGE"))
         .child(
             div()

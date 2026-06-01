@@ -1,3 +1,4 @@
+mod assets;
 mod views;
 
 use gpui::*;
@@ -20,7 +21,9 @@ fn main() {
         .expect("Failed to create Tokio runtime");
     let _guard = rt.enter();
 
-    Application::new().run(|cx: &mut App| {
+    Application::new()
+        .with_assets(assets::EmbeddedAssets::new())
+        .run(|cx: &mut App| {
         cx.bind_keys([
             KeyBinding::new("ctrl-o", views::OpenRepository, None),
             KeyBinding::new("escape", views::CloseDialog, None),
@@ -43,10 +46,9 @@ fn main() {
                     size(px(1440.0), px(900.0)),
                     cx,
                 ))),
-                titlebar: Some(TitlebarOptions {
-                    title: Some("GitForge".into()),
-                    ..Default::default()
-                }),
+                titlebar: None,
+                window_decorations: Some(WindowDecorations::Client),
+                window_background: WindowBackgroundAppearance::Transparent,
                 app_id: Some("dev.gitforge.GitForge".into()),
                 ..Default::default()
             },

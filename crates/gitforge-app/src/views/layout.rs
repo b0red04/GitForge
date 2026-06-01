@@ -14,6 +14,11 @@ pub const HASH_COL: f32 = 60.0;
 pub const TIME_COL: f32 = 90.0;
 pub const FILE_LIST_WIDTH: f32 = 240.0;
 
+pub const TITLEBAR_HEIGHT: f32 = 32.0;
+/// Invisible resize margin and outer padding for client-side decorations.
+pub const WINDOW_CHROME_INSET: f32 = 10.0;
+/// Corner radius for the window frame (Zed-style).
+pub const WINDOW_CORNER_RADIUS: f32 = 10.0;
 pub const TOOLBAR_HEIGHT: f32 = 40.0;
 pub const STATUS_BAR_HEIGHT: f32 = 24.0;
 

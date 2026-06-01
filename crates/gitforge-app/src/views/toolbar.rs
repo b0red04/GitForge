@@ -1,8 +1,9 @@
-use gpui::*;
-use gitforge_ui::{AppColors, rgba_to_hsla};
 use gitforge_git::RepoState;
+use gitforge_ui::{AppColors, rgba_to_hsla};
+use gpui::*;
 
-use super::layout::{STATUS_BAR_HEIGHT, TOOLBAR_HEIGHT};
+use super::layout::{STATUS_BAR_HEIGHT, TOOLBAR_HEIGHT, WINDOW_CORNER_RADIUS};
+use super::window_chrome::{apply_bottom_corner_radius, seal_rounded_corners};
 
 fn toolbar_button(
     id: impl Into<ElementId>,
@@ -37,25 +38,8 @@ pub fn render_toolbar(
     let surface = rgba_to_hsla(colors.surface);
     let border = rgba_to_hsla(colors.border);
     let accent = rgba_to_hsla(colors.accent);
-    let muted = rgba_to_hsla(colors.text_muted);
     let text_color = rgba_to_hsla(colors.text);
     let hover_bg = rgba_to_hsla(colors.surface_high);
-
-    let breadcrumb = match repo_state {
-        Some(repo) => {
-            let repo_name = repo
-                .path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("repository");
-            let branch = repo
-                .head_branch
-                .as_deref()
-                .unwrap_or("(detached)");
-            format!("{repo_name} › {branch}")
-        }
-        None => "Press Ctrl+O to open a repository".into(),
-    };
 
     let mut toolbar = div()
         .relative()
@@ -67,35 +51,11 @@ pub fn render_toolbar(
         .flex()
         .items_center()
         .px_3()
-        .gap_2()
-        .child(
-            div()
-                .text_sm()
-                .font_weight(FontWeight::BOLD)
-                .text_color(accent)
-                .child("GitForge"),
-        )
-        .child(
-            div()
-                .text_sm()
-                .text_color(muted)
-                .overflow_hidden()
-                .text_ellipsis()
-                .child(breadcrumb),
-        )
-        .child(div().flex_1());
+        .gap_2();
 
     if repo_state.is_some() {
-        let history_bg = if !show_status_tab {
-            hover_bg
-        } else {
-            surface
-        };
-        let status_bg = if show_status_tab {
-            hover_bg
-        } else {
-            surface
-        };
+        let history_bg = if !show_status_tab { hover_bg } else { surface };
+        let status_bg = if show_status_tab { hover_bg } else { surface };
 
         let ent_history = entity.clone();
         let ent_status = entity.clone();
@@ -147,102 +107,90 @@ pub fn render_toolbar(
                 )
                 .bg(status_bg),
             )
-            .child(
-                toolbar_button(
-                    "btn-fetch",
-                    "Fetch",
-                    border,
-                    accent,
-                    hover_bg,
-                    move |_ev, _window, cx| {
-                        if let Some(e) = ent_fetch.upgrade() {
-                            e.update(cx, |this, cx| {
-                                this.fetch_all(cx);
-                            });
-                        }
-                    },
-                ),
-            )
-            .child(
-                toolbar_button(
-                    "btn-pull",
-                    "Pull",
-                    border,
-                    accent,
-                    hover_bg,
-                    move |_ev, _window, cx| {
-                        if let Some(e) = ent_pull.upgrade() {
-                            e.update(cx, |this, cx| {
-                                this.open_pull_dialog(cx);
-                            });
-                        }
-                    },
-                ),
-            )
-            .child(
-                toolbar_button(
-                    "btn-push",
-                    "Push",
-                    border,
-                    accent,
-                    hover_bg,
-                    move |_ev, _window, cx| {
-                        if let Some(e) = ent_push.upgrade() {
-                            e.update(cx, |this, cx| {
-                                this.open_push_dialog(cx);
-                            });
-                        }
-                    },
-                ),
-            )
-            .child(
-                toolbar_button(
-                    "btn-new-branch",
-                    "Branch",
-                    border,
-                    accent,
-                    hover_bg,
-                    move |_ev, _window, cx| {
-                        if let Some(e) = ent_branch.upgrade() {
-                            e.update(cx, |this, cx| {
-                                this.open_create_branch_dialog(None, cx);
-                            });
-                        }
-                    },
-                ),
-            )
-            .child(
-                toolbar_button(
-                    "btn-stash-push",
-                    "Stash",
-                    border,
-                    text_color,
-                    hover_bg,
-                    move |_ev, _window, cx| {
-                        if let Some(e) = ent_stash.upgrade() {
-                            e.update(cx, |this, cx| {
-                                this.open_stash_push_dialog(cx);
-                            });
-                        }
-                    },
-                ),
-            )
-            .child(
-                toolbar_button(
-                    "btn-stash-pop",
-                    "Pop",
-                    border,
-                    text_color,
-                    hover_bg,
-                    move |_ev, _window, cx| {
-                        if let Some(e) = ent_pop.upgrade() {
-                            e.update(cx, |this, cx| {
-                                this.stash_pop(cx);
-                            });
-                        }
-                    },
-                ),
-            )
+            .child(toolbar_button(
+                "btn-fetch",
+                "Fetch",
+                border,
+                accent,
+                hover_bg,
+                move |_ev, _window, cx| {
+                    if let Some(e) = ent_fetch.upgrade() {
+                        e.update(cx, |this, cx| {
+                            this.fetch_all(cx);
+                        });
+                    }
+                },
+            ))
+            .child(toolbar_button(
+                "btn-pull",
+                "Pull",
+                border,
+                accent,
+                hover_bg,
+                move |_ev, _window, cx| {
+                    if let Some(e) = ent_pull.upgrade() {
+                        e.update(cx, |this, cx| {
+                            this.open_pull_dialog(cx);
+                        });
+                    }
+                },
+            ))
+            .child(toolbar_button(
+                "btn-push",
+                "Push",
+                border,
+                accent,
+                hover_bg,
+                move |_ev, _window, cx| {
+                    if let Some(e) = ent_push.upgrade() {
+                        e.update(cx, |this, cx| {
+                            this.open_push_dialog(cx);
+                        });
+                    }
+                },
+            ))
+            .child(toolbar_button(
+                "btn-new-branch",
+                "Branch",
+                border,
+                accent,
+                hover_bg,
+                move |_ev, _window, cx| {
+                    if let Some(e) = ent_branch.upgrade() {
+                        e.update(cx, |this, cx| {
+                            this.open_create_branch_dialog(None, cx);
+                        });
+                    }
+                },
+            ))
+            .child(toolbar_button(
+                "btn-stash-push",
+                "Stash",
+                border,
+                text_color,
+                hover_bg,
+                move |_ev, _window, cx| {
+                    if let Some(e) = ent_stash.upgrade() {
+                        e.update(cx, |this, cx| {
+                            this.open_stash_push_dialog(cx);
+                        });
+                    }
+                },
+            ))
+            .child(toolbar_button(
+                "btn-stash-pop",
+                "Pop",
+                border,
+                text_color,
+                hover_bg,
+                move |_ev, _window, cx| {
+                    if let Some(e) = ent_pop.upgrade() {
+                        e.update(cx, |this, cx| {
+                            this.stash_pop(cx);
+                        });
+                    }
+                },
+            ))
             .child(
                 toolbar_button(
                     "btn-more",
@@ -260,22 +208,20 @@ pub fn render_toolbar(
                 )
                 .bg(if more_open { hover_bg } else { surface }),
             )
-            .child(
-                toolbar_button(
-                    "undo-commit-btn",
-                    "Undo",
-                    border,
-                    rgba_to_hsla(colors.warning),
-                    hover_bg,
-                    move |_ev, _window, cx| {
-                        if let Some(e) = ent_undo.upgrade() {
-                            e.update(cx, |this, cx| {
-                                this.soft_reset(cx);
-                            });
-                        }
-                    },
-                ),
-            );
+            .child(toolbar_button(
+                "undo-commit-btn",
+                "Undo",
+                border,
+                rgba_to_hsla(colors.warning),
+                hover_bg,
+                move |_ev, _window, cx| {
+                    if let Some(e) = ent_undo.upgrade() {
+                        e.update(cx, |this, cx| {
+                            this.soft_reset(cx);
+                        });
+                    }
+                },
+            ));
 
         if more_open {
             toolbar = toolbar.child(render_more_menu(colors, border, hover_bg, entity));
@@ -474,7 +420,11 @@ fn more_item(
         })
 }
 
-pub fn render_status_bar(remote_status: &str, colors: &AppColors) -> Div {
+pub fn render_status_bar(
+    remote_status: &str,
+    colors: &AppColors,
+    window: &Window,
+) -> impl IntoElement {
     let surface = rgba_to_hsla(colors.surface);
     let border = rgba_to_hsla(colors.border);
     let muted = rgba_to_hsla(colors.text_muted);
@@ -495,7 +445,17 @@ pub fn render_status_bar(remote_status: &str, colors: &AppColors) -> Div {
         remote_status.to_string()
     };
 
-    div()
+    let rounding = px(WINDOW_CORNER_RADIUS);
+    let tiling = match window.window_decorations() {
+        Decorations::Server => Tiling::default(),
+        Decorations::Client { tiling } => tiling,
+    };
+
+    let hints = div().text_xs().text_color(muted).child(
+        "Ctrl+O Open  ↑↓ Navigate  Ctrl+Shift+F Fetch  Ctrl+Shift+U Pull  Ctrl+Shift+H Push",
+    );
+
+    let base = div()
         .w_full()
         .h(px(STATUS_BAR_HEIGHT))
         .flex_shrink_0()
@@ -505,13 +465,18 @@ pub fn render_status_bar(remote_status: &str, colors: &AppColors) -> Div {
         .flex()
         .items_center()
         .px_3()
-        .gap_3()
-        .child(div().text_xs().text_color(status_color).child(status_text))
-        .child(div().flex_1())
-        .child(
-            div()
-                .text_xs()
-                .text_color(muted)
-                .child("Ctrl+O Open  ↑↓ Navigate  Ctrl+Shift+F Fetch  Ctrl+Shift+U Pull  Ctrl+Shift+H Push"),
+        .gap_3();
+
+    let bar = if matches!(window.window_decorations(), Decorations::Client { .. }) {
+        seal_rounded_corners(
+            apply_bottom_corner_radius(base.id("status-bar"), rounding, tiling),
+            surface,
         )
+    } else {
+        base.id("status-bar")
+    };
+
+    bar.child(div().text_xs().text_color(status_color).child(status_text))
+        .child(div().flex_1())
+        .child(hints)
 }

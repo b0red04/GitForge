@@ -1,11 +1,7 @@
-use gpui::*;
 use gitforge_ui::{AppColors, rgba_to_hsla};
+use gpui::*;
 
-pub struct CommandEntry {
-    pub label: String,
-    pub action: String,
-    pub keybinding: Option<String>,
-}
+use super::commands::{CommandEntry, command_palette_entries};
 
 pub struct CommandPalette {
     query: String,
@@ -31,33 +27,7 @@ impl CommandPalette {
     }
 
     fn build_entries() -> Vec<CommandEntry> {
-        vec![
-            CommandEntry { label: "Open Repository".into(), action: "open_repository".into(), keybinding: Some("Ctrl+O".into()) },
-            CommandEntry { label: "Refresh Repository".into(), action: "refresh".into(), keybinding: None },
-            CommandEntry { label: "Close Dialog".into(), action: "close_dialog".into(), keybinding: Some("Escape".into()) },
-            CommandEntry { label: "Select Previous Commit".into(), action: "select_prev".into(), keybinding: Some("Up".into()) },
-            CommandEntry { label: "Select Next Commit".into(), action: "select_next".into(), keybinding: Some("Down".into()) },
-            CommandEntry { label: "View File at Commit".into(), action: "view_file".into(), keybinding: None },
-            CommandEntry { label: "Back to Diff".into(), action: "back_to_diff".into(), keybinding: None },
-            CommandEntry { label: "Show Status Panel".into(), action: "show_status".into(), keybinding: None },
-            CommandEntry { label: "Undo Last Commit".into(), action: "soft_reset".into(), keybinding: None },
-            CommandEntry { label: "Create Branch".into(), action: "create_branch".into(), keybinding: Some("Ctrl+N".into()) },
-            CommandEntry { label: "Stash Changes".into(), action: "stash_push".into(), keybinding: Some("Ctrl+Shift+S".into()) },
-            CommandEntry { label: "Pop Stash".into(), action: "stash_pop".into(), keybinding: Some("Ctrl+Shift+P".into()) },
-            CommandEntry { label: "Fetch All".into(), action: "fetch_all".into(), keybinding: Some("Ctrl+Shift+F".into()) },
-            CommandEntry { label: "Pull Current".into(), action: "pull".into(), keybinding: Some("Ctrl+Shift+U".into()) },
-            CommandEntry { label: "Push Current".into(), action: "push".into(), keybinding: Some("Ctrl+Shift+H".into()) },
-            CommandEntry { label: "Toggle Theme".into(), action: "toggle_theme".into(), keybinding: Some("Ctrl+Shift+T".into()) },
-            CommandEntry { label: "Clone Repository".into(), action: "clone".into(), keybinding: None },
-            CommandEntry { label: "Add Remote".into(), action: "add_remote".into(), keybinding: None },
-            CommandEntry { label: "Generate SSH Key".into(), action: "ssh_key".into(), keybinding: None },
-            CommandEntry { label: "Manage Accounts".into(), action: "accounts".into(), keybinding: None },
-            CommandEntry { label: "AI Settings".into(), action: "ai_settings".into(), keybinding: None },
-            CommandEntry { label: "Open in Browser".into(), action: "open_browser".into(), keybinding: None },
-            CommandEntry { label: "Create Worktree".into(), action: "worktree".into(), keybinding: None },
-            CommandEntry { label: "Open in Editor".into(), action: "open_editor".into(), keybinding: None },
-            CommandEntry { label: "Open in Terminal".into(), action: "open_terminal".into(), keybinding: None },
-        ]
+        command_palette_entries()
     }
 
     pub fn show(&mut self, _cx: &mut Context<super::app::GitForgeApp>) {
@@ -111,7 +81,10 @@ impl CommandPalette {
 
     fn update_filter(&mut self) {
         let query = self.query.to_lowercase();
-        self.filtered = self.entries.iter().enumerate()
+        self.filtered = self
+            .entries
+            .iter()
+            .enumerate()
             .filter(|(_, e)| {
                 if query.is_empty() {
                     return true;
@@ -167,7 +140,6 @@ impl CommandPalette {
 
         let max_visible = 10.min(self.filtered.len());
         let ent_close = entity.clone();
-        let ent_input = entity.clone();
         let ent_key = entity.clone();
         let _ent_up = entity.clone();
         let _ent_down = entity.clone();
@@ -182,11 +154,11 @@ impl CommandPalette {
             let is_selected = i == self.selected;
             let item_bg = if is_selected { selection_bg } else { surface };
             let item_text = if is_selected { accent } else { text_color };
-            let label = entry.label.clone();
-            let key_hint = entry.keybinding.clone().unwrap_or_default();
+            let label = entry.label;
+            let key_hint = entry.keybinding.unwrap_or_default();
 
             let ent_item = entity.clone();
-            let action = entry.action.clone();
+            let action = entry.action;
 
             items = items.child(
                 div()
@@ -202,22 +174,23 @@ impl CommandPalette {
                     .on_click(move |_ev, _window, cx| {
                         if let Some(e) = ent_item.upgrade() {
                             e.update(cx, |app, cx| {
-                                app.execute_command_palette_action(&action, cx);
+                                app.execute_command_palette_action(action, cx);
                             });
                         }
                     })
-                    .child(
-                        div().flex_1().text_sm().text_color(item_text).child(label.clone())
-                    )
-                    .child(
-                        div().text_xs().text_color(muted).child(key_hint.clone())
-                    )
+                    .child(div().flex_1().text_sm().text_color(item_text).child(label))
+                    .child(div().text_xs().text_color(muted).child(key_hint)),
             );
         }
 
         if self.filtered.is_empty() {
             items = items.child(
-                div().px_3().py_2().text_sm().text_color(muted).child("No matching commands")
+                div()
+                    .px_3()
+                    .py_2()
+                    .text_sm()
+                    .text_color(muted)
+                    .child("No matching commands"),
             );
         }
 
@@ -259,25 +232,39 @@ impl CommandPalette {
                         }])
                         .on_click(|_ev, _window, _cx| {})
                         .track_focus(&focus_handle)
-                        .on_key_down(move |ev: &KeyDownEvent, window, cx| {
+                        .on_key_down(move |ev: &KeyDownEvent, _window, cx| {
                             if let Some(e) = ent_key.upgrade() {
                                 let key = &ev.keystroke.key;
                                 let mods = &ev.keystroke.modifiers;
                                 if *key == "escape" {
-                                    e.update(cx, |app, cx| { app.command_palette.hide(cx); });
+                                    e.update(cx, |app, cx| {
+                                        app.command_palette.hide(cx);
+                                    });
                                 } else if *key == "up" || (mods.platform && *key == "p") {
-                                    e.update(cx, |app, cx| { app.command_palette.select_prev(cx); });
+                                    e.update(cx, |app, cx| {
+                                        app.command_palette.select_prev(cx);
+                                    });
                                 } else if *key == "down" || (mods.platform && *key == "n") {
-                                    e.update(cx, |app, cx| { app.command_palette.select_next(cx); });
+                                    e.update(cx, |app, cx| {
+                                        app.command_palette.select_next(cx);
+                                    });
                                 } else if *key == "enter" {
                                     e.update(cx, |app, cx| {
                                         app.execute_command_palette_selection(cx);
                                     });
                                 } else if *key == "backspace" {
-                                    e.update(cx, |app, cx| { app.command_palette.on_backspace(cx); });
-                                } else if !key.is_empty() && key.len() == 1 && !mods.platform && !mods.control {
+                                    e.update(cx, |app, cx| {
+                                        app.command_palette.on_backspace(cx);
+                                    });
+                                } else if !key.is_empty()
+                                    && key.len() == 1
+                                    && !mods.platform
+                                    && !mods.control
+                                {
                                     let ch = key.chars().next().unwrap();
-                                    e.update(cx, |app, cx| { app.command_palette.on_input(&ch.to_string(), cx); });
+                                    e.update(cx, |app, cx| {
+                                        app.command_palette.on_input(&ch.to_string(), cx);
+                                    });
                                 }
                             }
                         })
@@ -290,10 +277,10 @@ impl CommandPalette {
                                 .border_color(border)
                                 .text_sm()
                                 .text_color(query_color)
-                                .child(display_text)
+                                .child(display_text),
                         )
-                        .child(items)
-                )
+                        .child(items),
+                ),
         )
     }
 }

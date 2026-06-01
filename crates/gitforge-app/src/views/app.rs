@@ -1,26 +1,40 @@
+use gitforge_git::{GitError, RepoState, Repository};
+use gitforge_graph::{CommitEntry, Graph};
+use gitforge_ui::{AppColors, Theme, ThemeEntry, rgba_to_hsla};
 use gpui::*;
-use gitforge_ui::{Theme, ThemeEntry, AppColors, rgba_to_hsla};
-use gitforge_git::{Repository, RepoState, GitError};
-use gitforge_graph::{Graph, CommitEntry};
 
 use parking_lot::Mutex;
 use std::sync::Arc;
 
+use super::command_palette::CommandPalette;
+use super::commands::TitlebarMenu;
 use super::diff_panel::CommitDiffState;
-use super::graph_panel::GraphPanel;
 use super::diff_panel::DiffPanel;
+use super::graph_panel::GraphPanel;
+use super::settings::{AppSettings, CustomCommand};
 use super::sidebar::SidebarState;
 use super::status_panel::StatusPanel;
-use super::settings::{AppSettings, CustomCommand};
-use super::command_palette::CommandPalette;
 
 actions!(
     gitforge,
     [
-        OpenRepository, CloseDialog, SelectPrevCommit, SelectNextCommit,
-        ViewFileAtCommit, BackToDiff, ShowStatusPanel, RefreshRepository,
-        SoftReset, CreateBranch, StashPush, StashPop,
-        FetchAll, PushCurrent, PullCurrent, ToggleTheme, ShowCommandPalette,
+        OpenRepository,
+        CloseDialog,
+        SelectPrevCommit,
+        SelectNextCommit,
+        ViewFileAtCommit,
+        BackToDiff,
+        ShowStatusPanel,
+        RefreshRepository,
+        SoftReset,
+        CreateBranch,
+        StashPush,
+        StashPop,
+        FetchAll,
+        PushCurrent,
+        PullCurrent,
+        ToggleTheme,
+        ShowCommandPalette,
     ]
 );
 
@@ -34,26 +48,51 @@ pub enum MainViewMode {
 #[allow(dead_code)]
 pub enum AppDialog {
     None,
-    CreateBranch { start_point: Option<String> },
-    RenameBranch { old_name: String },
-    CreateTag { target: Option<String> },
+    CreateBranch {
+        start_point: Option<String>,
+    },
+    RenameBranch {
+        old_name: String,
+    },
+    CreateTag {
+        target: Option<String>,
+    },
     StashPush,
-    Push { branch: Option<String>, remote: Option<String> },
-    Pull { remote: Option<String> },
+    Push {
+        branch: Option<String>,
+        remote: Option<String>,
+    },
+    Pull {
+        remote: Option<String>,
+    },
     CloneRepo,
     AddRemote,
     SshGenerateKey,
     SshTestConnection,
     CredentialAdd,
-    CloneFromHosting { provider: String },
-    AddAccount { provider: String },
+    CloneFromHosting {
+        provider: String,
+    },
+    AddAccount {
+        provider: String,
+    },
     ManageAccounts,
-    SearchHosting { provider: String },
-    ForkRepo { owner: String, repo: String, provider: String },
+    SearchHosting {
+        provider: String,
+    },
+    ForkRepo {
+        owner: String,
+        repo: String,
+        provider: String,
+    },
     AiSettings,
-    SetAiApiKey { provider: String },
+    SetAiApiKey {
+        provider: String,
+    },
     CreateWorktree,
-    RemoveWorktree { path: String },
+    RemoveWorktree {
+        path: String,
+    },
 }
 
 pub struct GitForgeApp {
@@ -81,6 +120,8 @@ pub struct GitForgeApp {
     ai_generating: bool,
     last_error: Option<String>,
     toolbar_more_open: bool,
+    titlebar_menus_visible: bool,
+    active_titlebar_menu: Option<TitlebarMenu>,
     pub command_palette: CommandPalette,
 }
 
@@ -122,6 +163,8 @@ impl GitForgeApp {
             ai_generating: false,
             last_error: None,
             toolbar_more_open: false,
+            titlebar_menus_visible: false,
+            active_titlebar_menu: None,
             command_palette: CommandPalette::new(cx),
         };
         app.sidebar_state.branches_expanded = app.settings.sidebar_branches_expanded;
@@ -144,6 +187,35 @@ impl GitForgeApp {
         }
     }
 
+    pub fn toggle_titlebar_menus(&mut self, cx: &mut Context<Self>) {
+        self.titlebar_menus_visible = !self.titlebar_menus_visible;
+        if !self.titlebar_menus_visible {
+            self.active_titlebar_menu = None;
+        }
+        cx.notify();
+    }
+
+    pub fn open_titlebar_menu(&mut self, menu: TitlebarMenu, cx: &mut Context<Self>) {
+        self.titlebar_menus_visible = true;
+        self.active_titlebar_menu = Some(menu);
+        cx.notify();
+    }
+
+    pub fn close_titlebar_menu(&mut self, cx: &mut Context<Self>) {
+        if self.active_titlebar_menu.is_some() {
+            self.active_titlebar_menu = None;
+            cx.notify();
+        }
+    }
+
+    fn hide_titlebar_menus(&mut self, cx: &mut Context<Self>) {
+        if self.titlebar_menus_visible || self.active_titlebar_menu.is_some() {
+            self.titlebar_menus_visible = false;
+            self.active_titlebar_menu = None;
+            cx.notify();
+        }
+    }
+
     pub fn set_theme(&mut self, name: &str, cx: &mut Context<Self>) {
         match Theme::load_by_name(name) {
             Ok(theme) => {
@@ -158,7 +230,12 @@ impl GitForgeApp {
         }
     }
 
-    fn handle_toggle_theme(&mut self, _action: &ToggleTheme, _window: &mut Window, cx: &mut Context<Self>) {
+    fn handle_toggle_theme(
+        &mut self,
+        _action: &ToggleTheme,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let new_theme = if self.settings.theme == "default-dark" {
             "default-light"
         } else {
@@ -167,15 +244,52 @@ impl GitForgeApp {
         self.set_theme(new_theme, cx);
     }
 
-    fn handle_show_command_palette(&mut self, _action: &ShowCommandPalette, _window: &mut Window, cx: &mut Context<Self>) {
+    fn handle_show_command_palette(
+        &mut self,
+        _action: &ShowCommandPalette,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.hide_titlebar_menus(cx);
         self.command_palette.show(cx);
     }
 
     pub fn execute_command_palette_action(&mut self, action: &str, cx: &mut Context<Self>) {
         self.command_palette.hide(cx);
+        self.execute_app_command(action, cx);
+    }
+
+    pub fn execute_app_command(&mut self, action: &str, cx: &mut Context<Self>) {
+        self.hide_titlebar_menus(cx);
         match action {
-            "open_repository" => { self.loading = true; cx.notify(); self.spawn_open_dialog(cx); }
+            "open_repository" => {
+                self.loading = true;
+                cx.notify();
+                self.spawn_open_dialog(cx);
+            }
             "refresh" => self.refresh_repository(cx),
+            "close_dialog" => self.cancel_dialog(cx),
+            "select_prev" => {
+                if self.graph_panel.select_prev() {
+                    self.load_diff_for_selected(cx);
+                }
+            }
+            "select_next" => {
+                if self.graph_panel.select_next() {
+                    self.load_diff_for_selected(cx);
+                }
+            }
+            "view_file" => {
+                if let Some(path) = self.diff_panel.selected_file_path() {
+                    self.view_file_at_commit(path, cx);
+                }
+            }
+            "back_to_diff" => self.back_to_diff_mode(cx),
+            "show_history" => {
+                self.view_mode = MainViewMode::CommitHistory;
+                cx.notify();
+            }
+            "command_palette" => self.command_palette.show(cx),
             "create_branch" => self.open_create_branch_dialog(None, cx),
             "stash_push" => self.open_stash_push_dialog(cx),
             "stash_pop" => self.stash_pop(cx),
@@ -183,20 +297,37 @@ impl GitForgeApp {
             "pull" => self.open_pull_dialog(cx),
             "push" => self.open_push_dialog(cx),
             "toggle_theme" => self.set_theme(
-                if self.settings.theme == "default-dark" { "default-light" } else { "default-dark" },
+                if self.settings.theme == "default-dark" {
+                    "default-light"
+                } else {
+                    "default-dark"
+                },
                 cx,
             ),
             "clone" => self.open_clone_dialog(cx),
+            "clone_github" => self.open_clone_from_hosting_dialog("github".to_string(), cx),
+            "clone_gitlab" => self.open_clone_from_hosting_dialog("gitlab".to_string(), cx),
             "add_remote" => self.open_add_remote_dialog(cx),
             "ssh_key" => self.open_ssh_generate_key_dialog(cx),
             "accounts" => self.open_manage_accounts_dialog(cx),
             "ai_settings" => self.open_ai_settings_dialog(cx),
             "open_browser" => self.open_repo_in_browser(cx),
             "worktree" => self.open_create_worktree_dialog(cx),
-            "show_status" => { self.view_mode = MainViewMode::Status; self.load_status(cx); }
+            "show_status" => {
+                self.view_mode = MainViewMode::Status;
+                self.load_status(cx);
+            }
             "soft_reset" => self.soft_reset(cx),
-            "open_editor" => { if let Some(path) = self.repo_state.as_ref().map(|r| r.path.clone()) { self.open_in_editor(path, cx); } }
-            "open_terminal" => { if let Some(path) = self.repo_state.as_ref().map(|r| r.path.clone()) { self.open_in_terminal(path, cx); } }
+            "open_editor" => {
+                if let Some(path) = self.repo_state.as_ref().map(|r| r.path.clone()) {
+                    self.open_in_editor(path, cx);
+                }
+            }
+            "open_terminal" => {
+                if let Some(path) = self.repo_state.as_ref().map(|r| r.path.clone()) {
+                    self.open_in_terminal(path, cx);
+                }
+            }
             _ => {}
         }
     }
@@ -206,10 +337,8 @@ impl GitForgeApp {
         let include_custom_refs = self.settings.show_checkpoint_refs;
 
         cx.spawn(async move |this, cx| {
-            let path = cx.update(|_cx| {
-                rfd::AsyncFileDialog::new()
-                    .set_title("Open Git Repository")
-            });
+            let path =
+                cx.update(|_cx| rfd::AsyncFileDialog::new().set_title("Open Git Repository"));
             let folder = match path {
                 Ok(dialog) => {
                     let result = dialog.pick_folder().await;
@@ -222,18 +351,24 @@ impl GitForgeApp {
                 this.update(cx, |this, cx| {
                     this.loading = false;
                     cx.notify();
-                }).ok();
+                })
+                .ok();
                 return;
             };
 
             let path_buf = std::path::PathBuf::from(folder.path());
-            let log_options = gitforge_git::CommitLogOptions { include_custom_refs };
+            let log_options = gitforge_git::CommitLogOptions {
+                include_custom_refs,
+            };
 
-            let result = tokio::task::spawn_blocking(move || -> Result<(Repository, RepoState), GitError> {
-                let repo = Repository::discover(&path_buf)?;
-                let repo_state = RepoState::from_repository_with_options(&repo, log_options)?;
-                Ok((repo, repo_state))
-            }).await;
+            let result = tokio::task::spawn_blocking(
+                move || -> Result<(Repository, RepoState), GitError> {
+                    let repo = Repository::discover(&path_buf)?;
+                    let repo_state = RepoState::from_repository_with_options(&repo, log_options)?;
+                    Ok((repo, repo_state))
+                },
+            )
+            .await;
 
             match result {
                 Ok(Ok((repo, repo_state_data))) => {
@@ -243,24 +378,28 @@ impl GitForgeApp {
                         this.apply_repo_state(repo_state_data);
                         this.loading = false;
                         cx.notify();
-                    }).ok();
+                    })
+                    .ok();
                 }
                 Ok(Err(e)) => {
                     this.update(cx, |this, cx| {
                         this.last_error = Some(format!("Failed to load repository: {}", e));
                         this.loading = false;
                         cx.notify();
-                    }).ok();
+                    })
+                    .ok();
                 }
                 Err(e) => {
                     this.update(cx, |this, cx| {
                         this.last_error = Some(format!("Task panicked: {}", e));
                         this.loading = false;
                         cx.notify();
-                    }).ok();
+                    })
+                    .ok();
                 }
             }
-        }).detach();
+        })
+        .detach();
     }
 
     pub fn execute_command_palette_selection(&mut self, cx: &mut Context<Self>) {
@@ -273,7 +412,12 @@ impl GitForgeApp {
         Theme::discover_themes()
     }
 
-    fn handle_open_repository(&mut self, _action: &OpenRepository, _window: &mut Window, cx: &mut Context<Self>) {
+    fn handle_open_repository(
+        &mut self,
+        _action: &OpenRepository,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         tracing::info!("OpenRepository action fired");
         self.loading = true;
         cx.notify();
@@ -282,15 +426,16 @@ impl GitForgeApp {
         let include_custom_refs = self.settings.show_checkpoint_refs;
 
         cx.spawn(async move |this, cx| {
-            let path = cx.update(|_cx| {
-                rfd::AsyncFileDialog::new()
-                    .set_title("Open Git Repository")
-            });
+            let path =
+                cx.update(|_cx| rfd::AsyncFileDialog::new().set_title("Open Git Repository"));
             let folder = match path {
                 Ok(dialog) => {
                     tracing::info!("Showing file dialog");
                     let result = dialog.pick_folder().await;
-                    tracing::info!("File dialog returned: {:?}", result.as_ref().map(|f| f.path()));
+                    tracing::info!(
+                        "File dialog returned: {:?}",
+                        result.as_ref().map(|f| f.path())
+                    );
                     result
                 }
                 Err(e) => {
@@ -303,25 +448,24 @@ impl GitForgeApp {
                 this.update(cx, |this, cx| {
                     this.loading = false;
                     cx.notify();
-                }).ok();
+                })
+                .ok();
                 return;
             };
 
             let path_buf = std::path::PathBuf::from(folder.path());
-            let log_options = gitforge_git::CommitLogOptions { include_custom_refs };
-
-            let result = tokio::task::spawn_blocking(move || -> Result<(Repository, RepoState), GitError> {
-                let repo = Repository::discover(&path_buf)?;
-                let repo_state = RepoState::from_repository_with_options(&repo, log_options)?;
-                Ok((repo, repo_state))
-            }).await;
-
-            let reset_loading = |this: &WeakEntity<GitForgeApp>, cx: &mut AsyncApp| {
-                this.update(cx, |this, cx| {
-                    this.loading = false;
-                    cx.notify();
-                }).ok();
+            let log_options = gitforge_git::CommitLogOptions {
+                include_custom_refs,
             };
+
+            let result = tokio::task::spawn_blocking(
+                move || -> Result<(Repository, RepoState), GitError> {
+                    let repo = Repository::discover(&path_buf)?;
+                    let repo_state = RepoState::from_repository_with_options(&repo, log_options)?;
+                    Ok((repo, repo_state))
+                },
+            )
+            .await;
 
             match result {
                 Ok(Ok((repo, repo_state_data))) => {
@@ -332,7 +476,8 @@ impl GitForgeApp {
                         this.apply_repo_state(repo_state_data);
                         this.loading = false;
                         cx.notify();
-                    }).ok();
+                    })
+                    .ok();
                 }
                 Ok(Err(e)) => {
                     tracing::error!("Failed to load repository: {}", e);
@@ -340,7 +485,8 @@ impl GitForgeApp {
                         this.last_error = Some(format!("Failed to load repository: {}", e));
                         this.loading = false;
                         cx.notify();
-                    }).ok();
+                    })
+                    .ok();
                 }
                 Err(e) => {
                     tracing::error!("Task panicked: {}", e);
@@ -348,68 +494,134 @@ impl GitForgeApp {
                         this.last_error = Some(format!("Task panicked: {}", e));
                         this.loading = false;
                         cx.notify();
-                    }).ok();
+                    })
+                    .ok();
                 }
             }
-        }).detach();
+        })
+        .detach();
     }
 
-    fn handle_close_dialog(&mut self, _action: &CloseDialog, _window: &mut Window, cx: &mut Context<Self>) {
+    fn handle_close_dialog(
+        &mut self,
+        _action: &CloseDialog,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.close_toolbar_more(cx);
         if self.active_dialog != AppDialog::None {
             self.active_dialog = AppDialog::None;
             cx.notify();
+        } else if self.command_palette.is_visible() {
+            self.command_palette.hide(cx);
+        } else if self.titlebar_menus_visible || self.active_titlebar_menu.is_some() {
+            self.hide_titlebar_menus(cx);
         }
     }
 
-    fn handle_select_prev(&mut self, _action: &SelectPrevCommit, _window: &mut Window, cx: &mut Context<Self>) {
+    fn handle_select_prev(
+        &mut self,
+        _action: &SelectPrevCommit,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.graph_panel.select_prev() {
             self.load_diff_for_selected(cx);
         }
     }
 
-    fn handle_select_next(&mut self, _action: &SelectNextCommit, _window: &mut Window, cx: &mut Context<Self>) {
+    fn handle_select_next(
+        &mut self,
+        _action: &SelectNextCommit,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.graph_panel.select_next() {
             self.load_diff_for_selected(cx);
         }
     }
 
-    fn handle_show_status(&mut self, _action: &ShowStatusPanel, _window: &mut Window, cx: &mut Context<Self>) {
+    fn handle_show_status(
+        &mut self,
+        _action: &ShowStatusPanel,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.view_mode = MainViewMode::Status;
         self.load_status(cx);
     }
 
-    fn handle_refresh(&mut self, _action: &RefreshRepository, _window: &mut Window, cx: &mut Context<Self>) {
+    fn handle_refresh(
+        &mut self,
+        _action: &RefreshRepository,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.refresh_repository(cx);
     }
 
-    fn handle_soft_reset(&mut self, _action: &SoftReset, _window: &mut Window, cx: &mut Context<Self>) {
+    fn handle_soft_reset(
+        &mut self,
+        _action: &SoftReset,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.soft_reset(cx);
     }
 
-    fn handle_create_branch(&mut self, _action: &CreateBranch, _window: &mut Window, cx: &mut Context<Self>) {
+    fn handle_create_branch(
+        &mut self,
+        _action: &CreateBranch,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.open_create_branch_dialog(None, cx);
     }
 
-    fn handle_stash_push(&mut self, _action: &StashPush, _window: &mut Window, cx: &mut Context<Self>) {
+    fn handle_stash_push(
+        &mut self,
+        _action: &StashPush,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.active_dialog = AppDialog::StashPush;
         self.dialog_input.clear();
         cx.notify();
     }
 
-    fn handle_stash_pop(&mut self, _action: &StashPop, _window: &mut Window, cx: &mut Context<Self>) {
+    fn handle_stash_pop(
+        &mut self,
+        _action: &StashPop,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.stash_pop(cx);
     }
 
-    fn handle_fetch_all(&mut self, _action: &FetchAll, _window: &mut Window, cx: &mut Context<Self>) {
+    fn handle_fetch_all(
+        &mut self,
+        _action: &FetchAll,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.fetch_all(cx);
     }
 
-    fn handle_push_current(&mut self, _action: &PushCurrent, _window: &mut Window, cx: &mut Context<Self>) {
+    fn handle_push_current(
+        &mut self,
+        _action: &PushCurrent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.open_push_dialog(cx);
     }
 
-    fn handle_pull_current(&mut self, _action: &PullCurrent, _window: &mut Window, cx: &mut Context<Self>) {
+    fn handle_pull_current(
+        &mut self,
+        _action: &PullCurrent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.open_pull_dialog(cx);
     }
 
@@ -419,7 +631,8 @@ impl GitForgeApp {
         let commit_count = repo_state_data.commits.len();
         let start = std::time::Instant::now();
 
-        let commit_entries: Vec<CommitEntry> = repo_state_data.commits
+        let commit_entries: Vec<CommitEntry> = repo_state_data
+            .commits
             .iter()
             .map(|c| CommitEntry::new(c.id.clone(), c.parent_ids.clone()))
             .collect();
@@ -456,8 +669,12 @@ impl GitForgeApp {
     }
 
     pub fn view_file_at_commit(&mut self, file_path: String, cx: &mut Context<Self>) {
-        let Some(idx) = self.graph_panel.selected_idx() else { return };
-        let Some(commit_id) = self.graph_panel.commit_id_at(idx).map(String::from) else { return };
+        let Some(idx) = self.graph_panel.selected_idx() else {
+            return;
+        };
+        let Some(commit_id) = self.graph_panel.commit_id_at(idx).map(String::from) else {
+            return;
+        };
 
         let open_repo = self.open_repo.clone();
         let path_for_result = file_path.clone();
@@ -467,11 +684,14 @@ impl GitForgeApp {
             let result = tokio::task::spawn_blocking(move || {
                 let repo_lock = open_repo.lock();
                 let Some(repo) = repo_lock.as_ref() else {
-                    return Err(gitforge_git::GitError::OperationFailed("No repository open".into()));
+                    return Err(gitforge_git::GitError::OperationFailed(
+                        "No repository open".into(),
+                    ));
                 };
                 let data = repo.file_at_commit(&commit_id, std::path::Path::new(&fp))?;
                 Ok(data)
-            }).await;
+            })
+            .await;
 
             match result {
                 Ok(Ok(Some(data))) => {
@@ -480,7 +700,8 @@ impl GitForgeApp {
                     this.update(cx, |this, cx| {
                         this.diff_panel.set_code_view(content, fp);
                         cx.notify();
-                    }).ok();
+                    })
+                    .ok();
                 }
                 Ok(Ok(None)) => {
                     tracing::info!("File not found at commit");
@@ -492,10 +713,16 @@ impl GitForgeApp {
                     tracing::warn!("File load task panicked: {}", e);
                 }
             }
-        }).detach();
+        })
+        .detach();
     }
 
-    pub fn back_to_diff(&mut self, _action: &BackToDiff, _window: &mut Window, cx: &mut Context<Self>) {
+    pub fn back_to_diff(
+        &mut self,
+        _action: &BackToDiff,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.diff_panel.set_diff_mode();
         cx.notify();
     }
@@ -583,7 +810,9 @@ impl GitForgeApp {
             let result = tokio::task::spawn_blocking(move || {
                 let repo_lock = open_repo.lock();
                 let Some(repo) = repo_lock.as_ref() else {
-                    return Err(gitforge_git::GitError::OperationFailed("No repository open".into()));
+                    return Err(gitforge_git::GitError::OperationFailed(
+                        "No repository open".into(),
+                    ));
                 };
                 let diff_text = if is_staged {
                     repo.diff_head_to_index(Some(std::path::Path::new(&path)))?
@@ -591,7 +820,8 @@ impl GitForgeApp {
                     repo.diff_index_to_worktree(Some(std::path::Path::new(&path)))?
                 };
                 Ok(diff_text)
-            }).await;
+            })
+            .await;
 
             match result {
                 Ok(Ok(diff_text)) => {
@@ -601,7 +831,8 @@ impl GitForgeApp {
                             this.status_panel.set_diff(diff);
                         }
                         cx.notify();
-                    }).ok();
+                    })
+                    .ok();
                 }
                 Ok(Err(e)) => {
                     tracing::warn!("Failed to load status diff: {}", e);
@@ -610,7 +841,8 @@ impl GitForgeApp {
                     tracing::warn!("Status diff task panicked: {}", e);
                 }
             }
-        }).detach();
+        })
+        .detach();
     }
 
     pub fn show_commit_dialog(&mut self, cx: &mut Context<Self>) {
@@ -628,7 +860,9 @@ impl GitForgeApp {
         let mut new_msg = msg;
         match typed_char {
             Some(ch) => new_msg.push_str(ch),
-            None => { new_msg.pop(); }
+            None => {
+                new_msg.pop();
+            }
         }
         self.status_panel.commit_message_mut().clear();
         self.status_panel.commit_message_mut().push_str(&new_msg);
@@ -647,7 +881,9 @@ impl GitForgeApp {
             let result = tokio::task::spawn_blocking(move || {
                 let repo_lock = open_repo.lock();
                 let Some(repo) = repo_lock.as_ref() else {
-                    return Err(gitforge_git::GitError::OperationFailed("No repository open".into()));
+                    return Err(gitforge_git::GitError::OperationFailed(
+                        "No repository open".into(),
+                    ));
                 };
                 if amend {
                     repo.commit_amend(&message)?;
@@ -655,13 +891,15 @@ impl GitForgeApp {
                     repo.commit(&message)?;
                 }
                 Ok(())
-            }).await;
+            })
+            .await;
 
             match result {
                 Ok(Ok(())) => {
                     this.update(cx, |this, cx| {
                         this.refresh_repository(cx);
-                    }).ok();
+                    })
+                    .ok();
                 }
                 Ok(Err(e)) => {
                     tracing::error!("Commit failed: {}", e);
@@ -670,7 +908,8 @@ impl GitForgeApp {
                     tracing::error!("Commit task panicked: {}", e);
                 }
             }
-        }).detach();
+        })
+        .detach();
     }
 
     pub fn generate_commit_message(&mut self, cx: &mut Context<Self>) {
@@ -700,26 +939,40 @@ impl GitForgeApp {
                 let Some(repo) = repo_lock.as_ref() else {
                     return Err::<String, anyhow::Error>(anyhow::anyhow!("No repository open"));
                 };
-                repo.diff_head_to_index(None).map_err(|e| anyhow::anyhow!("{}", e))
-            }).await;
+                repo.diff_head_to_index(None)
+                    .map_err(|e| anyhow::anyhow!("{}", e))
+            })
+            .await;
 
             let diff = match diff_result {
                 Ok(Ok(d)) => d,
                 Ok(Err(e)) => {
                     tracing::error!("Failed to get staged diff: {}", e);
-                    this.update(cx, |this, cx| { this.ai_generating = false; cx.notify(); }).ok();
+                    this.update(cx, |this, cx| {
+                        this.ai_generating = false;
+                        cx.notify();
+                    })
+                    .ok();
                     return;
                 }
                 Err(e) => {
                     tracing::error!("Diff task panicked: {}", e);
-                    this.update(cx, |this, cx| { this.ai_generating = false; cx.notify(); }).ok();
+                    this.update(cx, |this, cx| {
+                        this.ai_generating = false;
+                        cx.notify();
+                    })
+                    .ok();
                     return;
                 }
             };
 
             if diff.trim().is_empty() {
                 tracing::warn!("No staged changes to generate commit message from");
-                this.update(cx, |this, cx| { this.ai_generating = false; cx.notify(); }).ok();
+                this.update(cx, |this, cx| {
+                    this.ai_generating = false;
+                    cx.notify();
+                })
+                .ok();
                 return;
             }
 
@@ -728,29 +981,44 @@ impl GitForgeApp {
                 Ok(p) => p,
                 Err(e) => {
                     tracing::error!("Failed to create AI provider: {}", e);
-                    this.update(cx, |this, cx| { this.ai_generating = false; cx.notify(); }).ok();
+                    this.update(cx, |this, cx| {
+                        this.ai_generating = false;
+                        cx.notify();
+                    })
+                    .ok();
                     return;
                 }
             };
 
-            match provider.generate_commit_messages(&diff, conventional, 3).await {
+            match provider
+                .generate_commit_messages(&diff, conventional, 3)
+                .await
+            {
                 Ok(messages) => {
                     this.update(cx, |this, cx| {
                         this.ai_generating = false;
                         if !messages.is_empty() {
                             this.status_panel.commit_message_mut().clear();
-                            this.status_panel.commit_message_mut().push_str(&messages[0]);
+                            this.status_panel
+                                .commit_message_mut()
+                                .push_str(&messages[0]);
                             this.status_panel.set_ai_alternatives(messages);
                         }
                         cx.notify();
-                    }).ok();
+                    })
+                    .ok();
                 }
                 Err(e) => {
                     tracing::error!("AI generation failed: {}", e);
-                    this.update(cx, |this, cx| { this.ai_generating = false; cx.notify(); }).ok();
+                    this.update(cx, |this, cx| {
+                        this.ai_generating = false;
+                        cx.notify();
+                    })
+                    .ok();
                 }
             }
-        }).detach();
+        })
+        .detach();
     }
 
     pub fn open_ai_settings_dialog(&mut self, cx: &mut Context<Self>) {
@@ -798,7 +1066,8 @@ impl GitForgeApp {
                 repo.diff_index_to_worktree(Some(path))
                     .or_else(|_| repo.diff_head_to_index(Some(path)))
                     .map_err(|e| anyhow::anyhow!("{}", e))
-            }).await;
+            })
+            .await;
 
             let diff = match diff_result {
                 Ok(Ok(d)) => d,
@@ -831,13 +1100,15 @@ impl GitForgeApp {
                         this.status_panel.set_file_summary(p.clone(), summary);
                         this.status_panel.show_file_summary(Some(p));
                         cx.notify();
-                    }).ok();
+                    })
+                    .ok();
                 }
                 Err(e) => {
                     tracing::error!("AI summarization failed: {}", e);
                 }
             }
-        }).detach();
+        })
+        .detach();
     }
 
     pub fn dismiss_file_summary(&mut self, cx: &mut Context<Self>) {
@@ -858,17 +1129,21 @@ impl GitForgeApp {
             let result = tokio::task::spawn_blocking(move || {
                 let repo_lock = open_repo.lock();
                 let Some(repo) = repo_lock.as_ref() else {
-                    return Err(gitforge_git::GitError::OperationFailed("No repository open".into()));
+                    return Err(gitforge_git::GitError::OperationFailed(
+                        "No repository open".into(),
+                    ));
                 };
                 repo.status()
-            }).await;
+            })
+            .await;
 
             match result {
                 Ok(Ok(status)) => {
                     this.update(cx, |this, cx| {
                         this.status_panel.set_status(status);
                         cx.notify();
-                    }).ok();
+                    })
+                    .ok();
                 }
                 Ok(Err(e)) => {
                     tracing::warn!("Failed to load status: {}", e);
@@ -877,7 +1152,8 @@ impl GitForgeApp {
                     tracing::warn!("Status task panicked: {}", e);
                 }
             }
-        }).detach();
+        })
+        .detach();
     }
 
     pub fn stage_file(&mut self, path: String, cx: &mut Context<Self>) {
@@ -917,17 +1193,25 @@ impl GitForgeApp {
     }
 
     pub fn stage_selected_lines(&mut self, cx: &mut Context<Self>) {
-        let Some(diff) = self.status_panel.current_diff().cloned() else { return };
+        let Some(diff) = self.status_panel.current_diff().cloned() else {
+            return;
+        };
         let indices = self.status_panel.diff_selected_indices();
-        if indices.is_empty() { return; }
+        if indices.is_empty() {
+            return;
+        }
 
-        let path = diff.new_path.as_deref()
+        let path = diff
+            .new_path
+            .as_deref()
             .or(diff.old_path.as_deref())
             .unwrap_or("")
             .to_string();
 
         let hunks = gitforge_diff::extract_patch_from_selection(&diff.lines, &indices);
-        if hunks.is_empty() { return; }
+        if hunks.is_empty() {
+            return;
+        }
 
         let patch = format!("--- a/{}\n+++ b/{}\n{}", path, path, hunks);
 
@@ -937,17 +1221,25 @@ impl GitForgeApp {
     }
 
     pub fn unstage_selected_lines(&mut self, cx: &mut Context<Self>) {
-        let Some(diff) = self.status_panel.current_diff().cloned() else { return };
+        let Some(diff) = self.status_panel.current_diff().cloned() else {
+            return;
+        };
         let indices = self.status_panel.diff_selected_indices();
-        if indices.is_empty() { return; }
+        if indices.is_empty() {
+            return;
+        }
 
-        let path = diff.new_path.as_deref()
+        let path = diff
+            .new_path
+            .as_deref()
             .or(diff.old_path.as_deref())
             .unwrap_or("")
             .to_string();
 
         let hunks = gitforge_diff::extract_patch_from_selection(&diff.lines, &indices);
-        if hunks.is_empty() { return; }
+        if hunks.is_empty() {
+            return;
+        }
 
         let patch = format!("--- a/{}\n+++ b/{}\n{}", path, path, hunks);
 
@@ -956,7 +1248,12 @@ impl GitForgeApp {
         });
     }
 
-    pub fn select_status_diff_line(&mut self, line_idx: usize, extend: bool, cx: &mut Context<Self>) {
+    pub fn select_status_diff_line(
+        &mut self,
+        line_idx: usize,
+        extend: bool,
+        cx: &mut Context<Self>,
+    ) {
         self.status_panel.select_diff_line(line_idx, extend);
         cx.notify();
     }
@@ -965,7 +1262,11 @@ impl GitForgeApp {
         self.run_git_op("Soft reset", cx, move |repo| repo.soft_reset_head(1));
     }
 
-    pub fn open_create_branch_dialog(&mut self, start_point: Option<String>, cx: &mut Context<Self>) {
+    pub fn open_create_branch_dialog(
+        &mut self,
+        start_point: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
         self.active_dialog = AppDialog::CreateBranch { start_point };
         self.dialog_input.clear();
         cx.notify();
@@ -999,7 +1300,9 @@ impl GitForgeApp {
     pub fn edit_dialog_input(&mut self, typed_char: Option<&str>, cx: &mut Context<Self>) {
         match typed_char {
             Some(ch) => self.dialog_input.push_str(ch),
-            None => { self.dialog_input.pop(); }
+            None => {
+                self.dialog_input.pop();
+            }
         }
         cx.notify();
     }
@@ -1014,15 +1317,21 @@ impl GitForgeApp {
 
         match dialog {
             AppDialog::CreateBranch { start_point } => {
-                if input.is_empty() { return; }
+                if input.is_empty() {
+                    return;
+                }
                 self.create_branch(input, start_point, cx);
             }
             AppDialog::RenameBranch { old_name } => {
-                if input.is_empty() { return; }
+                if input.is_empty() {
+                    return;
+                }
                 self.rename_branch(old_name, input, cx);
             }
             AppDialog::CreateTag { target } => {
-                if input.is_empty() { return; }
+                if input.is_empty() {
+                    return;
+                }
                 self.create_tag(input, target, cx);
             }
             AppDialog::StashPush => {
@@ -1031,7 +1340,9 @@ impl GitForgeApp {
             AppDialog::Push { .. } => {
                 let branch = if input.is_empty() {
                     match self.repo_state.as_ref() {
-                        Some(rs) => rs.references.iter()
+                        Some(rs) => rs
+                            .references
+                            .iter()
                             .find(|r| r.is_head && r.kind == gitforge_git::RefKind::Branch)
                             .map(|r| r.name.clone()),
                         None => None,
@@ -1043,45 +1354,77 @@ impl GitForgeApp {
                 self.push_current_branch("origin".into(), branch_name, false, cx);
             }
             AppDialog::Pull { .. } => {
-                let remote = if input.is_empty() { "origin".into() } else { input };
+                let remote = if input.is_empty() {
+                    "origin".into()
+                } else {
+                    input
+                };
                 self.pull_from_remote(remote, false, cx);
             }
             AppDialog::CloneRepo => {
-                if input.is_empty() { return; }
+                if input.is_empty() {
+                    return;
+                }
                 let parts: Vec<&str> = input.splitn(2, ' ').collect();
-                if parts.len() < 2 { return; }
+                if parts.len() < 2 {
+                    return;
+                }
                 self.clone_repository(parts[0].to_string(), parts[1].to_string(), cx);
             }
             AppDialog::AddRemote => {
                 let parts: Vec<&str> = input.split_whitespace().collect();
-                if parts.len() < 2 { return; }
+                if parts.len() < 2 {
+                    return;
+                }
                 self.add_remote(parts[0].to_string(), parts[1].to_string(), cx);
             }
             AppDialog::SshGenerateKey => {
-                let email = if input.is_empty() { "user@example.com".to_string() } else { input };
+                let email = if input.is_empty() {
+                    "user@example.com".to_string()
+                } else {
+                    input
+                };
                 self.generate_ssh_key("ed25519".to_string(), email, cx);
             }
             AppDialog::SshTestConnection => {
-                let host = if input.is_empty() { "github.com".to_string() } else { input };
+                let host = if input.is_empty() {
+                    "github.com".to_string()
+                } else {
+                    input
+                };
                 self.test_ssh_connection(host, cx);
             }
             AppDialog::CredentialAdd => {
                 let parts: Vec<&str> = input.split_whitespace().collect();
-                if parts.len() < 2 { return; }
-                let password = if input_2.is_empty() { return; } else { input_2 };
+                if parts.len() < 2 {
+                    return;
+                }
+                let password = if input_2.is_empty() {
+                    return;
+                } else {
+                    input_2
+                };
                 self.add_credential(parts[0].to_string(), parts[1].to_string(), password, cx);
             }
             AppDialog::CloneFromHosting { .. } => {}
             AppDialog::AddAccount { provider } => {
-                if input.is_empty() { return; }
+                if input.is_empty() {
+                    return;
+                }
                 self.add_hosting_account(provider, input, cx);
             }
             AppDialog::ManageAccounts => {}
             AppDialog::SearchHosting { provider } => {
-                if input.is_empty() { return; }
+                if input.is_empty() {
+                    return;
+                }
                 self.search_hosting_repos(input, provider, cx);
             }
-            AppDialog::ForkRepo { owner, repo, provider } => {
+            AppDialog::ForkRepo {
+                owner,
+                repo,
+                provider,
+            } => {
                 self.fork_repo(owner, repo, provider, cx);
             }
             AppDialog::AiSettings => {
@@ -1094,16 +1437,24 @@ impl GitForgeApp {
                 }
             }
             AppDialog::SetAiApiKey { provider } => {
-                if input.is_empty() { return; }
+                if input.is_empty() {
+                    return;
+                }
                 if let Err(e) = gitforge_ai::store_api_key(&provider, &input) {
                     tracing::error!("Failed to store API key: {}", e);
                 }
                 self.open_ai_settings_dialog(cx);
             }
             AppDialog::CreateWorktree => {
-                if input.is_empty() { return; }
+                if input.is_empty() {
+                    return;
+                }
                 let path = input.to_string();
-                let refname = if input_2.is_empty() { None } else { Some(input_2) };
+                let refname = if input_2.is_empty() {
+                    None
+                } else {
+                    Some(input_2)
+                };
                 self.create_worktree(path, refname, None, cx);
             }
             AppDialog::RemoveWorktree { path } => {
@@ -1124,24 +1475,34 @@ impl GitForgeApp {
             let result = tokio::task::spawn_blocking(move || {
                 let repo_lock = open_repo.lock();
                 let Some(repo) = repo_lock.as_ref() else {
-                    return Err(gitforge_git::GitError::OperationFailed("No repository open".into()));
+                    return Err(gitforge_git::GitError::OperationFailed(
+                        "No repository open".into(),
+                    ));
                 };
                 op(repo)
-            }).await;
+            })
+            .await;
             match result {
                 Ok(Ok(_)) => {
                     this.update(cx, |this, cx| {
                         this.refresh_repository(cx);
-                    }).ok();
+                    })
+                    .ok();
                 }
                 Ok(Err(e)) => tracing::error!("{} failed: {}", label_owned, e),
                 Err(e) => tracing::error!("{} task panicked: {}", label_owned, e),
             }
-        }).detach();
+        })
+        .detach();
     }
 
-    fn run_git_op_with_status<F, R>(&mut self, label: &str, status: &str, cx: &mut Context<Self>, op: F)
-    where
+    fn run_git_op_with_status<F, R>(
+        &mut self,
+        label: &str,
+        status: &str,
+        cx: &mut Context<Self>,
+        op: F,
+    ) where
         F: FnOnce(&gitforge_git::Repository) -> Result<R, gitforge_git::GitError> + Send + 'static,
         R: Send + 'static,
     {
@@ -1153,36 +1514,48 @@ impl GitForgeApp {
             let result = tokio::task::spawn_blocking(move || {
                 let repo_lock = open_repo.lock();
                 let Some(repo) = repo_lock.as_ref() else {
-                    return Err(gitforge_git::GitError::OperationFailed("No repository open".into()));
+                    return Err(gitforge_git::GitError::OperationFailed(
+                        "No repository open".into(),
+                    ));
                 };
                 op(repo)
-            }).await;
+            })
+            .await;
             match result {
                 Ok(Ok(_)) => {
                     this.update(cx, |this, cx| {
                         this.remote_status.clear();
                         this.refresh_repository(cx);
-                    }).ok();
+                    })
+                    .ok();
                 }
                 Ok(Err(e)) => {
                     tracing::error!("{} failed: {}", label_owned, e);
                     this.update(cx, |this, cx| {
                         this.remote_status = format!("{} failed: {}", label_owned, e);
                         cx.notify();
-                    }).ok();
+                    })
+                    .ok();
                 }
                 Err(e) => {
                     tracing::error!("{} error: {}", label_owned, e);
                     this.update(cx, |this, cx| {
                         this.remote_status = format!("{} error: {}", label_owned, e);
                         cx.notify();
-                    }).ok();
+                    })
+                    .ok();
                 }
             }
-        }).detach();
+        })
+        .detach();
     }
 
-    pub fn create_branch(&mut self, name: String, start_point: Option<String>, cx: &mut Context<Self>) {
+    pub fn create_branch(
+        &mut self,
+        name: String,
+        start_point: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
         self.run_git_op("Create branch", cx, move |repo| {
             repo.create_branch(&name, start_point.as_deref())
         });
@@ -1205,7 +1578,9 @@ impl GitForgeApp {
     }
 
     pub fn checkout_commit(&mut self, sha: String, cx: &mut Context<Self>) {
-        self.run_git_op("Checkout commit", cx, move |repo| repo.checkout_commit(&sha));
+        self.run_git_op("Checkout commit", cx, move |repo| {
+            repo.checkout_commit(&sha)
+        });
     }
 
     pub fn merge_branch(&mut self, branch: String, no_ff: bool, cx: &mut Context<Self>) {
@@ -1243,14 +1618,22 @@ impl GitForgeApp {
     }
 
     pub fn stash_push(&mut self, message: Option<String>, cx: &mut Context<Self>) {
-        self.run_git_op("Stash push", cx, move |repo| repo.stash_push(message.as_deref()));
+        self.run_git_op("Stash push", cx, move |repo| {
+            repo.stash_push(message.as_deref())
+        });
     }
 
     pub fn stash_pop(&mut self, cx: &mut Context<Self>) {
         self.run_git_op("Stash pop", cx, move |repo| repo.stash_pop());
     }
 
-    pub fn create_worktree(&mut self, path: String, refname: Option<String>, new_branch: Option<String>, cx: &mut Context<Self>) {
+    pub fn create_worktree(
+        &mut self,
+        path: String,
+        refname: Option<String>,
+        new_branch: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
         self.run_git_op("Create worktree", cx, move |repo| {
             let p = std::path::PathBuf::from(&path);
             repo.worktree_add(&p, refname.as_deref(), new_branch.as_deref())
@@ -1303,7 +1686,13 @@ impl GitForgeApp {
         });
     }
 
-    pub fn push_current_branch(&mut self, remote: String, branch: String, force: bool, cx: &mut Context<Self>) {
+    pub fn push_current_branch(
+        &mut self,
+        remote: String,
+        branch: String,
+        force: bool,
+        cx: &mut Context<Self>,
+    ) {
         let status = format!("Pushing {} to {}...", branch, remote);
         self.run_git_op_with_status("Push", &status, cx, move |repo| {
             repo.push(&remote, Some(&branch), force, true)
@@ -1325,31 +1714,36 @@ impl GitForgeApp {
             let path_buf = std::path::PathBuf::from(&path);
             let result = tokio::task::spawn_blocking(move || {
                 gitforge_git::Repository::clone_repo(&url, &path_buf, false, None)
-            }).await;
+            })
+            .await;
 
             match result {
                 Ok(Ok(_output)) => {
                     this.update(cx, |this, cx| {
                         this.remote_status.clear();
                         this.open_repo_from_path(std::path::PathBuf::from(path), cx);
-                    }).ok();
+                    })
+                    .ok();
                 }
                 Ok(Err(e)) => {
                     tracing::error!("Clone failed: {}", e);
                     this.update(cx, |this, cx| {
                         this.remote_status = format!("Clone failed: {}", e);
                         cx.notify();
-                    }).ok();
+                    })
+                    .ok();
                 }
                 Err(e) => {
                     tracing::error!("Clone task panicked: {}", e);
                     this.update(cx, |this, cx| {
                         this.remote_status = format!("Clone error: {}", e);
                         cx.notify();
-                    }).ok();
+                    })
+                    .ok();
                 }
             }
-        }).detach();
+        })
+        .detach();
     }
 
     pub fn add_remote(&mut self, name: String, url: String, cx: &mut Context<Self>) {
@@ -1404,7 +1798,10 @@ impl GitForgeApp {
     }
 
     pub fn open_push_dialog(&mut self, cx: &mut Context<Self>) {
-        self.active_dialog = AppDialog::Push { branch: None, remote: None };
+        self.active_dialog = AppDialog::Push {
+            branch: None,
+            remote: None,
+        };
         self.dialog_input.clear();
         cx.notify();
     }
@@ -1449,7 +1846,8 @@ impl GitForgeApp {
         cx.spawn(async move |this, cx| {
             let result = tokio::task::spawn_blocking(move || {
                 gitforge_git::ssh::generate_ssh_key(&key_type, &email, None, None)
-            }).await;
+            })
+            .await;
 
             match result {
                 Ok(Ok(_path)) => {
@@ -1457,36 +1855,41 @@ impl GitForgeApp {
                         this.load_ssh_state();
                         this.remote_status = "SSH key generated successfully".to_string();
                         cx.notify();
-                    }).ok();
+                    })
+                    .ok();
                 }
                 Ok(Err(e)) => {
                     this.update(cx, |this, cx| {
                         this.remote_status = format!("SSH key generation failed: {}", e);
                         cx.notify();
-                    }).ok();
+                    })
+                    .ok();
                 }
                 Err(e) => {
                     this.update(cx, |this, cx| {
                         this.remote_status = format!("SSH key generation error: {}", e);
                         cx.notify();
-                    }).ok();
+                    })
+                    .ok();
                 }
             }
-        }).detach();
+        })
+        .detach();
     }
 
     pub fn delete_ssh_key(&mut self, key_name: String, cx: &mut Context<Self>) {
         cx.spawn(async move |this, cx| {
-            let result = tokio::task::spawn_blocking(move || {
-                gitforge_git::ssh::delete_ssh_key(&key_name)
-            }).await;
+            let result =
+                tokio::task::spawn_blocking(move || gitforge_git::ssh::delete_ssh_key(&key_name))
+                    .await;
 
             match result {
                 Ok(Ok(())) => {
                     this.update(cx, |this, cx| {
                         this.load_ssh_state();
                         cx.notify();
-                    }).ok();
+                    })
+                    .ok();
                 }
                 Ok(Err(e)) => {
                     tracing::error!("Failed to delete SSH key: {}", e);
@@ -1495,7 +1898,8 @@ impl GitForgeApp {
                     tracing::error!("SSH key delete task panicked: {}", e);
                 }
             }
-        }).detach();
+        })
+        .detach();
     }
 
     pub fn add_key_to_agent(&mut self, key_name: String, cx: &mut Context<Self>) {
@@ -1503,9 +1907,8 @@ impl GitForgeApp {
         cx.spawn(async move |this, cx| {
             let kn = key_name;
             let kn_display = key_name_display;
-            let result = tokio::task::spawn_blocking(move || {
-                gitforge_git::ssh::add_key_to_agent(&kn)
-            }).await;
+            let result =
+                tokio::task::spawn_blocking(move || gitforge_git::ssh::add_key_to_agent(&kn)).await;
 
             match result {
                 Ok(Ok(())) => {
@@ -1513,22 +1916,26 @@ impl GitForgeApp {
                         this.load_ssh_state();
                         this.remote_status = format!("Key {} added to ssh-agent", kn_display);
                         cx.notify();
-                    }).ok();
+                    })
+                    .ok();
                 }
                 Ok(Err(e)) => {
                     this.update(cx, |this, cx| {
                         this.remote_status = format!("Failed to add key to agent: {}", e);
                         cx.notify();
-                    }).ok();
+                    })
+                    .ok();
                 }
                 Err(e) => {
                     this.update(cx, |this, cx| {
                         this.remote_status = format!("ssh-add error: {}", e);
                         cx.notify();
-                    }).ok();
+                    })
+                    .ok();
                 }
             }
-        }).detach();
+        })
+        .detach();
     }
 
     pub fn remove_key_from_agent(&mut self, key_name: String, cx: &mut Context<Self>) {
@@ -1536,9 +1943,9 @@ impl GitForgeApp {
         cx.spawn(async move |this, cx| {
             let kn = key_name;
             let kn_display = key_name_display;
-            let result = tokio::task::spawn_blocking(move || {
-                gitforge_git::ssh::remove_key_from_agent(&kn)
-            }).await;
+            let result =
+                tokio::task::spawn_blocking(move || gitforge_git::ssh::remove_key_from_agent(&kn))
+                    .await;
 
             match result {
                 Ok(Ok(())) => {
@@ -1546,22 +1953,26 @@ impl GitForgeApp {
                         this.load_ssh_state();
                         this.remote_status = format!("Key {} removed from ssh-agent", kn_display);
                         cx.notify();
-                    }).ok();
+                    })
+                    .ok();
                 }
                 Ok(Err(e)) => {
                     this.update(cx, |this, cx| {
                         this.remote_status = format!("Failed to remove key from agent: {}", e);
                         cx.notify();
-                    }).ok();
+                    })
+                    .ok();
                 }
                 Err(e) => {
                     this.update(cx, |this, cx| {
                         this.remote_status = format!("ssh-add error: {}", e);
                         cx.notify();
-                    }).ok();
+                    })
+                    .ok();
                 }
             }
-        }).detach();
+        })
+        .detach();
     }
 
     pub fn test_ssh_connection(&mut self, host: String, cx: &mut Context<Self>) {
@@ -1571,9 +1982,9 @@ impl GitForgeApp {
 
         cx.spawn(async move |this, cx| {
             let h = host;
-            let result = tokio::task::spawn_blocking(move || {
-                gitforge_git::ssh::test_ssh_connection(&h)
-            }).await;
+            let result =
+                tokio::task::spawn_blocking(move || gitforge_git::ssh::test_ssh_connection(&h))
+                    .await;
 
             match result {
                 Ok(Ok(msg)) => {
@@ -1581,22 +1992,26 @@ impl GitForgeApp {
                     this.update(cx, |this, cx| {
                         this.remote_status = format!("SSH test {}: {}", display, msg);
                         cx.notify();
-                    }).ok();
+                    })
+                    .ok();
                 }
                 Ok(Err(e)) => {
                     this.update(cx, |this, cx| {
                         this.remote_status = format!("SSH test failed: {}", e);
                         cx.notify();
-                    }).ok();
+                    })
+                    .ok();
                 }
                 Err(e) => {
                     this.update(cx, |this, cx| {
                         this.remote_status = format!("SSH test error: {}", e);
                         cx.notify();
-                    }).ok();
+                    })
+                    .ok();
                 }
             }
-        }).detach();
+        })
+        .detach();
     }
 
     pub fn open_credential_add_dialog(&mut self, cx: &mut Context<Self>) {
@@ -1606,66 +2021,83 @@ impl GitForgeApp {
         cx.notify();
     }
 
-    pub fn add_credential(&mut self, host: String, username: String, password: String, cx: &mut Context<Self>) {
+    pub fn add_credential(
+        &mut self,
+        host: String,
+        username: String,
+        password: String,
+        cx: &mut Context<Self>,
+    ) {
         cx.spawn(async move |this, cx| {
             let result = tokio::task::spawn_blocking(move || {
                 gitforge_git::credential::store_credential(&host, &username, &password, None)
-            }).await;
+            })
+            .await;
 
             match result {
                 Ok(Ok(())) => {
                     this.update(cx, |this, cx| {
                         this.remote_status = "Credential stored in keyring".to_string();
                         cx.notify();
-                    }).ok();
+                    })
+                    .ok();
                 }
                 Ok(Err(e)) => {
                     this.update(cx, |this, cx| {
                         this.remote_status = format!("Failed to store credential: {}", e);
                         cx.notify();
-                    }).ok();
+                    })
+                    .ok();
                 }
                 Err(e) => {
                     this.update(cx, |this, cx| {
                         this.remote_status = format!("Credential storage error: {}", e);
                         cx.notify();
-                    }).ok();
+                    })
+                    .ok();
                 }
             }
-        }).detach();
+        })
+        .detach();
     }
 
     pub fn delete_credential(&mut self, host: String, username: String, cx: &mut Context<Self>) {
         cx.spawn(async move |this, cx| {
             let result = tokio::task::spawn_blocking(move || {
                 gitforge_git::credential::delete_credential(&host, &username)
-            }).await;
+            })
+            .await;
 
             match result {
                 Ok(Ok(())) => {
                     this.update(cx, |this, cx| {
                         this.remote_status = "Credential deleted".to_string();
                         cx.notify();
-                    }).ok();
+                    })
+                    .ok();
                 }
                 Ok(Err(e)) => {
                     this.update(cx, |this, cx| {
                         this.remote_status = format!("Failed to delete credential: {}", e);
                         cx.notify();
-                    }).ok();
+                    })
+                    .ok();
                 }
                 Err(e) => {
                     this.update(cx, |this, cx| {
                         this.remote_status = format!("Credential delete error: {}", e);
                         cx.notify();
-                    }).ok();
+                    })
+                    .ok();
                 }
             }
-        }).detach();
+        })
+        .detach();
     }
 
     fn find_hosting_account(&self, provider: &str) -> Option<gitforge_hosting::HostingAccount> {
-        self.hosting_accounts.iter()
+        self.hosting_accounts
+            .iter()
             .find(|a| a.provider == provider)
             .cloned()
     }
@@ -1711,7 +2143,8 @@ impl GitForgeApp {
                 this.update(cx, |this, cx| {
                     this.remote_status = format!("Unknown provider: {}", provider_name);
                     cx.notify();
-                }).ok();
+                })
+                .ok();
                 return;
             };
 
@@ -1724,31 +2157,44 @@ impl GitForgeApp {
                         this.save_hosting_accounts();
                         this.remote_status = "Account authenticated successfully".to_string();
                         cx.notify();
-                    }).ok();
+                    })
+                    .ok();
                 }
                 Err(e) => {
                     this.update(cx, |this, cx| {
                         this.remote_status = format!("Authentication failed: {}", e);
                         cx.notify();
-                    }).ok();
+                    })
+                    .ok();
                 }
             }
-        }).detach();
+        })
+        .detach();
     }
 
-    pub fn remove_hosting_account(&mut self, username: String, provider: String, cx: &mut Context<Self>) {
-        if let Some(account) = self.hosting_accounts.iter()
+    pub fn remove_hosting_account(
+        &mut self,
+        username: String,
+        provider: String,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(account) = self
+            .hosting_accounts
+            .iter()
             .find(|a| a.username == username && a.provider == provider)
         {
             let _ = gitforge_hosting::HostingAccount::delete_token(&account.token_key);
         }
-        self.hosting_accounts.retain(|a| !(a.username == username && a.provider == provider));
+        self.hosting_accounts
+            .retain(|a| !(a.username == username && a.provider == provider));
         self.save_hosting_accounts();
         cx.notify();
     }
 
     pub fn open_clone_from_hosting_dialog(&mut self, provider: String, cx: &mut Context<Self>) {
-        self.active_dialog = AppDialog::CloneFromHosting { provider: provider.clone() };
+        self.active_dialog = AppDialog::CloneFromHosting {
+            provider: provider.clone(),
+        };
         self.hosting_repos.clear();
         self.hosting_repos_loading = true;
         cx.notify();
@@ -1760,9 +2206,11 @@ impl GitForgeApp {
             let Some(account) = account else {
                 this.update(cx, |this, cx| {
                     this.hosting_repos_loading = false;
-                    this.remote_status = format!("No {} account configured. Add one first.", provider_name);
+                    this.remote_status =
+                        format!("No {} account configured. Add one first.", provider_name);
                     cx.notify();
-                }).ok();
+                })
+                .ok();
                 return;
             };
 
@@ -1772,7 +2220,8 @@ impl GitForgeApp {
                     this.hosting_repos_loading = false;
                     this.remote_status = "Unknown provider".to_string();
                     cx.notify();
-                }).ok();
+                })
+                .ok();
                 return;
             };
 
@@ -1784,20 +2233,28 @@ impl GitForgeApp {
                         this.hosting_repos = repos;
                         this.hosting_repos_loading = false;
                         cx.notify();
-                    }).ok();
+                    })
+                    .ok();
                 }
                 Err(e) => {
                     this.update(cx, |this, cx| {
                         this.hosting_repos_loading = false;
                         this.remote_status = format!("Failed to list repos: {}", e);
                         cx.notify();
-                    }).ok();
+                    })
+                    .ok();
                 }
             }
-        }).detach();
+        })
+        .detach();
     }
 
-    pub fn clone_hosting_repo(&mut self, clone_url: String, repo_name: String, cx: &mut Context<Self>) {
+    pub fn clone_hosting_repo(
+        &mut self,
+        clone_url: String,
+        repo_name: String,
+        cx: &mut Context<Self>,
+    ) {
         self.active_dialog = AppDialog::None;
         self.remote_status = format!("Cloning {}...", repo_name);
         cx.notify();
@@ -1812,7 +2269,8 @@ impl GitForgeApp {
 
             let result = tokio::task::spawn_blocking(move || {
                 gitforge_git::Repository::clone_repo(&url, &path, false, None)
-            }).await;
+            })
+            .await;
 
             match result {
                 Ok(Ok(_)) => {
@@ -1820,22 +2278,26 @@ impl GitForgeApp {
                     this.update(cx, |this, cx| {
                         this.remote_status.clear();
                         this.open_repo_from_path(p, cx);
-                    }).ok();
+                    })
+                    .ok();
                 }
                 Ok(Err(e)) => {
                     this.update(cx, |this, cx| {
                         this.remote_status = format!("Clone failed: {}", e);
                         cx.notify();
-                    }).ok();
+                    })
+                    .ok();
                 }
                 Err(e) => {
                     this.update(cx, |this, cx| {
                         this.remote_status = format!("Clone error: {}", e);
                         cx.notify();
-                    }).ok();
+                    })
+                    .ok();
                 }
             }
-        }).detach();
+        })
+        .detach();
     }
 
     pub fn open_add_account_dialog(&mut self, provider: String, cx: &mut Context<Self>) {
@@ -1850,14 +2312,21 @@ impl GitForgeApp {
     }
 
     pub fn open_search_hosting_dialog(&mut self, provider: String, cx: &mut Context<Self>) {
-        self.active_dialog = AppDialog::SearchHosting { provider: provider.clone() };
+        self.active_dialog = AppDialog::SearchHosting {
+            provider: provider.clone(),
+        };
         self.hosting_repos.clear();
         self.hosting_repos_loading = false;
         self.dialog_input.clear();
         cx.notify();
     }
 
-    pub fn search_hosting_repos(&mut self, query: String, provider: String, cx: &mut Context<Self>) {
+    pub fn search_hosting_repos(
+        &mut self,
+        query: String,
+        provider: String,
+        cx: &mut Context<Self>,
+    ) {
         let account = self.find_hosting_account(&provider);
 
         self.hosting_repos.clear();
@@ -1871,7 +2340,8 @@ impl GitForgeApp {
                     this.hosting_repos_loading = false;
                     this.remote_status = format!("No {} account configured.", provider_name);
                     cx.notify();
-                }).ok();
+                })
+                .ok();
                 return;
             };
 
@@ -1880,7 +2350,8 @@ impl GitForgeApp {
                 this.update(cx, |this, cx| {
                     this.hosting_repos_loading = false;
                     cx.notify();
-                }).ok();
+                })
+                .ok();
                 return;
             };
 
@@ -1892,20 +2363,29 @@ impl GitForgeApp {
                         this.hosting_repos = repos;
                         this.hosting_repos_loading = false;
                         cx.notify();
-                    }).ok();
+                    })
+                    .ok();
                 }
                 Err(e) => {
                     this.update(cx, |this, cx| {
                         this.hosting_repos_loading = false;
                         this.remote_status = format!("Search failed: {}", e);
                         cx.notify();
-                    }).ok();
+                    })
+                    .ok();
                 }
             }
-        }).detach();
+        })
+        .detach();
     }
 
-    pub fn fork_repo(&mut self, owner: String, repo: String, provider: String, cx: &mut Context<Self>) {
+    pub fn fork_repo(
+        &mut self,
+        owner: String,
+        repo: String,
+        provider: String,
+        cx: &mut Context<Self>,
+    ) {
         self.active_dialog = AppDialog::None;
         self.remote_status = format!("Forking {}/{}...", owner, repo);
         cx.notify();
@@ -1917,7 +2397,8 @@ impl GitForgeApp {
                 this.update(cx, |this, cx| {
                     this.remote_status = "No account configured for fork".to_string();
                     cx.notify();
-                }).ok();
+                })
+                .ok();
                 return;
             };
 
@@ -1926,7 +2407,8 @@ impl GitForgeApp {
                 this.update(cx, |this, cx| {
                     this.remote_status = "Unknown provider for fork".to_string();
                     cx.notify();
-                }).ok();
+                })
+                .ok();
                 return;
             };
 
@@ -1937,29 +2419,28 @@ impl GitForgeApp {
                     this.update(cx, |this, cx| {
                         this.remote_status = format!("Forked to {}", forked.full_name);
                         cx.notify();
-                    }).ok();
+                    })
+                    .ok();
                 }
                 Err(e) => {
                     this.update(cx, |this, cx| {
                         this.remote_status = format!("Fork failed: {}", e);
                         cx.notify();
-                    }).ok();
+                    })
+                    .ok();
                 }
             }
-        }).detach();
+        })
+        .detach();
     }
 
     pub fn open_in_browser(&mut self, url: String) {
-        let _ = std::process::Command::new("xdg-open")
-            .arg(&url)
-            .spawn();
+        let _ = std::process::Command::new("xdg-open").arg(&url).spawn();
     }
 
     pub fn open_in_editor(&mut self, path: std::path::PathBuf, _cx: &mut Context<Self>) {
         let cmd = &self.settings.tools.editor_command;
-        let _ = std::process::Command::new(cmd)
-            .arg(&path)
-            .spawn();
+        let _ = std::process::Command::new(cmd).arg(&path).spawn();
     }
 
     pub fn open_in_terminal(&mut self, path: std::path::PathBuf, _cx: &mut Context<Self>) {
@@ -1974,15 +2455,16 @@ impl GitForgeApp {
                     .arg(&path)
                     .spawn()
             })
-            .or_else(|_| {
-                std::process::Command::new(cmd)
-                    .current_dir(&path)
-                    .spawn()
-            })
+            .or_else(|_| std::process::Command::new(cmd).current_dir(&path).spawn())
             .ok();
     }
 
-    pub fn open_file_in_editor(&mut self, file_path: String, line: Option<usize>, _cx: &mut Context<Self>) {
+    pub fn open_file_in_editor(
+        &mut self,
+        file_path: String,
+        line: Option<usize>,
+        _cx: &mut Context<Self>,
+    ) {
         let cmd = &self.settings.tools.editor_command;
         let path = std::path::PathBuf::from(&file_path);
         let formatted = match line {
@@ -1999,11 +2481,7 @@ impl GitForgeApp {
                     .arg(&file_path)
                     .spawn()
             })
-            .or_else(|_| {
-                std::process::Command::new(cmd)
-                    .arg(&path)
-                    .spawn()
-            })
+            .or_else(|_| std::process::Command::new(cmd).arg(&path).spawn())
             .ok();
     }
 
@@ -2026,12 +2504,17 @@ impl GitForgeApp {
                 .spawn();
             return;
         }
-        let _ = std::process::Command::new(tool)
-            .arg(file_path)
-            .spawn();
+        let _ = std::process::Command::new(tool).arg(file_path).spawn();
     }
 
-    pub fn run_custom_command(&mut self, command: &CustomCommand, repo_path: &std::path::Path, file: Option<&str>, line: Option<usize>, commit: Option<&str>) {
+    pub fn run_custom_command(
+        &mut self,
+        command: &CustomCommand,
+        repo_path: &std::path::Path,
+        file: Option<&str>,
+        line: Option<usize>,
+        commit: Option<&str>,
+    ) {
         let mut cmd_str = command.command.clone();
         if let Some(f) = file {
             cmd_str = cmd_str.replace("{file}", f);
@@ -2052,7 +2535,9 @@ impl GitForgeApp {
     pub fn open_repo_in_browser(&mut self, _cx: &mut Context<Self>) {
         let Some(rs) = &self.repo_state else { return };
 
-        let remotes: Vec<_> = rs.references.iter()
+        let remotes: Vec<_> = rs
+            .references
+            .iter()
             .filter(|r| r.kind == gitforge_git::RefKind::RemoteBranch)
             .filter_map(|r| r.name.split('/').next().map(|s| s.to_string()))
             .collect();
@@ -2066,16 +2551,26 @@ impl GitForgeApp {
             }
         };
 
-        let head_branch = rs.references.iter()
+        let head_branch = rs
+            .references
+            .iter()
             .find(|r| r.is_head && r.kind == gitforge_git::RefKind::Branch)
             .map(|r| r.name.clone());
 
-        let remote_branch = head_branch.as_ref()
-            .and_then(|b| rs.references.iter()
-                .find(|r| r.kind == gitforge_git::RefKind::RemoteBranch && r.name == format!("{}/{}", remote_name, b)));
+        let remote_branch = head_branch.as_ref().and_then(|b| {
+            rs.references.iter().find(|r| {
+                r.kind == gitforge_git::RefKind::RemoteBranch
+                    && r.name == format!("{}/{}", remote_name, b)
+            })
+        });
 
-        let remote_url = rs.references.iter()
-            .find(|r| r.kind == gitforge_git::RefKind::RemoteBranch && r.name.starts_with(&format!("{}/", remote_name)))
+        let remote_url = rs
+            .references
+            .iter()
+            .find(|r| {
+                r.kind == gitforge_git::RefKind::RemoteBranch
+                    && r.name.starts_with(&format!("{}/", remote_name))
+            })
             .and_then(|_| self.get_remote_url(remote_name));
 
         let Some(url) = remote_url else { return };
@@ -2139,7 +2634,8 @@ impl GitForgeApp {
         let repo_lock = self.open_repo.lock();
         let repo = repo_lock.as_ref()?;
         let remotes = repo.remote_list().ok()?;
-        remotes.iter()
+        remotes
+            .iter()
             .find(|(name, _)| name == remote_name)
             .map(|(_, url)| url.clone())
     }
@@ -2151,8 +2647,18 @@ impl GitForgeApp {
         remotes.first().map(|(_, url)| url.clone())
     }
 
-    pub fn open_fork_dialog(&mut self, owner: String, repo: String, provider: String, cx: &mut Context<Self>) {
-        self.active_dialog = AppDialog::ForkRepo { owner, repo, provider };
+    pub fn open_fork_dialog(
+        &mut self,
+        owner: String,
+        repo: String,
+        provider: String,
+        cx: &mut Context<Self>,
+    ) {
+        self.active_dialog = AppDialog::ForkRepo {
+            owner,
+            repo,
+            provider,
+        };
         cx.notify();
     }
 
@@ -2167,7 +2673,9 @@ impl GitForgeApp {
     }
 
     pub fn add_to_gitignore(&mut self, path: String, cx: &mut Context<Self>) {
-        self.run_git_op("Add to gitignore", cx, move |repo| repo.add_to_gitignore(&path));
+        self.run_git_op("Add to gitignore", cx, move |repo| {
+            repo.add_to_gitignore(&path)
+        });
     }
 
     pub fn resolve_conflict_ours(&mut self, path: String, cx: &mut Context<Self>) {
@@ -2191,22 +2699,27 @@ impl GitForgeApp {
             let result = tokio::task::spawn_blocking(move || {
                 let repo_lock = open_repo.lock();
                 let Some(repo) = repo_lock.as_ref() else {
-                    return Err(gitforge_git::GitError::OperationFailed("No repository open".into()));
+                    return Err(gitforge_git::GitError::OperationFailed(
+                        "No repository open".into(),
+                    ));
                 };
                 repo.blame_file(std::path::Path::new(&fp), None)
-            }).await;
+            })
+            .await;
 
             match result {
                 Ok(Ok(blame_lines)) => {
                     this.update(cx, |this, cx| {
                         this.diff_panel.set_blame(blame_lines, path_for_result);
                         cx.notify();
-                    }).ok();
+                    })
+                    .ok();
                 }
                 Ok(Err(e)) => tracing::warn!("Failed to load blame: {}", e),
                 Err(e) => tracing::warn!("Blame task panicked: {}", e),
             }
-        }).detach();
+        })
+        .detach();
     }
 
     fn refresh_repository(&mut self, cx: &mut Context<Self>) {
@@ -2220,17 +2733,21 @@ impl GitForgeApp {
             let result = tokio::task::spawn_blocking(move || {
                 let repo_lock = open_repo.lock();
                 let Some(repo) = repo_lock.as_ref() else {
-                    return Err(gitforge_git::GitError::OperationFailed("No repository open".into()));
+                    return Err(gitforge_git::GitError::OperationFailed(
+                        "No repository open".into(),
+                    ));
                 };
                 RepoState::from_repository_with_options(repo, log_options)
-            }).await;
+            })
+            .await;
 
             match result {
                 Ok(Ok(repo_state)) => {
                     this.update(cx, |this, cx| {
                         this.apply_repo_state(repo_state);
                         cx.notify();
-                    }).ok();
+                    })
+                    .ok();
                 }
                 Ok(Err(e)) => {
                     tracing::error!("Refresh failed: {}", e);
@@ -2239,12 +2756,17 @@ impl GitForgeApp {
                     tracing::error!("Refresh task panicked: {}", e);
                 }
             }
-        }).detach();
+        })
+        .detach();
     }
 
     fn load_diff_for_selected(&mut self, cx: &mut Context<Self>) {
-        let Some(idx) = self.graph_panel.selected_idx() else { return };
-        let Some(commit_id) = self.graph_panel.commit_id_at(idx).map(String::from) else { return };
+        let Some(idx) = self.graph_panel.selected_idx() else {
+            return;
+        };
+        let Some(commit_id) = self.graph_panel.commit_id_at(idx).map(String::from) else {
+            return;
+        };
 
         let open_repo = self.open_repo.clone();
         let id_for_state = commit_id.clone();
@@ -2253,10 +2775,13 @@ impl GitForgeApp {
             let raw_diff = tokio::task::spawn_blocking(move || {
                 let repo_lock = open_repo.lock();
                 let Some(repo) = repo_lock.as_ref() else {
-                    return Err(gitforge_git::GitError::OperationFailed("No repository open".into()));
+                    return Err(gitforge_git::GitError::OperationFailed(
+                        "No repository open".into(),
+                    ));
                 };
                 repo.unified_diff_for_commit(&commit_id)
-            }).await;
+            })
+            .await;
 
             match raw_diff {
                 Ok(Ok(diff_text)) => {
@@ -2269,7 +2794,8 @@ impl GitForgeApp {
                             selected_file_idx: None,
                         });
                         cx.notify();
-                    }).ok();
+                    })
+                    .ok();
                 }
                 Ok(Err(e)) => {
                     tracing::warn!("Failed to load diff: {}", e);
@@ -2278,7 +2804,8 @@ impl GitForgeApp {
                     tracing::warn!("Diff task panicked: {}", e);
                 }
             }
-        }).detach();
+        })
+        .detach();
     }
 }
 
@@ -2306,52 +2833,119 @@ impl Render for GitForgeApp {
             entity.clone(),
         );
 
-        let graph_area = super::layout::grow_center(div())
-            .child(self.graph_panel.render(
-                &self.colors,
-                self.settings.show_checkpoint_refs,
-                entity.clone(),
-            ));
+        let graph_area = super::layout::grow_center(div()).child(self.graph_panel.render(
+            &self.colors,
+            self.settings.show_checkpoint_refs,
+            entity.clone(),
+        ));
 
         let right_content = match self.view_mode {
-            MainViewMode::CommitHistory => {
-                self.diff_panel.render(
-                    self.repo_state.as_ref(),
-                    self.graph_panel.selected_idx(),
-                    &self.colors,
-                    entity.clone(),
-                    self.loading,
-                )
-            }
+            MainViewMode::CommitHistory => self.diff_panel.render(
+                self.repo_state.as_ref(),
+                self.graph_panel.selected_idx(),
+                &self.colors,
+                entity.clone(),
+                self.loading,
+            ),
             MainViewMode::Status => {
-                self.status_panel.render(&self.colors, entity.clone(), window, self.ai_generating)
+                self.status_panel
+                    .render(&self.colors, entity.clone(), window, self.ai_generating)
             }
         };
 
         let right_panel = super::layout::grow_right(div()).child(right_content);
 
-        let status_bar = super::toolbar::render_status_bar(
-            &self.remote_status,
-            &self.colors,
-        );
+        let status_bar =
+            super::toolbar::render_status_bar(&self.remote_status, &self.colors, window);
 
         let error_banner = self.last_error.as_ref().map(|err| {
-        let _error_color = rgba_to_hsla(self.colors.error);
+            let _error_color = rgba_to_hsla(self.colors.error);
             div()
-                .w_full().px_3().py_2()
+                .w_full()
+                .px_3()
+                .py_2()
                 .bg(gpui::hsla(0.0, 0.8, 0.3, 0.9))
                 .text_color(gpui::hsla(0.0, 0.0, 1.0, 1.0))
                 .text_sm()
                 .child(err.clone())
         });
 
-        let mut root = div()
-            .id("app-root")
-            .size_full()
-            .bg(bg)
-            .text_color(text)
+        let titlebar = super::titlebar::render_titlebar(
+            self.repo_state.as_ref(),
+            &self.colors,
+            window,
+            entity.clone(),
+            self.titlebar_menus_visible,
+            self.active_titlebar_menu,
+        );
+
+        let mut inner = div()
+            .id("app-content")
             .flex()
             .flex_col()
+            .size_full()
+            .overflow_hidden()
+            .text_color(text)
+            .child(titlebar);
+
+        if let Some(banner) = error_banner {
+            inner = inner.child(banner);
+        }
+
+        inner = inner.child(
+            div()
+                .flex_1()
+                .h_full()
+                .flex()
+                .flex_row()
+                .overflow_hidden()
+                .child(sidebar)
+                .child(
+                    div()
+                        .flex_1()
+                        .h_full()
+                        .flex()
+                        .flex_col()
+                        .bg(bg)
+                        .overflow_hidden()
+                        .child(toolbar)
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_h(px(0.0))
+                                .flex()
+                                .flex_row()
+                                .overflow_hidden()
+                                .child(graph_area)
+                                .child(right_panel),
+                        )
+                        .child(status_bar),
+                ),
+        );
+
+        if self.active_dialog != AppDialog::None {
+            inner = inner.child(render_dialog_overlay(
+                &self.active_dialog,
+                &self.dialog_input,
+                &self.dialog_input_2,
+                &self.dialog_input_focus,
+                &self.colors,
+                entity.clone(),
+                window,
+                &self.hosting_repos,
+                self.hosting_repos_loading,
+                &self.hosting_accounts,
+            ));
+        }
+
+        if let Some(palette) = self.command_palette.render(&self.colors, entity, window) {
+            inner = inner.child(palette);
+        }
+
+        div()
+            .id("app-root")
+            .size_full()
+            .bg(gpui::transparent_black())
             .track_focus(&self.focus_handle)
             .on_action(cx.listener(Self::handle_open_repository))
             .on_action(cx.listener(Self::handle_close_dialog))
@@ -2368,48 +2962,12 @@ impl Render for GitForgeApp {
             .on_action(cx.listener(Self::handle_push_current))
             .on_action(cx.listener(Self::handle_pull_current))
             .on_action(cx.listener(Self::handle_toggle_theme))
-            .on_action(cx.listener(Self::handle_show_command_palette));
-
-        if let Some(banner) = error_banner {
-            root = root.child(banner);
-        }
-
-        root = root.child(
-            div().flex_1().h_full().flex().flex_row().overflow_hidden()
-                .child(sidebar)
-                .child(
-                    div()
-                        .flex_1().h_full().flex().flex_col().bg(bg).overflow_hidden()
-                        .child(toolbar)
-                        .child(
-                            div().flex_1().min_h(px(0.0)).flex().flex_row().overflow_hidden()
-                                .child(graph_area)
-                                .child(right_panel)
-                        )
-                        .child(status_bar)
-                )
-        );
-
-        if self.active_dialog != AppDialog::None {
-            root = root.child(render_dialog_overlay(
-                &self.active_dialog,
-                &self.dialog_input,
-                &self.dialog_input_2,
-                &self.dialog_input_focus,
+            .on_action(cx.listener(Self::handle_show_command_palette))
+            .child(super::window_chrome::render_window_chrome(
+                inner,
                 &self.colors,
-                entity.clone(),
                 window,
-                &self.hosting_repos,
-                self.hosting_repos_loading,
-                &self.hosting_accounts,
-            ));
-        }
-
-        if let Some(palette) = self.command_palette.render(&self.colors, entity, window) {
-            root = root.child(palette);
-        }
-
-        root
+            ))
     }
 }
 
@@ -2473,19 +3031,33 @@ fn render_dialog_overlay(
         AppDialog::AddAccount { .. } => "Personal Access Token",
         AppDialog::ManageAccounts => "",
         AppDialog::SearchHosting { .. } => "Search query...",
-        AppDialog::ForkRepo { owner, repo, .. } => return render_fork_confirm_overlay(
-            owner, repo, colors, entity,
-        ),
-        AppDialog::AiSettings => return render_ai_settings_overlay(
-            input_value, input_value_2, input_focus, colors, entity, window,
-        ),
-        AppDialog::CreateWorktree => return render_create_worktree_overlay(
-            input_value, input_value_2, input_focus, colors, entity, window,
-        ),
+        AppDialog::ForkRepo { owner, repo, .. } => {
+            return render_fork_confirm_overlay(owner, repo, colors, entity);
+        }
+        AppDialog::AiSettings => {
+            return render_ai_settings_overlay(
+                input_value,
+                input_value_2,
+                input_focus,
+                colors,
+                entity,
+                window,
+            );
+        }
+        AppDialog::CreateWorktree => {
+            return render_create_worktree_overlay(
+                input_value,
+                input_value_2,
+                input_focus,
+                colors,
+                entity,
+                window,
+            );
+        }
         AppDialog::SetAiApiKey { .. } => "sk-... (API key)",
-        AppDialog::RemoveWorktree { path } => return render_remove_worktree_overlay(
-            path, colors, entity,
-        ),
+        AppDialog::RemoveWorktree { path } => {
+            return render_remove_worktree_overlay(path, colors, entity);
+        }
         AppDialog::None => "",
     };
 
@@ -2503,11 +3075,7 @@ fn render_dialog_overlay(
     }
 
     if matches!(dialog, AppDialog::ManageAccounts) {
-        return render_manage_accounts_overlay(
-            colors,
-            entity,
-            &hosting_accounts_from_render,
-        );
+        return render_manage_accounts_overlay(colors, entity, &hosting_accounts_from_render);
     }
 
     if matches!(dialog, AppDialog::SearchHosting { .. }) {
@@ -2559,8 +3127,11 @@ fn render_dialog_overlay(
         .flex_col()
         .gap_3()
         .child(
-            div().text_sm().font_weight(FontWeight::BOLD).text_color(text_color)
-                .child(title.to_string())
+            div()
+                .text_sm()
+                .font_weight(FontWeight::BOLD)
+                .text_color(text_color)
+                .child(title.to_string()),
         );
 
     dialog_box = dialog_box
@@ -2568,8 +3139,10 @@ fn render_dialog_overlay(
             div()
                 .id(ElementId::Name("dialog-input".into()))
                 .track_focus(&fh)
-                .px_2().py_1()
-                .border_1().border_color(border_focus_color)
+                .px_2()
+                .py_1()
+                .border_1()
+                .border_color(border_focus_color)
                 .rounded(px(3.0))
                 .bg(rgba_to_hsla(colors.background))
                 .cursor_pointer()
@@ -2615,20 +3188,28 @@ fn render_dialog_overlay(
                     }
                 })
                 .child(
-                    div().text_sm().text_color(display_color)
-                        .child(display_text)
-                )
+                    div()
+                        .text_sm()
+                        .text_color(display_color)
+                        .child(display_text),
+                ),
         )
         .child(
-            div().flex().gap_2().justify_end()
+            div()
+                .flex()
+                .gap_2()
+                .justify_end()
                 .child(
                     div()
                         .id("dialog-cancel")
-                        .px_3().py_1()
-                        .border_1().border_color(border)
+                        .px_3()
+                        .py_1()
+                        .border_1()
+                        .border_color(border)
                         .rounded(px(3.0))
                         .cursor_pointer()
-                        .text_xs().text_color(muted)
+                        .text_xs()
+                        .text_color(muted)
                         .child("Cancel")
                         .on_click(move |_ev, _window, cx| {
                             if let Some(e) = ent_cancel2.upgrade() {
@@ -2636,16 +3217,19 @@ fn render_dialog_overlay(
                                     this.cancel_dialog(cx);
                                 });
                             }
-                        })
+                        }),
                 )
                 .child(
                     div()
                         .id("dialog-confirm")
-                        .px_3().py_1()
-                        .border_1().border_color(warning)
+                        .px_3()
+                        .py_1()
+                        .border_1()
+                        .border_color(warning)
                         .rounded(px(3.0))
                         .cursor_pointer()
-                        .text_xs().text_color(warning)
+                        .text_xs()
+                        .text_color(warning)
                         .child("Confirm")
                         .on_click(move |_ev, _window, cx| {
                             if let Some(e) = ent_confirm2.upgrade() {
@@ -2653,14 +3237,15 @@ fn render_dialog_overlay(
                                     this.confirm_dialog(cx);
                                 });
                             }
-                        })
-                )
+                        }),
+                ),
         );
 
     div()
         .id("dialog-overlay")
         .absolute()
-        .top_0().left_0()
+        .top_0()
+        .left_0()
         .size_full()
         .bg(overlay_bg)
         .flex()
@@ -2687,8 +3272,12 @@ fn render_hosting_repos_overlay(
     let accent = rgba_to_hsla(colors.accent);
 
     let (_provider_name, dialog_title) = match dialog {
-        AppDialog::CloneFromHosting { provider } => (provider.clone(), format!("Clone from {}", provider)),
-        AppDialog::SearchHosting { provider } => (provider.clone(), format!("Search on {}", provider)),
+        AppDialog::CloneFromHosting { provider } => {
+            (provider.clone(), format!("Clone from {}", provider))
+        }
+        AppDialog::SearchHosting { provider } => {
+            (provider.clone(), format!("Search on {}", provider))
+        }
         _ => (String::new(), "Browse Repositories".to_string()),
     };
 
@@ -2707,19 +3296,28 @@ fn render_hosting_repos_overlay(
         .flex_col()
         .gap_2()
         .child(
-            div().flex().items_center().justify_between()
+            div()
+                .flex()
+                .items_center()
+                .justify_between()
                 .child(
-                    div().text_sm().font_weight(FontWeight::BOLD).text_color(text_color)
-                        .child(dialog_title)
+                    div()
+                        .text_sm()
+                        .font_weight(FontWeight::BOLD)
+                        .text_color(text_color)
+                        .child(dialog_title),
                 )
                 .child(
                     div()
                         .id("hosting-cancel")
-                        .px_2().py_0()
-                        .border_1().border_color(border)
+                        .px_2()
+                        .py_0()
+                        .border_1()
+                        .border_color(border)
                         .rounded(px(3.0))
                         .cursor_pointer()
-                        .text_xs().text_color(muted)
+                        .text_xs()
+                        .text_color(muted)
                         .child("Close")
                         .on_click(move |_ev, _window, cx| {
                             if let Some(e) = ent_cancel.upgrade() {
@@ -2727,17 +3325,23 @@ fn render_hosting_repos_overlay(
                                     this.cancel_dialog(cx);
                                 });
                             }
-                        })
-                )
+                        }),
+                ),
         );
 
     if hosting_repos_loading {
         content = content.child(
-            div().text_xs().text_color(muted).child("Loading repositories...")
+            div()
+                .text_xs()
+                .text_color(muted)
+                .child("Loading repositories..."),
         );
     } else if hosting_repos.is_empty() {
         content = content.child(
-            div().text_xs().text_color(muted).child("No repositories found")
+            div()
+                .text_xs()
+                .text_color(muted)
+                .child("No repositories found"),
         );
     } else {
         let mut list = div().flex().flex_col().gap_1();
@@ -2752,8 +3356,10 @@ fn render_hosting_repos_overlay(
             list = list.child(
                 div()
                     .id(ElementId::NamedInteger("hosting-repo".into(), i as u64))
-                    .px_2().py_1()
-                    .border_1().border_color(border)
+                    .px_2()
+                    .py_1()
+                    .border_1()
+                    .border_color(border)
                     .rounded(px(3.0))
                     .cursor_pointer()
                     .hover(|s| s.bg(rgba_to_hsla(colors.surface_high)))
@@ -2767,17 +3373,38 @@ fn render_hosting_repos_overlay(
                         }
                     })
                     .child(
-                        div().flex().flex_col().gap_0()
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_0()
                             .child(
-                                div().flex().items_center().gap_2()
-                                    .child(div().text_sm().font_weight(FontWeight::SEMIBOLD).text_color(text_color).child(repo.name.clone()))
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .gap_2()
+                                    .child(
+                                        div()
+                                            .text_sm()
+                                            .font_weight(FontWeight::SEMIBOLD)
+                                            .text_color(text_color)
+                                            .child(repo.name.clone()),
+                                    )
                                     .child(div().text_xs().text_color(muted).child(vis))
-                                    .child(div().text_xs().text_color(accent).child(format!("*{}", stars)))
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(accent)
+                                            .child(format!("*{}", stars)),
+                                    ),
                             )
                             .child(
-                                div().text_xs().text_color(muted).overflow_hidden().child(desc.to_string())
-                            )
-                    )
+                                div()
+                                    .text_xs()
+                                    .text_color(muted)
+                                    .overflow_hidden()
+                                    .child(desc.to_string()),
+                            ),
+                    ),
             );
         }
         content = content.child(list);
@@ -2786,7 +3413,8 @@ fn render_hosting_repos_overlay(
     div()
         .id("dialog-overlay")
         .absolute()
-        .top_0().left_0()
+        .top_0()
+        .left_0()
         .size_full()
         .bg(overlay_bg)
         .flex()
@@ -2826,19 +3454,28 @@ fn render_manage_accounts_overlay(
         .flex_col()
         .gap_3()
         .child(
-            div().flex().items_center().justify_between()
+            div()
+                .flex()
+                .items_center()
+                .justify_between()
                 .child(
-                    div().text_sm().font_weight(FontWeight::BOLD).text_color(text_color)
-                        .child("Hosting Accounts")
+                    div()
+                        .text_sm()
+                        .font_weight(FontWeight::BOLD)
+                        .text_color(text_color)
+                        .child("Hosting Accounts"),
                 )
                 .child(
                     div()
                         .id("accounts-cancel")
-                        .px_2().py_0()
-                        .border_1().border_color(border)
+                        .px_2()
+                        .py_0()
+                        .border_1()
+                        .border_color(border)
                         .rounded(px(3.0))
                         .cursor_pointer()
-                        .text_xs().text_color(muted)
+                        .text_xs()
+                        .text_color(muted)
                         .child("Close")
                         .on_click(move |_ev, _window, cx| {
                             if let Some(e) = ent_cancel.upgrade() {
@@ -2846,22 +3483,40 @@ fn render_manage_accounts_overlay(
                                     this.cancel_dialog(cx);
                                 });
                             }
-                        })
-                )
+                        }),
+                ),
         )
         .child(
-            div().text_xs().text_color(muted).child("Add an account by entering a Personal Access Token (PAT).")
+            div()
+                .text_xs()
+                .text_color(muted)
+                .child("Add an account by entering a Personal Access Token (PAT)."),
         )
         .child(
-            div().flex().gap_2()
-                .child(render_add_provider_button("GitHub", accent, border, ent_github, "github"))
-                .child(render_add_provider_button("GitLab", accent, border, ent_gitlab, "gitlab"))
-                .child(render_add_provider_button("Codeberg", accent, border, ent_codeberg, "codeberg"))
+            div()
+                .flex()
+                .gap_2()
+                .child(render_add_provider_button(
+                    "GitHub", accent, border, ent_github, "github",
+                ))
+                .child(render_add_provider_button(
+                    "GitLab", accent, border, ent_gitlab, "gitlab",
+                ))
+                .child(render_add_provider_button(
+                    "Codeberg",
+                    accent,
+                    border,
+                    ent_codeberg,
+                    "codeberg",
+                )),
         );
 
     if accounts.is_empty() {
         content = content.child(
-            div().text_xs().text_color(muted).child("No accounts configured.")
+            div()
+                .text_xs()
+                .text_color(muted)
+                .child("No accounts configured."),
         );
     } else {
         let mut list = div().flex().flex_col().gap_1();
@@ -2882,26 +3537,45 @@ fn render_manage_accounts_overlay(
             list = list.child(
                 div()
                     .id(ElementId::NamedInteger("account-row".into(), i as u64))
-                    .px_2().py_1()
-                    .border_1().border_color(border)
+                    .px_2()
+                    .py_1()
+                    .border_1()
+                    .border_color(border)
                     .rounded(px(3.0))
                     .flex()
                     .items_center()
                     .justify_between()
                     .child(
-                        div().flex().items_center().gap_2()
-                            .child(div().text_xs().font_weight(FontWeight::SEMIBOLD).text_color(provider_color).child(prov_lower))
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_color(provider_color)
+                                    .child(prov_lower),
+                            )
                             .child(div().text_sm().text_color(text_color).child(display))
-                            .child(div().text_xs().text_color(muted).child(format!("@{}", username)))
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(muted)
+                                    .child(format!("@{}", username)),
+                            ),
                     )
                     .child(
                         div()
                             .id(ElementId::NamedInteger("remove-account".into(), i as u64))
-                            .px_2().py_0()
-                            .border_1().border_color(warning)
+                            .px_2()
+                            .py_0()
+                            .border_1()
+                            .border_color(warning)
                             .rounded(px(3.0))
                             .cursor_pointer()
-                            .text_xs().text_color(warning)
+                            .text_xs()
+                            .text_color(warning)
                             .child("Remove")
                             .on_click(move |_ev, _window, cx| {
                                 if let Some(e) = ent_remove.upgrade() {
@@ -2911,8 +3585,8 @@ fn render_manage_accounts_overlay(
                                         this.remove_hosting_account(u, p, cx);
                                     });
                                 }
-                            })
-                    )
+                            }),
+                    ),
             );
         }
         content = content.child(list);
@@ -2921,7 +3595,8 @@ fn render_manage_accounts_overlay(
     div()
         .id("dialog-overlay")
         .absolute()
-        .top_0().left_0()
+        .top_0()
+        .left_0()
         .size_full()
         .bg(overlay_bg)
         .flex()
@@ -2940,11 +3615,14 @@ fn render_add_provider_button(
     let provider = provider.to_string();
     div()
         .id(ElementId::Name(format!("add-{}", provider).into()))
-        .px_2().py_0()
-        .border_1().border_color(border_color)
+        .px_2()
+        .py_0()
+        .border_1()
+        .border_color(border_color)
         .rounded(px(3.0))
         .cursor_pointer()
-        .text_xs().text_color(color)
+        .text_xs()
+        .text_color(color)
         .child(format!("+ {}", label))
         .on_click(move |_ev, _window, cx| {
             if let Some(e) = entity.upgrade() {
@@ -2977,7 +3655,8 @@ fn render_fork_confirm_overlay(
     div()
         .id("dialog-overlay")
         .absolute()
-        .top_0().left_0()
+        .top_0()
+        .left_0()
         .size_full()
         .bg(overlay_bg)
         .flex()
@@ -2996,23 +3675,34 @@ fn render_fork_confirm_overlay(
                 .flex_col()
                 .gap_3()
                 .child(
-                    div().text_sm().font_weight(FontWeight::BOLD).text_color(text_color)
-                        .child("Fork Repository")
+                    div()
+                        .text_sm()
+                        .font_weight(FontWeight::BOLD)
+                        .text_color(text_color)
+                        .child("Fork Repository"),
                 )
                 .child(
-                    div().text_sm().text_color(text_color)
-                        .child(format!("Fork {}/{} to your account?", owner, repo))
+                    div()
+                        .text_sm()
+                        .text_color(text_color)
+                        .child(format!("Fork {}/{} to your account?", owner, repo)),
                 )
                 .child(
-                    div().flex().gap_2().justify_end()
+                    div()
+                        .flex()
+                        .gap_2()
+                        .justify_end()
                         .child(
                             div()
                                 .id("fork-cancel")
-                                .px_3().py_1()
-                                .border_1().border_color(border)
+                                .px_3()
+                                .py_1()
+                                .border_1()
+                                .border_color(border)
                                 .rounded(px(3.0))
                                 .cursor_pointer()
-                                .text_xs().text_color(muted)
+                                .text_xs()
+                                .text_color(muted)
                                 .child("Cancel")
                                 .on_click(move |_ev, _window, cx| {
                                     if let Some(e) = ent_cancel.upgrade() {
@@ -3020,31 +3710,36 @@ fn render_fork_confirm_overlay(
                                             this.cancel_dialog(cx);
                                         });
                                     }
-                                })
+                                }),
                         )
                         .child(
                             div()
                                 .id("fork-confirm")
-                                .px_3().py_1()
-                                .border_1().border_color(warning)
+                                .px_3()
+                                .py_1()
+                                .border_1()
+                                .border_color(warning)
                                 .rounded(px(3.0))
                                 .cursor_pointer()
-                                .text_xs().text_color(warning)
+                                .text_xs()
+                                .text_color(warning)
                                 .child("Fork")
                                 .on_click(move |_ev, _window, cx| {
                                     if let Some(e) = ent_confirm.upgrade() {
                                         let o = owner_owned.clone();
                                         let r = repo_owned.clone();
                                         e.update(cx, |this, cx| {
-                                            let provider = this.hosting_accounts.first()
+                                            let provider = this
+                                                .hosting_accounts
+                                                .first()
                                                 .map(|a| a.provider.clone())
                                                 .unwrap_or_default();
                                             this.fork_repo(o, r, provider, cx);
                                         });
                                     }
-                                })
-                        )
-                )
+                                }),
+                        ),
+                ),
         )
 }
 
@@ -3064,7 +3759,11 @@ fn render_ai_settings_overlay(
     let muted = rgba_to_hsla(colors.text_muted);
 
     let providers = ["disabled", "ollama", "openai", "anthropic"];
-    let current_provider = if providers.contains(&provider_input) { provider_input } else { "disabled" };
+    let current_provider = if providers.contains(&provider_input) {
+        provider_input
+    } else {
+        "disabled"
+    };
     let show_model = current_provider != "disabled";
     let show_api_key = current_provider == "openai" || current_provider == "anthropic";
 
@@ -3075,20 +3774,31 @@ fn render_ai_settings_overlay(
     for p in providers {
         let is_active = p == current_provider;
         let bg = if is_active { accent } else { surface };
-        let tc = if is_active { rgba_to_hsla(colors.background) } else { text_color };
+        let tc = if is_active {
+            rgba_to_hsla(colors.background)
+        } else {
+            text_color
+        };
         let bc = if is_active { accent } else { border };
         let ent = entity.clone();
         let p_owned = p.to_string();
         provider_buttons.push(
             div()
                 .id(ElementId::Name(format!("ai-provider-{}", p).into()))
-                .px_3().py_1()
-                .border_1().border_color(bc)
+                .px_3()
+                .py_1()
+                .border_1()
+                .border_color(bc)
                 .rounded(px(3.0))
                 .bg(bg)
                 .cursor_pointer()
-                .text_xs().text_color(tc)
-                .font_weight(if is_active { FontWeight::SEMIBOLD } else { FontWeight::NORMAL })
+                .text_xs()
+                .text_color(tc)
+                .font_weight(if is_active {
+                    FontWeight::SEMIBOLD
+                } else {
+                    FontWeight::NORMAL
+                })
                 .child(p.to_string())
                 .on_click(move |_ev, _window, cx| {
                     if let Some(e) = ent.upgrade() {
@@ -3096,15 +3806,28 @@ fn render_ai_settings_overlay(
                         e.update(cx, |this, cx| {
                             this.dialog_input = val;
                             match this.dialog_input.as_str() {
-                                "ollama" => { if this.dialog_input_2.is_empty() { this.dialog_input_2 = "codellama".to_string(); } }
-                                "openai" => { if this.dialog_input_2.is_empty() { this.dialog_input_2 = "gpt-4o-mini".to_string(); } }
-                                "anthropic" => { if this.dialog_input_2.is_empty() { this.dialog_input_2 = "claude-sonnet-4-20250514".to_string(); } }
+                                "ollama" => {
+                                    if this.dialog_input_2.is_empty() {
+                                        this.dialog_input_2 = "codellama".to_string();
+                                    }
+                                }
+                                "openai" => {
+                                    if this.dialog_input_2.is_empty() {
+                                        this.dialog_input_2 = "gpt-4o-mini".to_string();
+                                    }
+                                }
+                                "anthropic" => {
+                                    if this.dialog_input_2.is_empty() {
+                                        this.dialog_input_2 =
+                                            "claude-sonnet-4-20250514".to_string();
+                                    }
+                                }
                                 _ => {}
                             }
                             cx.notify();
                         });
                     }
-                })
+                }),
         );
     }
 
@@ -3113,10 +3836,16 @@ fn render_ai_settings_overlay(
         "Model name".to_string()
     } else {
         let mut t = model_input.to_string();
-        if is_focused { t.push('\u{2502}'); }
+        if is_focused {
+            t.push('\u{2502}');
+        }
         t
     };
-    let model_color = if model_input.is_empty() && !is_focused { muted } else { text_color };
+    let model_color = if model_input.is_empty() && !is_focused {
+        muted
+    } else {
+        text_color
+    };
 
     let ent_model = entity.clone();
     let fh = input_focus.clone();
@@ -3133,15 +3862,14 @@ fn render_ai_settings_overlay(
         .flex_col()
         .gap_3()
         .child(
-            div().text_sm().font_weight(FontWeight::BOLD).text_color(text_color)
-                .child("AI Settings")
+            div()
+                .text_sm()
+                .font_weight(FontWeight::BOLD)
+                .text_color(text_color)
+                .child("AI Settings"),
         )
-        .child(
-            div().text_xs().text_color(muted).child("Provider")
-        )
-        .child(
-            div().flex().gap_2().children(provider_buttons)
-        );
+        .child(div().text_xs().text_color(muted).child("Provider"))
+        .child(div().flex().gap_2().children(provider_buttons));
 
     if show_model {
         let ent_m = ent_model.clone();
@@ -3152,8 +3880,10 @@ fn render_ai_settings_overlay(
                 div()
                     .id(ElementId::Name("ai-model-input".into()))
                     .track_focus(&fh2)
-                    .px_2().py_1()
-                    .border_1().border_color(border)
+                    .px_2()
+                    .py_1()
+                    .border_1()
+                    .border_color(border)
                     .rounded(px(3.0))
                     .bg(rgba_to_hsla(colors.background))
                     .cursor_pointer()
@@ -3199,9 +3929,7 @@ fn render_ai_settings_overlay(
                             }
                         }
                     })
-                    .child(
-                        div().text_sm().text_color(model_color).child(model_display)
-                    )
+                    .child(div().text_sm().text_color(model_color).child(model_display)),
             );
     }
 
@@ -3211,11 +3939,14 @@ fn render_ai_settings_overlay(
         dialog_box = dialog_box.child(
             div()
                 .id("ai-set-key-btn")
-                .px_3().py_1()
-                .border_1().border_color(accent)
+                .px_3()
+                .py_1()
+                .border_1()
+                .border_color(accent)
                 .rounded(px(3.0))
                 .cursor_pointer()
-                .text_xs().text_color(accent)
+                .text_xs()
+                .text_color(accent)
                 .child("Set API Key (stored in keyring)")
                 .on_click(move |_ev, _window, cx| {
                     if let Some(e) = ent_key.upgrade() {
@@ -3224,20 +3955,26 @@ fn render_ai_settings_overlay(
                             this.open_ai_api_key_dialog(p, cx);
                         });
                     }
-                })
+                }),
         );
     }
 
     dialog_box = dialog_box.child(
-        div().flex().gap_2().justify_end()
+        div()
+            .flex()
+            .gap_2()
+            .justify_end()
             .child(
                 div()
                     .id("ai-cancel")
-                    .px_3().py_1()
-                    .border_1().border_color(border)
+                    .px_3()
+                    .py_1()
+                    .border_1()
+                    .border_color(border)
                     .rounded(px(3.0))
                     .cursor_pointer()
-                    .text_xs().text_color(muted)
+                    .text_xs()
+                    .text_color(muted)
                     .child("Cancel")
                     .on_click(move |_ev, _window, cx| {
                         if let Some(e) = ent_cancel.upgrade() {
@@ -3245,16 +3982,19 @@ fn render_ai_settings_overlay(
                                 this.cancel_dialog(cx);
                             });
                         }
-                    })
+                    }),
             )
             .child(
                 div()
                     .id("ai-confirm")
-                    .px_3().py_1()
-                    .border_1().border_color(accent)
+                    .px_3()
+                    .py_1()
+                    .border_1()
+                    .border_color(accent)
                     .rounded(px(3.0))
                     .cursor_pointer()
-                    .text_xs().text_color(accent)
+                    .text_xs()
+                    .text_color(accent)
                     .child("Save")
                     .on_click(move |_ev, _window, cx| {
                         if let Some(e) = ent_confirm.upgrade() {
@@ -3262,14 +4002,15 @@ fn render_ai_settings_overlay(
                                 this.confirm_dialog(cx);
                             });
                         }
-                    })
-            )
+                    }),
+            ),
     );
 
     div()
         .id("dialog-overlay")
         .absolute()
-        .top_0().left_0()
+        .top_0()
+        .left_0()
         .size_full()
         .bg(overlay_bg)
         .flex()
@@ -3300,10 +4041,16 @@ fn render_create_worktree_overlay(
         "Directory path (relative or absolute)".to_string()
     } else {
         let mut t = input_value.to_string();
-        if is_focused { t.push('\u{2502}'); }
+        if is_focused {
+            t.push('\u{2502}');
+        }
         t
     };
-    let display_color = if input_value.is_empty() && !is_focused { muted } else { text_color };
+    let display_color = if input_value.is_empty() && !is_focused {
+        muted
+    } else {
+        text_color
+    };
     let border_focus = if is_focused { accent } else { border };
 
     let display_text_2 = if input_value_2.is_empty() {
@@ -3311,7 +4058,11 @@ fn render_create_worktree_overlay(
     } else {
         input_value_2.to_string()
     };
-    let display_color_2 = if input_value_2.is_empty() { muted } else { text_color };
+    let display_color_2 = if input_value_2.is_empty() {
+        muted
+    } else {
+        text_color
+    };
 
     let ent_cancel = entity.clone();
     let ent_cancel2 = entity.clone();
@@ -3328,37 +4079,56 @@ fn render_create_worktree_overlay(
         .id("dialog-box")
         .w(px(420.0))
         .bg(surface)
-        .border_1().border_color(border)
+        .border_1()
+        .border_color(border)
         .rounded(px(6.0))
         .p_4()
-        .flex().flex_col().gap_3()
-        .child(div().text_sm().font_weight(FontWeight::BOLD).text_color(text_color).child("Create Worktree"))
+        .flex()
+        .flex_col()
+        .gap_3()
+        .child(
+            div()
+                .text_sm()
+                .font_weight(FontWeight::BOLD)
+                .text_color(text_color)
+                .child("Create Worktree"),
+        )
         .child(div().text_xs().text_color(muted).child("Target directory:"))
         .child(
             div()
                 .id(ElementId::Name("dialog-input".into()))
                 .track_focus(&fh1)
-                .px_2().py_1()
-                .border_1().border_color(border_focus)
+                .px_2()
+                .py_1()
+                .border_1()
+                .border_color(border_focus)
                 .rounded(px(3.0))
                 .bg(rgba_to_hsla(colors.background))
                 .cursor_pointer()
-                .on_click(move |_ev, window, _cx| { window.focus(&fh1); })
+                .on_click(move |_ev, window, _cx| {
+                    window.focus(&fh1);
+                })
                 .on_key_down(move |ev: &KeyDownEvent, _window, cx| {
                     match ev.keystroke.key.as_str() {
                         "enter" => {
                             if let Some(e) = ent_confirm.upgrade() {
-                                e.update(cx, |this, cx| { this.confirm_dialog(cx); });
+                                e.update(cx, |this, cx| {
+                                    this.confirm_dialog(cx);
+                                });
                             }
                         }
                         "escape" => {
                             if let Some(e) = ent_cancel.upgrade() {
-                                e.update(cx, |this, cx| { this.cancel_dialog(cx); });
+                                e.update(cx, |this, cx| {
+                                    this.cancel_dialog(cx);
+                                });
                             }
                         }
                         "backspace" => {
                             if let Some(e) = ent_input.upgrade() {
-                                e.update(cx, |this, cx| { this.edit_dialog_input(None, cx); });
+                                e.update(cx, |this, cx| {
+                                    this.edit_dialog_input(None, cx);
+                                });
                             }
                         }
                         _ => {
@@ -3366,36 +4136,56 @@ fn render_create_worktree_overlay(
                                 if !ev.keystroke.modifiers.platform {
                                     if let Some(e) = ent_input.upgrade() {
                                         let c = ch;
-                                        e.update(cx, |this, cx| { this.edit_dialog_input(Some(&c), cx); });
+                                        e.update(cx, |this, cx| {
+                                            this.edit_dialog_input(Some(&c), cx);
+                                        });
                                     }
                                 }
                             }
                         }
                     }
                 })
-                .child(div().text_sm().text_color(display_color).child(display_text))
+                .child(
+                    div()
+                        .text_sm()
+                        .text_color(display_color)
+                        .child(display_text),
+                ),
         )
-        .child(div().text_xs().text_color(muted).child("Checkout ref (branch, tag, or commit):"))
+        .child(
+            div()
+                .text_xs()
+                .text_color(muted)
+                .child("Checkout ref (branch, tag, or commit):"),
+        )
         .child(
             div()
                 .id(ElementId::Name("dialog-input-2".into()))
                 .track_focus(&fh2)
-                .px_2().py_1()
-                .border_1().border_color(border)
+                .px_2()
+                .py_1()
+                .border_1()
+                .border_color(border)
                 .rounded(px(3.0))
                 .bg(rgba_to_hsla(colors.background))
                 .cursor_pointer()
-                .on_click(move |_ev, window, _cx| { window.focus(&fh2); })
+                .on_click(move |_ev, window, _cx| {
+                    window.focus(&fh2);
+                })
                 .on_key_down(move |ev: &KeyDownEvent, _window, cx| {
                     match ev.keystroke.key.as_str() {
                         "enter" => {
                             if let Some(e) = ent_confirm2.upgrade() {
-                                e.update(cx, |this, cx| { this.confirm_dialog(cx); });
+                                e.update(cx, |this, cx| {
+                                    this.confirm_dialog(cx);
+                                });
                             }
                         }
                         "escape" => {
                             if let Some(e) = ent_cancel2.upgrade() {
-                                e.update(cx, |this, cx| { this.cancel_dialog(cx); });
+                                e.update(cx, |this, cx| {
+                                    this.cancel_dialog(cx);
+                                });
                             }
                         }
                         "backspace" => {
@@ -3421,47 +4211,70 @@ fn render_create_worktree_overlay(
                         }
                     }
                 })
-                .child(div().text_sm().text_color(display_color_2).child(display_text_2))
+                .child(
+                    div()
+                        .text_sm()
+                        .text_color(display_color_2)
+                        .child(display_text_2),
+                ),
         )
         .child(
-            div().flex().gap_2().justify_end()
+            div()
+                .flex()
+                .gap_2()
+                .justify_end()
                 .child(
                     div()
                         .id("dialog-cancel")
-                        .px_3().py_1()
-                        .border_1().border_color(border)
+                        .px_3()
+                        .py_1()
+                        .border_1()
+                        .border_color(border)
                         .rounded(px(3.0))
                         .cursor_pointer()
-                        .text_xs().text_color(muted)
+                        .text_xs()
+                        .text_color(muted)
                         .child("Cancel")
                         .on_click(move |_ev, _window, cx| {
                             if let Some(e) = ent_cancel3.upgrade() {
-                                e.update(cx, |this, cx| { this.cancel_dialog(cx); });
+                                e.update(cx, |this, cx| {
+                                    this.cancel_dialog(cx);
+                                });
                             }
-                        })
+                        }),
                 )
                 .child(
                     div()
                         .id("dialog-confirm")
-                        .px_3().py_1()
-                        .border_1().border_color(warning)
+                        .px_3()
+                        .py_1()
+                        .border_1()
+                        .border_color(warning)
                         .rounded(px(3.0))
                         .cursor_pointer()
-                        .text_xs().text_color(warning)
+                        .text_xs()
+                        .text_color(warning)
                         .child("Create")
                         .on_click(move |_ev, _window, cx| {
                             if let Some(e) = ent_confirm3.upgrade() {
-                                e.update(cx, |this, cx| { this.confirm_dialog(cx); });
+                                e.update(cx, |this, cx| {
+                                    this.confirm_dialog(cx);
+                                });
                             }
-                        })
-                )
+                        }),
+                ),
         );
 
     div()
         .id("dialog-overlay")
-        .absolute().top_0().left_0().size_full()
+        .absolute()
+        .top_0()
+        .left_0()
+        .size_full()
         .bg(overlay_bg)
-        .flex().items_center().justify_center()
+        .flex()
+        .items_center()
+        .justify_center()
         .child(dialog_box)
 }
 
@@ -3484,50 +4297,82 @@ fn render_remove_worktree_overlay(
         .id("dialog-box")
         .w(px(400.0))
         .bg(surface)
-        .border_1().border_color(border)
+        .border_1()
+        .border_color(border)
         .rounded(px(6.0))
         .p_4()
-        .flex().flex_col().gap_3()
-        .child(div().text_sm().font_weight(FontWeight::BOLD).text_color(text_color).child("Remove Worktree"))
-        .child(div().text_sm().text_color(text_color).child(format!("Remove worktree at {}?", path)))
+        .flex()
+        .flex_col()
+        .gap_3()
         .child(
-            div().flex().gap_2().justify_end()
+            div()
+                .text_sm()
+                .font_weight(FontWeight::BOLD)
+                .text_color(text_color)
+                .child("Remove Worktree"),
+        )
+        .child(
+            div()
+                .text_sm()
+                .text_color(text_color)
+                .child(format!("Remove worktree at {}?", path)),
+        )
+        .child(
+            div()
+                .flex()
+                .gap_2()
+                .justify_end()
                 .child(
                     div()
                         .id("dialog-cancel")
-                        .px_3().py_1()
-                        .border_1().border_color(border)
+                        .px_3()
+                        .py_1()
+                        .border_1()
+                        .border_color(border)
                         .rounded(px(3.0))
                         .cursor_pointer()
-                        .text_xs().text_color(muted)
+                        .text_xs()
+                        .text_color(muted)
                         .child("Cancel")
                         .on_click(move |_ev, _window, cx| {
                             if let Some(e) = ent_cancel.upgrade() {
-                                e.update(cx, |this, cx| { this.cancel_dialog(cx); });
+                                e.update(cx, |this, cx| {
+                                    this.cancel_dialog(cx);
+                                });
                             }
-                        })
+                        }),
                 )
                 .child(
                     div()
                         .id("dialog-confirm")
-                        .px_3().py_1()
-                        .border_1().border_color(warning)
+                        .px_3()
+                        .py_1()
+                        .border_1()
+                        .border_color(warning)
                         .rounded(px(3.0))
                         .cursor_pointer()
-                        .text_xs().text_color(warning)
+                        .text_xs()
+                        .text_color(warning)
                         .child("Remove")
                         .on_click(move |_ev, _window, cx| {
                             if let Some(e) = ent_confirm.upgrade() {
-                                e.update(cx, |this, cx| { this.confirm_dialog(cx); });
+                                e.update(cx, |this, cx| {
+                                    this.confirm_dialog(cx);
+                                });
                             }
-                        })
-                )
+                        }),
+                ),
         );
 
     div()
         .id("dialog-overlay")
-        .absolute().top_0().left_0().size_full()
+        .absolute()
+        .top_0()
+        .left_0()
+        .size_full()
         .bg(overlay_bg)
-        .flex().items_center().justify_center()
+        .flex()
+        .items_center()
+        .justify_center()
         .child(dialog_box)
 }

@@ -47,15 +47,21 @@ fn default_editor_command() -> String {
 }
 
 fn default_terminal_command() -> String {
-    std::env::var("TERMINAL")
-        .unwrap_or_else(|_| {
-            for cmd in &["alacritty", "kitty", "wezterm", "gnome-terminal", "konsole", "xterm"] {
-                if which_exists(cmd) {
-                    return cmd.to_string();
-                }
+    std::env::var("TERMINAL").unwrap_or_else(|_| {
+        for cmd in &[
+            "alacritty",
+            "kitty",
+            "wezterm",
+            "gnome-terminal",
+            "konsole",
+            "xterm",
+        ] {
+            if which_exists(cmd) {
+                return cmd.to_string();
             }
-            "xterm".into()
-        })
+        }
+        "xterm".into()
+    })
 }
 
 fn which_exists(cmd: &str) -> bool {
