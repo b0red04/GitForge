@@ -4,6 +4,7 @@ use gitforge_ui::{AppColors, Theme, ThemeEntry, rgba_to_hsla};
 use gpui::*;
 
 use parking_lot::Mutex;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use super::command_palette::CommandPalette;
@@ -95,10 +96,20 @@ pub enum AppDialog {
     },
 }
 
+struct OpenRepoTab {
+    id: u64,
+    path: PathBuf,
+    repo: Arc<Mutex<Option<Repository>>>,
+    repo_state: Option<RepoState>,
+    loading: bool,
+    last_error: Option<String>,
+}
+
 pub struct GitForgeApp {
     colors: AppColors,
-    open_repo: Arc<Mutex<Option<Repository>>>,
-    repo_state: Option<RepoState>,
+    open_repo_tabs: Vec<OpenRepoTab>,
+    active_repo_tab_id: Option<u64>,
+    next_repo_tab_id: u64,
     graph_panel: GraphPanel,
     diff_panel: DiffPanel,
     pub status_panel: StatusPanel,
@@ -140,8 +151,9 @@ impl GitForgeApp {
         let sidebar_state = SidebarState::new(cx);
         let mut app = Self {
             colors,
-            open_repo: Arc::new(Mutex::new(None)),
-            repo_state: None,
+            open_repo_tabs: Vec::new(),
+            active_repo_tab_id: None,
+            next_repo_tab_id: 1,
             graph_panel: GraphPanel::new(),
             diff_panel: DiffPanel::new(),
             status_panel: StatusPanel::new(cx),
@@ -214,6 +226,290 @@ impl GitForgeApp {
             self.active_titlebar_menu = None;
             cx.notify();
         }
+    }
+
+    fn active_tab(&self) -> Option<&OpenRepoTab> {
+        let active_id = self.active_repo_tab_id?;
+        self.open_repo_tabs.iter().find(|tab| tab.id == active_id)
+    }
+
+    fn active_tab_mut(&mut self) -> Option<&mut OpenRepoTab> {
+        let active_id = self.active_repo_tab_id?;
+        self.open_repo_tabs
+            .iter_mut()
+            .find(|tab| tab.id == active_id)
+    }
+
+    fn active_repo_state(&self) -> Option<&RepoState> {
+        self.active_tab().and_then(|tab| tab.repo_state.as_ref())
+    }
+
+    fn active_repo_handle(&self) -> Option<Arc<Mutex<Option<Repository>>>> {
+        self.active_tab().map(|tab| tab.repo.clone())
+    }
+
+    fn require_active_repo_handle(&mut self) -> Option<Arc<Mutex<Option<Repository>>>> {
+        let handle = self.active_repo_handle();
+        if handle.is_none() {
+            self.last_error = Some("No repository open".into());
+        }
+        handle
+    }
+
+    fn repo_tab_views(&self) -> Vec<super::repo_tabs::RepoTabView> {
+        self.open_repo_tabs
+            .iter()
+            .map(|tab| super::repo_tabs::RepoTabView {
+                id: tab.id,
+                name: tab
+                    .path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or("repository")
+                    .to_string(),
+                loading: tab.loading,
+                has_error: tab.last_error.is_some(),
+            })
+            .collect()
+    }
+
+    fn normalize_repo_path(path: &Path) -> PathBuf {
+        std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+    }
+
+    fn find_tab_by_path(&self, path: &Path) -> Option<u64> {
+        let normalized = Self::normalize_repo_path(path);
+        self.open_repo_tabs
+            .iter()
+            .find(|tab| Self::normalize_repo_path(&tab.path) == normalized)
+            .map(|tab| tab.id)
+    }
+
+    fn clear_repo_panels(&mut self) {
+        self.graph_panel
+            .set_data(Vec::new(), Vec::new(), Graph::new(), false);
+        self.diff_panel.clear();
+        self.status_panel.clear();
+    }
+
+    fn clear_active_repo_view(&mut self) {
+        self.clear_repo_panels();
+        self.last_error = None;
+        self.loading = false;
+    }
+
+    fn apply_active_repo_tab_to_view(&mut self) {
+        let Some((repo_state, loading, last_error)) = self
+            .active_tab()
+            .map(|tab| (tab.repo_state.clone(), tab.loading, tab.last_error.clone()))
+        else {
+            self.clear_active_repo_view();
+            return;
+        };
+
+        if let Some(repo_state) = repo_state {
+            self.loading = false;
+            self.last_error = None;
+            self.apply_repo_state_to_panels(&repo_state);
+        } else {
+            self.clear_repo_panels();
+            self.loading = loading;
+            self.last_error = last_error;
+        }
+    }
+
+    pub fn restore_open_repo_tabs(&mut self, cx: &mut Context<Self>) {
+        let paths = self.settings.open_repo_paths.clone();
+        if paths.is_empty() {
+            return;
+        }
+
+        let active_path = self.settings.active_repo_path.clone();
+        let mut restore_ids = Vec::new();
+
+        for path in paths {
+            let path_buf = PathBuf::from(path);
+            let id = self.next_repo_tab_id;
+            self.next_repo_tab_id += 1;
+            let repo = Arc::new(Mutex::new(None));
+            self.open_repo_tabs.push(OpenRepoTab {
+                id,
+                path: Self::normalize_repo_path(&path_buf),
+                repo,
+                repo_state: None,
+                loading: true,
+                last_error: None,
+            });
+            restore_ids.push(id);
+        }
+
+        self.active_repo_tab_id = active_path
+            .as_deref()
+            .and_then(|path| self.find_tab_by_path(Path::new(path)))
+            .or_else(|| restore_ids.first().copied());
+        self.apply_active_repo_tab_to_view();
+
+        for tab_id in restore_ids {
+            self.start_loading_repo_tab(tab_id, cx);
+        }
+    }
+
+    fn open_or_activate_repo_tab(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+        let normalized = Self::normalize_repo_path(&path);
+        if let Some(tab_id) = self.find_tab_by_path(&normalized) {
+            self.activate_repo_tab(tab_id, cx);
+            let should_retry = self
+                .open_repo_tabs
+                .iter()
+                .find(|tab| tab.id == tab_id)
+                .is_some_and(|tab| tab.last_error.is_some() && !tab.loading);
+            if should_retry {
+                self.start_loading_repo_tab(tab_id, cx);
+            }
+            return;
+        }
+
+        let id = self.next_repo_tab_id;
+        self.next_repo_tab_id += 1;
+        let repo = Arc::new(Mutex::new(None));
+        self.open_repo_tabs.push(OpenRepoTab {
+            id,
+            path: normalized,
+            repo,
+            repo_state: None,
+            loading: true,
+            last_error: None,
+        });
+        self.active_repo_tab_id = Some(id);
+        self.apply_active_repo_tab_to_view();
+        self.save_settings();
+        cx.notify();
+        self.start_loading_repo_tab(id, cx);
+    }
+
+    fn start_loading_repo_tab(&mut self, tab_id: u64, cx: &mut Context<Self>) {
+        let Some(tab) = self.open_repo_tabs.iter_mut().find(|tab| tab.id == tab_id) else {
+            return;
+        };
+        let path = tab.path.clone();
+        let repo_handle = tab.repo.clone();
+        tab.loading = true;
+        tab.last_error = None;
+        if self.active_repo_tab_id == Some(tab_id) {
+            self.loading = true;
+            self.last_error = None;
+        }
+        cx.notify();
+
+        let log_options = gitforge_git::CommitLogOptions {
+            include_custom_refs: self.settings.show_checkpoint_refs,
+        };
+
+        cx.spawn(async move |this, cx| {
+            let result = tokio::task::spawn_blocking(
+                move || -> Result<(Repository, RepoState), GitError> {
+                    let repo = Repository::discover(&path)?;
+                    let repo_state = RepoState::from_repository_with_options(&repo, log_options)?;
+                    Ok((repo, repo_state))
+                },
+            )
+            .await;
+
+            match result {
+                Ok(Ok((repo, repo_state_data))) => {
+                    *repo_handle.lock() = Some(repo);
+                    this.update(cx, |this, cx| {
+                        this.finish_repo_tab_load(tab_id, Ok(repo_state_data), cx);
+                    })
+                    .ok();
+                }
+                Ok(Err(e)) => {
+                    this.update(cx, |this, cx| {
+                        this.finish_repo_tab_load(tab_id, Err(format!("{}", e)), cx);
+                    })
+                    .ok();
+                }
+                Err(e) => {
+                    this.update(cx, |this, cx| {
+                        this.finish_repo_tab_load(tab_id, Err(format!("Task panicked: {}", e)), cx);
+                    })
+                    .ok();
+                }
+            }
+        })
+        .detach();
+    }
+
+    fn finish_repo_tab_load(
+        &mut self,
+        tab_id: u64,
+        result: Result<RepoState, String>,
+        cx: &mut Context<Self>,
+    ) {
+        let is_active = self.active_repo_tab_id == Some(tab_id);
+        match result {
+            Ok(repo_state) => {
+                if let Some(tab) = self.open_repo_tabs.iter_mut().find(|tab| tab.id == tab_id) {
+                    tab.path = repo_state.path.clone();
+                    tab.repo_state = Some(repo_state.clone());
+                    tab.loading = false;
+                    tab.last_error = None;
+                } else {
+                    return;
+                }
+
+                if is_active {
+                    self.apply_active_repo_tab_to_view();
+                }
+                self.save_settings();
+            }
+            Err(error) => {
+                if let Some(tab) = self.open_repo_tabs.iter_mut().find(|tab| tab.id == tab_id) {
+                    tab.loading = false;
+                    tab.last_error = Some(format!("Failed to load repository: {}", error));
+                } else {
+                    return;
+                }
+
+                if is_active {
+                    self.apply_active_repo_tab_to_view();
+                }
+            }
+        }
+        cx.notify();
+    }
+
+    pub fn activate_repo_tab(&mut self, tab_id: u64, cx: &mut Context<Self>) {
+        if self.active_repo_tab_id == Some(tab_id) {
+            return;
+        }
+        self.active_repo_tab_id = Some(tab_id);
+        self.apply_active_repo_tab_to_view();
+
+        self.save_settings();
+        cx.notify();
+    }
+
+    pub fn close_repo_tab(&mut self, tab_id: u64, cx: &mut Context<Self>) {
+        let Some(index) = self.open_repo_tabs.iter().position(|tab| tab.id == tab_id) else {
+            return;
+        };
+        let was_active = self.active_repo_tab_id == Some(tab_id);
+        self.open_repo_tabs.remove(index);
+
+        if was_active {
+            self.active_repo_tab_id = if self.open_repo_tabs.is_empty() {
+                None
+            } else if index > 0 {
+                Some(self.open_repo_tabs[index - 1].id)
+            } else {
+                Some(self.open_repo_tabs[0].id)
+            };
+            self.apply_active_repo_tab_to_view();
+        }
+
+        self.save_settings();
+        cx.notify();
     }
 
     pub fn set_theme(&mut self, name: &str, cx: &mut Context<Self>) {
@@ -319,12 +615,12 @@ impl GitForgeApp {
             }
             "soft_reset" => self.soft_reset(cx),
             "open_editor" => {
-                if let Some(path) = self.repo_state.as_ref().map(|r| r.path.clone()) {
+                if let Some(path) = self.active_repo_state().map(|r| r.path.clone()) {
                     self.open_in_editor(path, cx);
                 }
             }
             "open_terminal" => {
-                if let Some(path) = self.repo_state.as_ref().map(|r| r.path.clone()) {
+                if let Some(path) = self.active_repo_state().map(|r| r.path.clone()) {
                     self.open_in_terminal(path, cx);
                 }
             }
@@ -333,9 +629,6 @@ impl GitForgeApp {
     }
 
     fn spawn_open_dialog(&mut self, cx: &mut Context<Self>) {
-        let open_repo_arc = self.open_repo.clone();
-        let include_custom_refs = self.settings.show_checkpoint_refs;
-
         cx.spawn(async move |this, cx| {
             let path =
                 cx.update(|_cx| rfd::AsyncFileDialog::new().set_title("Open Git Repository"));
@@ -357,47 +650,10 @@ impl GitForgeApp {
             };
 
             let path_buf = std::path::PathBuf::from(folder.path());
-            let log_options = gitforge_git::CommitLogOptions {
-                include_custom_refs,
-            };
-
-            let result = tokio::task::spawn_blocking(
-                move || -> Result<(Repository, RepoState), GitError> {
-                    let repo = Repository::discover(&path_buf)?;
-                    let repo_state = RepoState::from_repository_with_options(&repo, log_options)?;
-                    Ok((repo, repo_state))
-                },
-            )
-            .await;
-
-            match result {
-                Ok(Ok((repo, repo_state_data))) => {
-                    *open_repo_arc.lock() = Some(repo);
-                    this.update(cx, |this, cx| {
-                        this.last_error = None;
-                        this.apply_repo_state(repo_state_data);
-                        this.loading = false;
-                        cx.notify();
-                    })
-                    .ok();
-                }
-                Ok(Err(e)) => {
-                    this.update(cx, |this, cx| {
-                        this.last_error = Some(format!("Failed to load repository: {}", e));
-                        this.loading = false;
-                        cx.notify();
-                    })
-                    .ok();
-                }
-                Err(e) => {
-                    this.update(cx, |this, cx| {
-                        this.last_error = Some(format!("Task panicked: {}", e));
-                        this.loading = false;
-                        cx.notify();
-                    })
-                    .ok();
-                }
-            }
+            this.update(cx, |this, cx| {
+                this.open_or_activate_repo_tab(path_buf, cx);
+            })
+            .ok();
         })
         .detach();
     }
@@ -421,9 +677,6 @@ impl GitForgeApp {
         tracing::info!("OpenRepository action fired");
         self.loading = true;
         cx.notify();
-
-        let open_repo_arc = self.open_repo.clone();
-        let include_custom_refs = self.settings.show_checkpoint_refs;
 
         cx.spawn(async move |this, cx| {
             let path =
@@ -454,50 +707,10 @@ impl GitForgeApp {
             };
 
             let path_buf = std::path::PathBuf::from(folder.path());
-            let log_options = gitforge_git::CommitLogOptions {
-                include_custom_refs,
-            };
-
-            let result = tokio::task::spawn_blocking(
-                move || -> Result<(Repository, RepoState), GitError> {
-                    let repo = Repository::discover(&path_buf)?;
-                    let repo_state = RepoState::from_repository_with_options(&repo, log_options)?;
-                    Ok((repo, repo_state))
-                },
-            )
-            .await;
-
-            match result {
-                Ok(Ok((repo, repo_state_data))) => {
-                    *open_repo_arc.lock() = Some(repo);
-
-                    this.update(cx, |this, cx| {
-                        this.last_error = None;
-                        this.apply_repo_state(repo_state_data);
-                        this.loading = false;
-                        cx.notify();
-                    })
-                    .ok();
-                }
-                Ok(Err(e)) => {
-                    tracing::error!("Failed to load repository: {}", e);
-                    this.update(cx, |this, cx| {
-                        this.last_error = Some(format!("Failed to load repository: {}", e));
-                        this.loading = false;
-                        cx.notify();
-                    })
-                    .ok();
-                }
-                Err(e) => {
-                    tracing::error!("Task panicked: {}", e);
-                    this.update(cx, |this, cx| {
-                        this.last_error = Some(format!("Task panicked: {}", e));
-                        this.loading = false;
-                        cx.notify();
-                    })
-                    .ok();
-                }
-            }
+            this.update(cx, |this, cx| {
+                this.open_or_activate_repo_tab(path_buf, cx);
+            })
+            .ok();
         })
         .detach();
     }
@@ -625,7 +838,7 @@ impl GitForgeApp {
         self.open_pull_dialog(cx);
     }
 
-    fn apply_repo_state(&mut self, repo_state_data: RepoState) {
+    fn apply_repo_state_to_panels(&mut self, repo_state_data: &RepoState) {
         let has_uncommitted = repo_state_data.status.has_changes();
 
         let commit_count = repo_state_data.commits.len();
@@ -654,7 +867,16 @@ impl GitForgeApp {
         );
         self.status_panel.set_status(repo_state_data.status.clone());
         self.diff_panel.clear();
-        self.repo_state = Some(repo_state_data);
+    }
+
+    fn apply_repo_state(&mut self, repo_state_data: RepoState) {
+        self.apply_repo_state_to_panels(&repo_state_data);
+        if let Some(tab) = self.active_tab_mut() {
+            tab.path = repo_state_data.path.clone();
+            tab.repo_state = Some(repo_state_data.clone());
+            tab.loading = false;
+            tab.last_error = None;
+        }
     }
 
     pub fn select_commit(&mut self, idx: usize, cx: &mut Context<Self>) {
@@ -676,7 +898,10 @@ impl GitForgeApp {
             return;
         };
 
-        let open_repo = self.open_repo.clone();
+        let Some(open_repo) = self.require_active_repo_handle() else {
+            cx.notify();
+            return;
+        };
         let path_for_result = file_path.clone();
 
         cx.spawn(async move |this, cx| {
@@ -734,16 +959,19 @@ impl GitForgeApp {
 
     pub fn toggle_sidebar_branches(&mut self, cx: &mut Context<Self>) {
         self.sidebar_state.branches_expanded = !self.sidebar_state.branches_expanded;
+        self.save_settings();
         cx.notify();
     }
 
     pub fn toggle_sidebar_remotes(&mut self, cx: &mut Context<Self>) {
         self.sidebar_state.remotes_expanded = !self.sidebar_state.remotes_expanded;
+        self.save_settings();
         cx.notify();
     }
 
     pub fn toggle_sidebar_tags(&mut self, cx: &mut Context<Self>) {
         self.sidebar_state.tags_expanded = !self.sidebar_state.tags_expanded;
+        self.save_settings();
         cx.notify();
     }
 
@@ -803,7 +1031,10 @@ impl GitForgeApp {
     ) {
         self.status_panel.select_file(section, idx);
 
-        let open_repo = self.open_repo.clone();
+        let Some(open_repo) = self.require_active_repo_handle() else {
+            cx.notify();
+            return;
+        };
         let is_staged = section == super::status_panel::StatusFileSection::Staged;
 
         cx.spawn(async move |this, cx| {
@@ -875,7 +1106,10 @@ impl GitForgeApp {
             return;
         }
 
-        let open_repo = self.open_repo.clone();
+        let Some(open_repo) = self.require_active_repo_handle() else {
+            cx.notify();
+            return;
+        };
 
         cx.spawn(async move |this, cx| {
             let result = tokio::task::spawn_blocking(move || {
@@ -928,7 +1162,10 @@ impl GitForgeApp {
             self.settings.ai.model.clone()
         };
         let conventional = self.settings.ai.conventional_commits;
-        let open_repo = self.open_repo.clone();
+        let Some(open_repo) = self.require_active_repo_handle() else {
+            cx.notify();
+            return;
+        };
 
         self.ai_generating = true;
         cx.notify();
@@ -1052,7 +1289,10 @@ impl GitForgeApp {
         } else {
             self.settings.ai.model.clone()
         };
-        let open_repo = self.open_repo.clone();
+        let Some(open_repo) = self.require_active_repo_handle() else {
+            cx.notify();
+            return;
+        };
         let path_for_result = path.clone();
 
         cx.spawn(async move |this, cx| {
@@ -1123,7 +1363,10 @@ impl GitForgeApp {
     }
 
     pub fn load_status(&mut self, cx: &mut Context<Self>) {
-        let open_repo = self.open_repo.clone();
+        let Some(open_repo) = self.require_active_repo_handle() else {
+            cx.notify();
+            return;
+        };
 
         cx.spawn(async move |this, cx| {
             let result = tokio::task::spawn_blocking(move || {
@@ -1339,7 +1582,7 @@ impl GitForgeApp {
             }
             AppDialog::Push { .. } => {
                 let branch = if input.is_empty() {
-                    match self.repo_state.as_ref() {
+                    match self.active_repo_state() {
                         Some(rs) => rs
                             .references
                             .iter()
@@ -1469,7 +1712,10 @@ impl GitForgeApp {
         F: FnOnce(&gitforge_git::Repository) -> Result<R, gitforge_git::GitError> + Send + 'static,
         R: Send + 'static,
     {
-        let open_repo = self.open_repo.clone();
+        let Some(open_repo) = self.require_active_repo_handle() else {
+            cx.notify();
+            return;
+        };
         let label_owned = label.to_string();
         cx.spawn(async move |this, cx| {
             let result = tokio::task::spawn_blocking(move || {
@@ -1506,7 +1752,10 @@ impl GitForgeApp {
         F: FnOnce(&gitforge_git::Repository) -> Result<R, gitforge_git::GitError> + Send + 'static,
         R: Send + 'static,
     {
-        let open_repo = self.open_repo.clone();
+        let Some(open_repo) = self.require_active_repo_handle() else {
+            cx.notify();
+            return;
+        };
         self.remote_status = status.to_string();
         cx.notify();
         let label_owned = label.to_string();
@@ -1755,46 +2004,7 @@ impl GitForgeApp {
     }
 
     fn open_repo_from_path(&mut self, path: std::path::PathBuf, cx: &mut Context<Self>) {
-        let open_repo_arc = self.open_repo.clone();
-        self.loading = true;
-        cx.notify();
-
-        let log_options = gitforge_git::CommitLogOptions {
-            include_custom_refs: self.settings.show_checkpoint_refs,
-        };
-
-        cx.spawn(async move |this, cx| {
-            let result = tokio::task::spawn_blocking(move || -> Result<(gitforge_git::Repository, gitforge_git::RepoState), gitforge_git::GitError> {
-                let repo = gitforge_git::Repository::discover(&path)?;
-                let repo_state = gitforge_git::RepoState::from_repository_with_options(&repo, log_options)?;
-                Ok((repo, repo_state))
-            }).await;
-
-            match result {
-                Ok(Ok((repo, repo_state_data))) => {
-                    *open_repo_arc.lock() = Some(repo);
-                    this.update(cx, |this, cx| {
-                        this.apply_repo_state(repo_state_data);
-                        this.loading = false;
-                        cx.notify();
-                    }).ok();
-                }
-                Ok(Err(e)) => {
-                    tracing::error!("Failed to open cloned repo: {}", e);
-                    this.update(cx, |this, cx| {
-                        this.loading = false;
-                        cx.notify();
-                    }).ok();
-                }
-                Err(e) => {
-                    tracing::error!("Open repo task panicked: {}", e);
-                    this.update(cx, |this, cx| {
-                        this.loading = false;
-                        cx.notify();
-                    }).ok();
-                }
-            }
-        }).detach();
+        self.open_or_activate_repo_tab(path, cx);
     }
 
     pub fn open_push_dialog(&mut self, cx: &mut Context<Self>) {
@@ -2533,7 +2743,9 @@ impl GitForgeApp {
     }
 
     pub fn open_repo_in_browser(&mut self, _cx: &mut Context<Self>) {
-        let Some(rs) = &self.repo_state else { return };
+        let Some(rs) = self.active_repo_state() else {
+            return;
+        };
 
         let remotes: Vec<_> = rs
             .references
@@ -2593,7 +2805,6 @@ impl GitForgeApp {
     }
 
     pub fn open_commit_in_browser(&mut self, commit_id: String) {
-        let _rs = &self.repo_state;
         let remote_url = self.get_first_remote_url();
         let Some(url) = remote_url else { return };
 
@@ -2610,7 +2821,9 @@ impl GitForgeApp {
     }
 
     pub fn open_file_at_line_in_browser(&mut self, path: String, line: Option<u32>) {
-        let Some(rs) = &self.repo_state else { return };
+        let Some(rs) = self.active_repo_state() else {
+            return;
+        };
 
         let sha = rs.commits.first().map(|c| c.id.clone());
         let Some(sha) = sha else { return };
@@ -2631,7 +2844,8 @@ impl GitForgeApp {
     }
 
     fn get_remote_url(&self, remote_name: &str) -> Option<String> {
-        let repo_lock = self.open_repo.lock();
+        let open_repo = self.active_repo_handle()?;
+        let repo_lock = open_repo.lock();
         let repo = repo_lock.as_ref()?;
         let remotes = repo.remote_list().ok()?;
         remotes
@@ -2641,7 +2855,8 @@ impl GitForgeApp {
     }
 
     fn get_first_remote_url(&self) -> Option<String> {
-        let repo_lock = self.open_repo.lock();
+        let open_repo = self.active_repo_handle()?;
+        let repo_lock = open_repo.lock();
         let repo = repo_lock.as_ref()?;
         let remotes = repo.remote_list().ok()?;
         remotes.first().map(|(_, url)| url.clone())
@@ -2666,9 +2881,15 @@ impl GitForgeApp {
         self.settings.sidebar_branches_expanded = self.sidebar_state.branches_expanded;
         self.settings.sidebar_remotes_expanded = self.sidebar_state.remotes_expanded;
         self.settings.sidebar_tags_expanded = self.sidebar_state.tags_expanded;
-        if let Some(rs) = &self.repo_state {
-            self.settings.last_repo_path = Some(rs.path.to_string_lossy().to_string());
-        }
+        self.settings.open_repo_paths = self
+            .open_repo_tabs
+            .iter()
+            .map(|tab| tab.path.to_string_lossy().to_string())
+            .collect();
+        self.settings.active_repo_path = self
+            .active_tab()
+            .map(|tab| tab.path.to_string_lossy().to_string());
+        self.settings.last_repo_path = self.settings.active_repo_path.clone();
         self.settings.save();
     }
 
@@ -2691,7 +2912,10 @@ impl GitForgeApp {
     }
 
     pub fn view_blame(&mut self, file_path: String, cx: &mut Context<Self>) {
-        let open_repo = self.open_repo.clone();
+        let Some(open_repo) = self.require_active_repo_handle() else {
+            cx.notify();
+            return;
+        };
         let path_for_result = file_path.clone();
 
         cx.spawn(async move |this, cx| {
@@ -2724,7 +2948,10 @@ impl GitForgeApp {
 
     fn refresh_repository(&mut self, cx: &mut Context<Self>) {
         self.save_settings();
-        let open_repo = self.open_repo.clone();
+        let Some(open_repo) = self.require_active_repo_handle() else {
+            cx.notify();
+            return;
+        };
         let log_options = gitforge_git::CommitLogOptions {
             include_custom_refs: self.settings.show_checkpoint_refs,
         };
@@ -2768,7 +2995,10 @@ impl GitForgeApp {
             return;
         };
 
-        let open_repo = self.open_repo.clone();
+        let Some(open_repo) = self.require_active_repo_handle() else {
+            cx.notify();
+            return;
+        };
         let id_for_state = commit_id.clone();
 
         cx.spawn(async move |this, cx| {
@@ -2814,9 +3044,10 @@ impl Render for GitForgeApp {
         let bg = rgba_to_hsla(self.colors.background);
         let text = rgba_to_hsla(self.colors.text);
         let entity = cx.entity().downgrade();
+        let active_repo_state = self.active_repo_state();
 
         let sidebar = super::sidebar::render_sidebar(
-            self.repo_state.as_ref(),
+            active_repo_state,
             &self.colors,
             self.loading,
             &self.sidebar_state,
@@ -2826,7 +3057,7 @@ impl Render for GitForgeApp {
         );
 
         let toolbar = super::toolbar::render_toolbar(
-            self.repo_state.as_ref(),
+            active_repo_state,
             &self.colors,
             self.view_mode == MainViewMode::Status,
             self.toolbar_more_open,
@@ -2841,7 +3072,7 @@ impl Render for GitForgeApp {
 
         let right_content = match self.view_mode {
             MainViewMode::CommitHistory => self.diff_panel.render(
-                self.repo_state.as_ref(),
+                active_repo_state,
                 self.graph_panel.selected_idx(),
                 &self.colors,
                 entity.clone(),
@@ -2871,7 +3102,7 @@ impl Render for GitForgeApp {
         });
 
         let titlebar = super::titlebar::render_titlebar(
-            self.repo_state.as_ref(),
+            active_repo_state,
             &self.colors,
             window,
             entity.clone(),
@@ -2887,6 +3118,16 @@ impl Render for GitForgeApp {
             .overflow_hidden()
             .text_color(text)
             .child(titlebar);
+
+        let repo_tab_views = self.repo_tab_views();
+        if !repo_tab_views.is_empty() {
+            inner = inner.child(super::repo_tabs::render_repo_tab_bar(
+                &repo_tab_views,
+                self.active_repo_tab_id,
+                &self.colors,
+                entity.clone(),
+            ));
+        }
 
         if let Some(banner) = error_banner {
             inner = inner.child(banner);

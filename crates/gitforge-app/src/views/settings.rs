@@ -5,6 +5,10 @@ use std::path::PathBuf;
 pub struct AppSettings {
     pub theme: String,
     pub last_repo_path: Option<String>,
+    #[serde(default)]
+    pub open_repo_paths: Vec<String>,
+    #[serde(default)]
+    pub active_repo_path: Option<String>,
     pub sidebar_branches_expanded: bool,
     pub sidebar_remotes_expanded: bool,
     pub sidebar_tags_expanded: bool,
@@ -108,6 +112,8 @@ impl Default for AppSettings {
         Self {
             theme: "default-dark".to_string(),
             last_repo_path: None,
+            open_repo_paths: Vec::new(),
+            active_repo_path: None,
             sidebar_branches_expanded: true,
             sidebar_remotes_expanded: true,
             sidebar_tags_expanded: true,
@@ -134,10 +140,22 @@ impl AppSettings {
 
     pub fn load() -> Self {
         let path = Self::settings_path();
-        match std::fs::read_to_string(&path) {
+        let mut settings = match std::fs::read_to_string(&path) {
             Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
             Err(_) => Self::default(),
+        };
+
+        if settings.open_repo_paths.is_empty()
+            && let Some(path) = settings.last_repo_path.clone()
+        {
+            settings.open_repo_paths.push(path);
         }
+
+        if settings.active_repo_path.is_none() {
+            settings.active_repo_path = settings.open_repo_paths.first().cloned();
+        }
+
+        settings
     }
 
     pub fn save(&self) {
