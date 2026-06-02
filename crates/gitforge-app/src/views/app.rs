@@ -3109,6 +3109,7 @@ impl Render for GitForgeApp {
             self.titlebar_menus_visible,
             self.active_titlebar_menu,
         );
+        let titlebar_divider = super::titlebar::render_titlebar_divider(&self.colors);
 
         let mut inner = div()
             .id("app-content")
@@ -3117,7 +3118,8 @@ impl Render for GitForgeApp {
             .size_full()
             .overflow_hidden()
             .text_color(text)
-            .child(titlebar);
+            .child(titlebar)
+            .child(titlebar_divider);
 
         let repo_tab_views = self.repo_tab_views();
         if !repo_tab_views.is_empty() {

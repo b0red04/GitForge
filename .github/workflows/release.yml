@@ -1,9 +1,8 @@
 name: Release
 
+# Disabled automatic runs — trigger manually from Actions → Release → Run workflow.
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always

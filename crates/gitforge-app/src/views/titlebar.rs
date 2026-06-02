@@ -6,19 +6,102 @@ use super::commands::{TitlebarMenu, titlebar_menu_entries};
 use super::layout::{TITLEBAR_HEIGHT, WINDOW_CORNER_RADIUS};
 use super::window_chrome::{apply_top_corner_radius, seal_rounded_corners};
 
-fn breadcrumb_text(repo_state: Option<&RepoState>) -> String {
-    match repo_state {
-        Some(repo) => {
-            let repo_name = repo
-                .path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("repository");
-            let branch = repo.head_branch.as_deref().unwrap_or("(detached)");
-            format!("{repo_name} › {branch}")
-        }
-        None => "Press Ctrl+O to open a repository".into(),
-    }
+struct TitlebarRepoContext {
+    repo_name: String,
+    branch_name: String,
+    is_detached: bool,
+}
+
+fn repo_context(repo_state: Option<&RepoState>) -> Option<TitlebarRepoContext> {
+    let repo = repo_state?;
+    let repo_name = repo
+        .path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("repository")
+        .to_string();
+    let branch_name = repo
+        .head_branch
+        .as_deref()
+        .unwrap_or("(detached)")
+        .to_string();
+
+    Some(TitlebarRepoContext {
+        repo_name,
+        branch_name,
+        is_detached: repo.head_branch.is_none(),
+    })
+}
+
+fn titlebar_icon(icon_path: &'static str, color: Hsla) -> Svg {
+    svg()
+        .flex_none()
+        .size(px(14.0))
+        .path(icon_path)
+        .text_color(color)
+}
+
+fn breadcrumb_segment(
+    icon_path: &'static str,
+    label: impl Into<SharedString>,
+    color: Hsla,
+    max_width: Pixels,
+) -> Div {
+    div()
+        .flex()
+        .items_center()
+        .gap_1()
+        .min_w(px(0.0))
+        .max_w(max_width)
+        .overflow_hidden()
+        .child(titlebar_icon(icon_path, color))
+        .child(
+            div()
+                .text_sm()
+                .text_color(color)
+                .min_w(px(0.0))
+                .overflow_hidden()
+                .text_ellipsis()
+                .child(label.into()),
+        )
+}
+
+fn no_repo_prompt(muted: Hsla) -> Div {
+    div()
+        .text_sm()
+        .text_color(muted)
+        .overflow_hidden()
+        .text_ellipsis()
+        .child("Press Ctrl+O to open a repository")
+}
+
+fn repo_breadcrumb(repo: TitlebarRepoContext, muted: Hsla) -> Div {
+    let branch_icon = if repo.is_detached {
+        "icons/git-commit.svg"
+    } else {
+        "icons/git-branch.svg"
+    };
+
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_2()
+        .min_w(px(0.0))
+        .overflow_hidden()
+        .child(breadcrumb_segment(
+            "icons/git-commit.svg",
+            repo.repo_name,
+            muted,
+            px(180.0),
+        ))
+        .child(div().text_sm().text_color(muted).flex_none().child("/"))
+        .child(breadcrumb_segment(
+            branch_icon,
+            repo.branch_name,
+            muted,
+            px(260.0),
+        ))
 }
 
 fn window_control_button(
@@ -286,13 +369,12 @@ pub fn render_titlebar(
     } else {
         rgba_to_hsla(colors.surface_high)
     };
-    let accent = rgba_to_hsla(colors.accent);
     let muted = rgba_to_hsla(colors.text_muted);
     let icon_color = rgba_to_hsla(colors.text_muted);
     let icon_hover = rgba_to_hsla(colors.text);
     let hover_bg = rgba_to_hsla(colors.surface_high);
 
-    let breadcrumb = breadcrumb_text(repo_state);
+    let repo_context = repo_context(repo_state);
     let rounding = px(WINDOW_CORNER_RADIUS);
     let tiling = match decorations {
         Decorations::Server => Tiling::default(),
@@ -325,23 +407,11 @@ pub fn render_titlebar(
         }
     }
 
-    left_cluster = left_cluster
-        .child(
-            div()
-                .text_sm()
-                .font_weight(FontWeight::BOLD)
-                .text_color(accent)
-                .flex_shrink_0()
-                .child("GitForge"),
-        )
-        .child(
-            div()
-                .text_sm()
-                .text_color(muted)
-                .overflow_hidden()
-                .text_ellipsis()
-                .child(breadcrumb),
-        );
+    left_cluster = if let Some(repo) = repo_context {
+        left_cluster.child(repo_breadcrumb(repo, muted))
+    } else {
+        left_cluster.child(no_repo_prompt(muted))
+    };
 
     let mut bar = div()
         .id("titlebar")
@@ -386,4 +456,13 @@ pub fn render_titlebar(
     }
 
     bar
+}
+
+pub fn render_titlebar_divider(colors: &AppColors) -> impl IntoElement {
+    div()
+        .id("titlebar-divider")
+        .w_full()
+        .h(px(1.0))
+        .flex_shrink_0()
+        .bg(rgba_to_hsla(colors.border))
 }
