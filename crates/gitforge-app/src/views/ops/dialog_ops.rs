@@ -1,0 +1,432 @@
+use gitforge_git::{GitError, Repository};
+use gpui::*;
+
+use std::path::PathBuf;
+
+use crate::views::app::{GitForgeApp, AppDialog};
+use super::super::settings_window::SettingsSection;
+
+impl GitForgeApp {
+
+    pub fn open_create_branch_dialog(
+        &mut self,
+        start_point: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        self.active_dialog = AppDialog::CreateBranch { start_point };
+        self.dialog_input.clear();
+        cx.notify();
+    }
+
+    pub fn open_rename_branch_dialog(&mut self, old_name: String, cx: &mut Context<Self>) {
+        self.active_dialog = AppDialog::RenameBranch { old_name };
+        self.dialog_input.clear();
+        cx.notify();
+    }
+
+    pub fn open_create_tag_dialog(&mut self, target: Option<String>, cx: &mut Context<Self>) {
+        self.active_dialog = AppDialog::CreateTag { target };
+        self.dialog_input.clear();
+        cx.notify();
+    }
+
+    pub fn open_stash_push_dialog(&mut self, cx: &mut Context<Self>) {
+        self.active_dialog = AppDialog::StashPush;
+        self.dialog_input.clear();
+        cx.notify();
+    }
+
+    pub fn cancel_dialog(&mut self, cx: &mut Context<Self>) {
+        self.active_dialog = AppDialog::None;
+        self.dialog_input.clear();
+        self.dialog_input_2.clear();
+        cx.notify();
+    }
+
+    pub fn edit_dialog_input(&mut self, typed_char: Option<&str>, cx: &mut Context<Self>) {
+        match typed_char {
+            Some(ch) => self.dialog_input.push_str(ch),
+            None => {
+                self.dialog_input.pop();
+            }
+        }
+        cx.notify();
+    }
+
+    pub fn confirm_dialog(&mut self, cx: &mut Context<Self>) {
+        let input = self.dialog_input.trim().to_string();
+        let input_2 = self.dialog_input_2.trim().to_string();
+        let dialog = self.active_dialog.clone();
+        self.active_dialog = AppDialog::None;
+        self.dialog_input.clear();
+        self.dialog_input_2.clear();
+
+        match dialog {
+            AppDialog::CreateBranch { start_point } => {
+                if input.is_empty() {
+                    return;
+                }
+                self.create_branch(input, start_point, cx);
+            }
+            AppDialog::RenameBranch { old_name } => {
+                if input.is_empty() {
+                    return;
+                }
+                self.rename_branch(old_name, input, cx);
+            }
+            AppDialog::CreateTag { target } => {
+                if input.is_empty() {
+                    return;
+                }
+                self.create_tag(input, target, cx);
+            }
+            AppDialog::StashPush => {
+                self.stash_push(if input.is_empty() { None } else { Some(input) }, cx);
+            }
+            AppDialog::Push { .. } => {
+                let branch = if input.is_empty() {
+                    match self.active_repo_state() {
+                        Some(rs) => rs
+                            .references
+                            .iter()
+                            .find(|r| r.is_head && r.kind == gitforge_git::RefKind::Branch)
+                            .map(|r| r.name.clone()),
+                        None => None,
+                    }
+                } else {
+                    Some(input)
+                };
+                let Some(branch_name) = branch else { return };
+                self.push_current_branch("origin".into(), branch_name, false, cx);
+            }
+            AppDialog::Pull { .. } => {
+                let remote = if input.is_empty() {
+                    "origin".into()
+                } else {
+                    input
+                };
+                self.pull_from_remote(remote, false, cx);
+            }
+            AppDialog::CloneRepo => {
+                if input.is_empty() {
+                    return;
+                }
+                let parts: Vec<&str> = input.splitn(2, ' ').collect();
+                if parts.len() < 2 {
+                    return;
+                }
+                self.clone_repository(parts[0].to_string(), parts[1].to_string(), cx);
+            }
+            AppDialog::AddRemote => {
+                let parts: Vec<&str> = input.split_whitespace().collect();
+                if parts.len() < 2 {
+                    return;
+                }
+                self.add_remote(parts[0].to_string(), parts[1].to_string(), cx);
+            }
+            AppDialog::SshGenerateKey => {
+                let email = if input.is_empty() {
+                    "user@example.com".to_string()
+                } else {
+                    input
+                };
+                self.generate_ssh_key("ed25519".to_string(), email, cx);
+            }
+            AppDialog::SshTestConnection => {
+                let host = if input.is_empty() {
+                    "github.com".to_string()
+                } else {
+                    input
+                };
+                self.test_ssh_connection(host, cx);
+            }
+            AppDialog::CredentialAdd => {
+                let parts: Vec<&str> = input.split_whitespace().collect();
+                if parts.len() < 2 {
+                    return;
+                }
+                let password = if input_2.is_empty() {
+                    return;
+                } else {
+                    input_2
+                };
+                self.add_credential(parts[0].to_string(), parts[1].to_string(), password, cx);
+            }
+            AppDialog::CloneFromHosting { .. } => {}
+            AppDialog::AddAccount { provider } => {
+                if input.is_empty() {
+                    return;
+                }
+                self.add_hosting_account(provider, input, cx);
+            }
+            AppDialog::SearchHosting { provider } => {
+                if input.is_empty() {
+                    return;
+                }
+                self.search_hosting_repos(input, provider, cx);
+            }
+            AppDialog::ForkRepo {
+                owner,
+                repo,
+                provider,
+            } => {
+                self.fork_repo(owner, repo, provider, cx);
+            }
+            AppDialog::CreateWorktree => {
+                if input.is_empty() {
+                    return;
+                }
+                let path = input.to_string();
+                let refname = if input_2.is_empty() {
+                    None
+                } else {
+                    Some(input_2)
+                };
+                self.create_worktree(path, refname, None, cx);
+            }
+            AppDialog::RemoveWorktree { path } => {
+                self.remove_worktree(path, true, cx);
+            }
+            AppDialog::InitRepo { parent } => {
+                let name = input.trim().to_string();
+                if name.is_empty() {
+                    return;
+                }
+                self.init_repository(parent, name, cx);
+            }
+            AppDialog::None => {}
+        }
+    }
+    pub fn open_create_worktree_dialog(&mut self, cx: &mut Context<Self>) {
+        self.active_dialog = AppDialog::CreateWorktree;
+        self.dialog_input.clear();
+        self.dialog_input_2.clear();
+        cx.notify();
+    }
+
+    pub fn open_remove_worktree_dialog(&mut self, path: String, cx: &mut Context<Self>) {
+        self.active_dialog = AppDialog::RemoveWorktree { path };
+        self.dialog_input.clear();
+        cx.notify();
+    }
+
+    pub fn toggle_sidebar_worktrees(&mut self, cx: &mut Context<Self>) {
+        self.sidebar_state.worktrees_expanded = !self.sidebar_state.worktrees_expanded;
+        cx.notify();
+    }
+
+    pub fn open_push_dialog(&mut self, cx: &mut Context<Self>) {
+        self.active_dialog = AppDialog::Push {
+            branch: None,
+            remote: None,
+        };
+        self.dialog_input.clear();
+        cx.notify();
+    }
+
+    pub fn open_pull_dialog(&mut self, cx: &mut Context<Self>) {
+        self.active_dialog = AppDialog::Pull { remote: None };
+        self.dialog_input.clear();
+        cx.notify();
+    }
+
+    pub fn open_clone_dialog(&mut self, cx: &mut Context<Self>) {
+        self.active_dialog = AppDialog::CloneRepo;
+        self.dialog_input.clear();
+        cx.notify();
+    }
+
+    pub fn open_add_remote_dialog(&mut self, cx: &mut Context<Self>) {
+        self.active_dialog = AppDialog::AddRemote;
+        self.dialog_input.clear();
+        cx.notify();
+    }
+    pub fn open_ssh_generate_key_dialog(&mut self, cx: &mut Context<Self>) {
+        self.active_dialog = AppDialog::SshGenerateKey;
+        self.dialog_input.clear();
+        self.dialog_input_2.clear();
+        cx.notify();
+    }
+
+    pub fn open_ssh_test_dialog(&mut self, cx: &mut Context<Self>) {
+        self.active_dialog = AppDialog::SshTestConnection;
+        self.dialog_input.clear();
+        cx.notify();
+    }
+    pub fn open_credential_add_dialog(&mut self, cx: &mut Context<Self>) {
+        self.active_dialog = AppDialog::CredentialAdd;
+        self.dialog_input.clear();
+        self.dialog_input_2.clear();
+        cx.notify();
+    }
+    pub fn add_credential(
+        &mut self,
+        host: String,
+        username: String,
+        password: String,
+        cx: &mut Context<Self>,
+    ) {
+        cx.spawn(async move |this, cx| {
+            let result = tokio::task::spawn_blocking(move || {
+                gitforge_git::credential::store_credential(&host, &username, &password, None)
+            })
+            .await;
+
+            match result {
+                Ok(Ok(())) => {
+                    this.update(cx, |this, cx| {
+                        this.remote_status = "Credential stored in keyring".to_string();
+                        cx.notify();
+                    })
+                    .ok();
+                }
+                Ok(Err(e)) => {
+                    this.update(cx, |this, cx| {
+                        this.remote_status = format!("Failed to store credential: {}", e);
+                        cx.notify();
+                    })
+                    .ok();
+                }
+                Err(e) => {
+                    this.update(cx, |this, cx| {
+                        this.remote_status = format!("Credential storage error: {}", e);
+                        cx.notify();
+                    })
+                    .ok();
+                }
+            }
+        })
+        .detach();
+    }
+
+    pub fn delete_credential(&mut self, host: String, username: String, cx: &mut Context<Self>) {
+        cx.spawn(async move |this, cx| {
+            let result = tokio::task::spawn_blocking(move || {
+                gitforge_git::credential::delete_credential(&host, &username)
+            })
+            .await;
+
+            match result {
+                Ok(Ok(())) => {
+                    this.update(cx, |this, cx| {
+                        this.remote_status = "Credential deleted".to_string();
+                        cx.notify();
+                    })
+                    .ok();
+                }
+                Ok(Err(e)) => {
+                    this.update(cx, |this, cx| {
+                        this.remote_status = format!("Failed to delete credential: {}", e);
+                        cx.notify();
+                    })
+                    .ok();
+                }
+                Err(e) => {
+                    this.update(cx, |this, cx| {
+                        this.remote_status = format!("Credential delete error: {}", e);
+                        cx.notify();
+                    })
+                    .ok();
+                }
+            }
+        })
+        .detach();
+    }
+    pub fn open_add_account_dialog(&mut self, provider: String, cx: &mut Context<Self>) {
+        self.active_dialog = AppDialog::AddAccount { provider };
+        self.dialog_input.clear();
+        cx.notify();
+    }
+
+    pub fn open_manage_accounts_dialog(&mut self, cx: &mut Context<Self>) {
+        self.open_settings_window(Some(SettingsSection::Accounts), cx);
+    }
+
+    pub fn open_search_hosting_dialog(&mut self, provider: String, cx: &mut Context<Self>) {
+        self.active_dialog = AppDialog::SearchHosting {
+            provider: provider.clone(),
+        };
+        self.hosting_repos.clear();
+        self.hosting_repos_loading = false;
+        self.dialog_input.clear();
+        cx.notify();
+    }
+    pub fn open_fork_dialog(
+        &mut self,
+        owner: String,
+        repo: String,
+        provider: String,
+        cx: &mut Context<Self>,
+    ) {
+        self.active_dialog = AppDialog::ForkRepo {
+            owner,
+            repo,
+            provider,
+        };
+        cx.notify();
+    }
+    pub fn spawn_init_repo_picker(&mut self, cx: &mut Context<Self>) {
+        cx.spawn(async move |this, cx| {
+            let path = cx.update(|_cx| {
+                rfd::AsyncFileDialog::new().set_title("Select Parent Directory")
+            });
+            let folder = match path {
+                Ok(dialog) => dialog.pick_folder().await,
+                Err(_) => None,
+            };
+
+            let Some(folder) = folder else {
+                return;
+            };
+
+            let parent = std::path::PathBuf::from(folder.path());
+            this.update(cx, |this, cx| {
+                this.active_dialog = AppDialog::InitRepo { parent };
+                this.dialog_input = "new-repo".to_string();
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn init_repository(&mut self, parent: PathBuf, name: String, cx: &mut Context<Self>) {
+        let repo_path = parent.join(&name);
+        cx.spawn(async move |this, cx| {
+            let result = tokio::task::spawn_blocking(move || {
+                std::fs::create_dir_all(&repo_path)
+                    .map_err(|e| GitError::OperationFailed(e.to_string()))?;
+                Repository::init_repo(&repo_path, false)?;
+                Ok::<PathBuf, GitError>(repo_path)
+            })
+            .await;
+
+            match result {
+                Ok(Ok(path)) => {
+                    this.update(cx, |this, cx| {
+                        this.open_or_activate_repo_tab(path, cx);
+                    })
+                    .ok();
+                }
+                Ok(Err(e)) => {
+                    this.update(cx, |this, cx| {
+                        this.last_error = Some(format!("Failed to init repository: {}", e));
+                        cx.notify();
+                    })
+                    .ok();
+                }
+                Err(e) => {
+                    this.update(cx, |this, cx| {
+                        this.last_error = Some(format!("Init task panicked: {}", e));
+                        cx.notify();
+                    })
+                    .ok();
+                }
+            }
+        })
+        .detach();
+    }
+    pub fn open_in_file_manager(&mut self, path: std::path::PathBuf, _cx: &mut Context<Self>) {
+        let _ = std::process::Command::new("xdg-open").arg(&path).spawn();
+    }
+}

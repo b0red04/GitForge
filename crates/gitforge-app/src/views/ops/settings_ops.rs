@@ -1,0 +1,186 @@
+use gitforge_ui::{AppColors, Theme, ThemeEntry};
+use gpui::*;
+
+use crate::views::app::GitForgeApp;
+use super::super::settings_window::{SettingsDraft, SettingsSection, SettingsWindow};
+
+impl GitForgeApp {
+    pub fn set_theme(&mut self, name: &str, cx: &mut Context<Self>) {
+        match Theme::load_by_name(name) {
+            Ok(theme) => {
+                self.colors = AppColors::from_theme(&theme);
+                self.settings.theme = name.to_string();
+                self.settings.save();
+                self.push_settings_window_theme(cx);
+                cx.notify();
+            }
+            Err(e) => {
+                tracing::warn!("Failed to load theme '{}': {}", name, e);
+            }
+        }
+    }
+
+    pub(crate) fn push_settings_window_theme(&mut self, cx: &mut Context<Self>) {
+        let Some(handle) = self.settings_window.clone() else {
+            return;
+        };
+        let colors = self.colors.clone();
+        let theme = self.settings.theme.clone();
+        cx.spawn(async move |_, cx| {
+            cx.update(|cx| {
+                handle
+                    .update(cx, |settings, _, cx| {
+                        settings.draft.theme = theme;
+                        settings.sync_colors(colors, cx);
+                    })
+                    .ok();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    pub(crate) fn cycle_theme(&mut self, cx: &mut Context<Self>) {
+        let themes = Theme::discover_themes();
+        if themes.is_empty() {
+            return;
+        }
+        let next = themes
+            .iter()
+            .position(|t| t.name == self.settings.theme)
+            .map(|idx| (idx + 1) % themes.len())
+            .unwrap_or(0);
+        self.set_theme(&themes[next].name, cx);
+    }
+
+    pub fn available_themes() -> Vec<ThemeEntry> {
+        Theme::discover_themes()
+    }
+
+    pub fn hosting_accounts_snapshot(&self) -> Vec<gitforge_hosting::HostingAccount> {
+        self.hosting_accounts.clone()
+    }
+
+    pub fn clear_settings_window_handle(&mut self) {
+        self.settings_window = None;
+    }
+
+    pub(crate) fn notify_settings_window(&mut self, cx: &mut Context<Self>) {
+        let Some(handle) = self.settings_window.clone() else {
+            return;
+        };
+        let repo_data = self.settings_repo_data();
+        let accounts = self.hosting_accounts_snapshot();
+        let colors = self.colors.clone();
+        let theme = self.settings.theme.clone();
+        let _ = handle.update(cx, |settings, _, cx| {
+            settings.draft.theme = theme;
+            settings.sync_colors(colors, cx);
+            settings.refresh_snapshot(repo_data, accounts);
+            cx.notify();
+        });
+    }
+
+    pub fn open_settings_window(
+        &mut self,
+        section: Option<SettingsSection>,
+        cx: &mut Context<Self>,
+    ) {
+        let initial_section = section.unwrap_or(SettingsSection::General);
+
+        if let Some(handle) = self.settings_window.clone() {
+            let draft = SettingsDraft::from_settings(&self.settings);
+            let colors = self.colors.clone();
+            let repo_data = self.settings_repo_data();
+            let accounts = self.hosting_accounts_snapshot();
+            if handle
+                .update(cx, |settings, window, cx| {
+                    window.activate_window();
+                    settings.draft = draft;
+                    settings.sync_colors(colors, cx);
+                    settings.refresh_snapshot(repo_data, accounts);
+                    settings.set_section(initial_section, cx);
+                    settings.bootstrap_ai(cx);
+                })
+                .is_ok()
+            {
+                return;
+            }
+            self.settings_window = None;
+        }
+
+        let draft = SettingsDraft::from_settings(&self.settings);
+        let colors = self.colors.clone();
+        let repo_data = self.settings_repo_data();
+        let accounts = self.hosting_accounts_snapshot();
+        let main = cx.entity().downgrade();
+        let window_bounds = WindowBounds::Windowed(Bounds::centered(
+            None,
+            size(px(900.0), px(700.0)),
+            cx,
+        ));
+
+        match cx.open_window(
+            WindowOptions {
+                window_bounds: Some(window_bounds),
+                titlebar: Some(TitlebarOptions {
+                    title: Some("GitForge Settings".into()),
+                    appears_transparent: false,
+                    traffic_light_position: None,
+                }),
+                window_decorations: Some(WindowDecorations::Server),
+                app_id: Some("dev.gitforge.GitForge".into()),
+                focus: true,
+                ..Default::default()
+            },
+            |window, cx| {
+                cx.bind_keys([
+                    KeyBinding::new(
+                        "escape",
+                        super::super::settings_window::CloseSettingsWindow,
+                        None,
+                    ),
+                    KeyBinding::new(
+                        "ctrl-v",
+                        super::super::settings_window::PasteApiKey,
+                        None,
+                    ),
+                    KeyBinding::new(
+                        "cmd-v",
+                        super::super::settings_window::PasteApiKey,
+                        None,
+                    ),
+                ]);
+                let view = cx.new(|cx| SettingsWindow::new(main, colors, draft, initial_section, cx));
+                view.update(cx, |settings, cx| settings.bootstrap_ai(cx));
+                view.focus_handle(cx).focus(window);
+                view
+            },
+        ) {
+            Ok(handle) => {
+                let _ = handle.update(cx, |settings, _, cx| {
+                    settings.refresh_snapshot(repo_data, accounts);
+                    settings.bootstrap_ai(cx);
+                    cx.notify();
+                });
+                self.settings_window = Some(handle);
+            }
+            Err(e) => tracing::error!("Failed to open settings window: {}", e),
+        }
+        cx.notify();
+    }
+
+    pub fn apply_settings_from_window(&mut self, draft: &SettingsDraft, cx: &mut Context<Self>) {
+        let prev_checkpoint = self.settings.show_checkpoint_refs;
+        draft.apply_to(&mut self.settings);
+        self.sidebar_state.branches_expanded = draft.sidebar_branches_expanded;
+        self.sidebar_state.remotes_expanded = draft.sidebar_remotes_expanded;
+        self.sidebar_state.tags_expanded = draft.sidebar_tags_expanded;
+        self.set_theme(&draft.theme, cx);
+        self.save_settings();
+        if draft.show_checkpoint_refs != prev_checkpoint {
+            self.refresh_repository(cx);
+        }
+        cx.notify();
+    }
+}

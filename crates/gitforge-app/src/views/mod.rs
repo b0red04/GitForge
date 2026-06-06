@@ -1,5 +1,6 @@
 pub mod app;
 pub mod command_palette;
+pub mod ops;
 pub mod commands;
 pub mod diff_panel;
 pub mod graph_panel;
