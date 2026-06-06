@@ -7,6 +7,7 @@ pub mod i18n;
 pub mod layout;
 pub mod repo_tabs;
 pub mod settings;
+pub mod settings_window;
 pub mod sidebar;
 pub mod status_panel;
 pub mod titlebar;
@@ -14,8 +15,13 @@ pub mod toolbar;
 pub mod window_chrome;
 
 pub use app::GitForgeApp;
+pub use settings_window::SettingsSection;
 pub use app::ShowCommandPalette;
 pub use app::ToggleTheme;
 pub use app::{CloseDialog, OpenRepository, SelectNextCommit, SelectPrevCommit};
 pub use app::{CreateBranch, StashPop, StashPush};
 pub use app::{FetchAll, PullCurrent, PushCurrent};
+pub use app::{
+    CloseTab, InitRepo, NewTab, OpenInEditor, OpenInFileManager, OpenInTerminal,
+    OpenRepoManagement, Preferences, QuitApp,
+};

@@ -2,15 +2,56 @@
 
 GitForge themes are JSON files that define the complete color palette for the application.
 
-## Installing Themes
+## Built-in Themes
 
-Place `.json` theme files in `~/.config/gitforge/themes/`. GitForge discovers themes at startup.
+GitForge ships with 25 bundled themes. Select one in **Settings → General**, or press `Ctrl+Shift+T` to cycle through them.
+
+| Theme ID | Display Name | Appearance |
+|---|---|---|
+| `default-dark` | GitForge Dark | dark |
+| `default-light` | GitForge Light | light |
+| `tokyo-night` | Tokyo Night | dark |
+| `tokyo-storm` | Tokyo Storm | dark |
+| `tokyo-moon` | Tokyo Moon | dark |
+| `tokyo-day` | Tokyo Day | light |
+| `everforest-dark` | Everforest Dark | dark |
+| `everforest-light` | Everforest Light | light |
+| `ayu-dark` | Ayu Dark | dark |
+| `ayu-mirage` | Ayu Mirage | dark |
+| `ayu-light` | Ayu Light | light |
+| `catppuccin-latte` | Catppuccin Latte | light |
+| `catppuccin-frappe` | Catppuccin Frappé | dark |
+| `catppuccin-macchiato` | Catppuccin Macchiato | dark |
+| `catppuccin-mocha` | Catppuccin Mocha | dark |
+| `gruvbox-dark` | Gruvbox Dark | dark |
+| `gruvbox-light` | Gruvbox Light | light |
+| `kanagawa-wave` | Kanagawa Wave | dark |
+| `kanagawa-dragon` | Kanagawa Dragon | dark |
+| `kanagawa-lotus` | Kanagawa Lotus | light |
+| `nord` | Nord | dark |
+| `nord-light` | Nord Light | light |
+| `one-dark` | One Dark | dark |
+| `one-light` | One Light | light |
+| `matrix` | Matrix | dark |
+
+## Theme Loading Order
+
+When loading a theme by ID, GitForge checks locations in this order:
+
+1. **Bundled themes** — compiled into the application from `assets/themes/`
+2. **User themes** — `~/.config/gitforge/themes/{name}.json`
+3. **System themes** — `/usr/share/gitforge/themes/{name}.json` (Linux packages)
+
+Theme discovery (for the settings picker and cycle shortcut) lists bundled themes first, then any user-installed themes not already bundled.
+
+## Installing Custom Themes
+
+Place `.json` theme files in `~/.config/gitforge/themes/`. Custom themes appear in the settings picker after the built-in themes.
 
 ```
 ~/.config/gitforge/themes/
-├── monokai.json
-├── solarized.json
-└── nord.json
+├── my-theme.json
+└── company-brand.json
 ```
 
 ## Theme Structure

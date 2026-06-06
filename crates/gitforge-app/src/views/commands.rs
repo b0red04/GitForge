@@ -49,52 +49,107 @@ pub struct CommandEntry {
     pub keybinding: Option<&'static str>,
 }
 
-const FILE_MENU: &[CommandEntry] = &[
-    CommandEntry {
-        label: "Open Repository",
-        action: "open_repository",
-        keybinding: Some("Ctrl+O"),
-    },
-    CommandEntry {
-        label: "Clone Repository",
+#[derive(Debug, Clone, Copy)]
+pub enum MenuEntry {
+    Item(CommandEntry),
+    Separator,
+}
+
+const FILE_MENU: &[MenuEntry] = &[
+    MenuEntry::Item(CommandEntry {
+        label: "New Tab",
+        action: "new_tab",
+        keybinding: Some("Ctrl+T"),
+    }),
+    MenuEntry::Item(CommandEntry {
+        label: "Close Tab",
+        action: "close_tab",
+        keybinding: Some("Ctrl+W"),
+    }),
+    MenuEntry::Item(CommandEntry {
+        label: "Reopen Closed Tab",
+        action: "reopen_closed_tab",
+        keybinding: None,
+    }),
+    MenuEntry::Separator,
+    MenuEntry::Item(CommandEntry {
+        label: "Clone Repo...",
         action: "clone",
         keybinding: None,
-    },
-    CommandEntry {
+    }),
+    MenuEntry::Item(CommandEntry {
+        label: "Init Repo...",
+        action: "init_repo",
+        keybinding: Some("Ctrl+I"),
+    }),
+    MenuEntry::Item(CommandEntry {
+        label: "Open Repo...",
+        action: "open_repository",
+        keybinding: Some("Ctrl+O"),
+    }),
+    MenuEntry::Item(CommandEntry {
+        label: "Open Repo Management",
+        action: "repo_management",
+        keybinding: Some("Alt+Ctrl+O"),
+    }),
+    MenuEntry::Item(CommandEntry {
         label: "Clone from GitHub",
         action: "clone_github",
         keybinding: None,
-    },
-    CommandEntry {
+    }),
+    MenuEntry::Item(CommandEntry {
         label: "Clone from GitLab",
         action: "clone_gitlab",
         keybinding: None,
-    },
-    CommandEntry {
+    }),
+    MenuEntry::Item(CommandEntry {
         label: "Add Remote",
         action: "add_remote",
         keybinding: None,
-    },
-    CommandEntry {
+    }),
+    MenuEntry::Separator,
+    MenuEntry::Item(CommandEntry {
+        label: "Open Repo in External Editor",
+        action: "open_editor",
+        keybinding: Some("Ctrl+Shift+E"),
+    }),
+    MenuEntry::Item(CommandEntry {
+        label: "Open External Terminal",
+        action: "open_terminal",
+        keybinding: Some("Alt+T"),
+    }),
+    MenuEntry::Item(CommandEntry {
+        label: "Open in File Manager",
+        action: "open_file_manager",
+        keybinding: Some("Alt+O"),
+    }),
+    MenuEntry::Item(CommandEntry {
         label: "Open in Browser",
         action: "open_browser",
         keybinding: None,
-    },
-    CommandEntry {
-        label: "Open in Editor",
-        action: "open_editor",
-        keybinding: None,
-    },
-    CommandEntry {
-        label: "Open in Terminal",
-        action: "open_terminal",
-        keybinding: None,
-    },
-    CommandEntry {
+    }),
+    MenuEntry::Item(CommandEntry {
         label: "Create Worktree",
         action: "worktree",
         keybinding: None,
-    },
+    }),
+    MenuEntry::Separator,
+    MenuEntry::Item(CommandEntry {
+        label: "Preferences...",
+        action: "preferences",
+        keybinding: Some("Ctrl+,"),
+    }),
+    MenuEntry::Separator,
+    MenuEntry::Item(CommandEntry {
+        label: "Sign into a Different Account",
+        action: "accounts",
+        keybinding: None,
+    }),
+    MenuEntry::Item(CommandEntry {
+        label: "Quit GitForge",
+        action: "quit",
+        keybinding: Some("Ctrl+Q"),
+    }),
 ];
 
 const EDIT_MENU: &[CommandEntry] = &[
@@ -175,7 +230,7 @@ const VIEW_MENU: &[CommandEntry] = &[
         keybinding: None,
     },
     CommandEntry {
-        label: "Toggle Theme",
+        label: "Cycle Theme",
         action: "toggle_theme",
         keybinding: Some("Ctrl+Shift+T"),
     },
@@ -186,21 +241,29 @@ const VIEW_MENU: &[CommandEntry] = &[
     },
 ];
 
-pub fn titlebar_menu_entries(menu: TitlebarMenu) -> &'static [CommandEntry] {
+pub fn titlebar_menu_entries(menu: TitlebarMenu) -> MenuEntries {
     match menu {
-        TitlebarMenu::File => FILE_MENU,
-        TitlebarMenu::Edit => EDIT_MENU,
-        TitlebarMenu::Selection => SELECTION_MENU,
-        TitlebarMenu::View => VIEW_MENU,
+        TitlebarMenu::File => MenuEntries::WithSeparators(FILE_MENU),
+        TitlebarMenu::Edit => MenuEntries::Flat(EDIT_MENU),
+        TitlebarMenu::Selection => MenuEntries::Flat(SELECTION_MENU),
+        TitlebarMenu::View => MenuEntries::Flat(VIEW_MENU),
     }
 }
 
+pub enum MenuEntries {
+    WithSeparators(&'static [MenuEntry]),
+    Flat(&'static [CommandEntry]),
+}
+
 pub fn command_palette_entries() -> Vec<CommandEntry> {
-    FILE_MENU
-        .iter()
-        .chain(EDIT_MENU.iter())
-        .chain(SELECTION_MENU.iter())
-        .chain(VIEW_MENU.iter())
-        .copied()
-        .collect()
+    let mut entries = Vec::new();
+    for entry in FILE_MENU {
+        if let MenuEntry::Item(item) = entry {
+            entries.push(*item);
+        }
+    }
+    entries.extend(EDIT_MENU.iter().copied());
+    entries.extend(SELECTION_MENU.iter().copied());
+    entries.extend(VIEW_MENU.iter().copied());
+    entries
 }

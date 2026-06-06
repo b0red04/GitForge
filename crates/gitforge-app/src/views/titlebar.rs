@@ -2,7 +2,7 @@ use gitforge_git::RepoState;
 use gitforge_ui::{AppColors, rgba_to_hsla};
 use gpui::*;
 
-use super::commands::{TitlebarMenu, titlebar_menu_entries};
+use super::commands::{MenuEntries, MenuEntry, TitlebarMenu, titlebar_menu_entries};
 use super::layout::{TITLEBAR_HEIGHT, WINDOW_CORNER_RADIUS};
 use super::window_chrome::{apply_top_corner_radius, seal_rounded_corners};
 
@@ -290,7 +290,7 @@ fn menu_label_button(
         .child(menu.label())
 }
 
-fn render_titlebar_menu_dropdown(
+pub fn render_titlebar_menu_dropdown(
     menu: TitlebarMenu,
     colors: &AppColors,
     entity: WeakEntity<super::app::GitForgeApp>,
@@ -306,7 +306,9 @@ fn render_titlebar_menu_dropdown(
         .absolute()
         .top(px(TITLEBAR_HEIGHT))
         .left(px(menu.dropdown_left()))
-        .min_w(px(220.0))
+        .min_w(px(280.0))
+        .max_h(px(480.0))
+        .overflow_y_scroll()
         .bg(surface)
         .border_1()
         .border_color(border)
@@ -322,32 +324,85 @@ fn render_titlebar_menu_dropdown(
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .on_click(|_, _, cx| cx.stop_propagation());
 
-    for (idx, entry) in titlebar_menu_entries(menu).iter().enumerate() {
-        let item_ent = entity.clone();
-        let action = entry.action;
-        let label = entry.label;
-        let keybinding = entry.keybinding.unwrap_or_default();
-
-        dropdown = dropdown.child(
-            div()
-                .id(ElementId::Name(format!("titlebar-menu-item-{idx}").into()))
-                .h(px(28.0))
-                .px_3()
-                .flex()
-                .items_center()
-                .gap_3()
-                .cursor_pointer()
-                .hover(move |s| s.bg(hover_bg))
-                .on_click(move |_ev, _window, cx| {
-                    if let Some(e) = item_ent.upgrade() {
-                        e.update(cx, |app, cx| {
-                            app.execute_app_command(action, cx);
-                        });
+    match titlebar_menu_entries(menu) {
+        MenuEntries::WithSeparators(entries) => {
+            for (idx, entry) in entries.iter().enumerate() {
+                match entry {
+                    MenuEntry::Separator => {
+                        dropdown = dropdown.child(
+                            div()
+                                .id(ElementId::Name(format!("titlebar-menu-sep-{idx}").into()))
+                                .my_1()
+                                .mx_2()
+                                .h(px(1.0))
+                                .bg(border),
+                        );
                     }
-                })
-                .child(div().flex_1().text_sm().text_color(text_color).child(label))
-                .child(div().text_xs().text_color(muted).child(keybinding)),
-        );
+                    MenuEntry::Item(item) => {
+                        let item_ent = entity.clone();
+                        let action = item.action;
+                        let label = item.label;
+                        let keybinding = item.keybinding.unwrap_or_default();
+
+                        dropdown = dropdown.child(
+                            div()
+                                .id(ElementId::Name(format!("titlebar-menu-item-{idx}").into()))
+                                .h(px(28.0))
+                                .px_3()
+                                .flex()
+                                .items_center()
+                                .gap_3()
+                                .cursor_pointer()
+                                .hover(move |s| s.bg(hover_bg))
+                                .on_click(move |_ev, _window, cx| {
+                                    if let Some(e) = item_ent.upgrade() {
+                                        e.update(cx, |app, cx| {
+                                            app.execute_app_command(action, cx);
+                                        });
+                                    }
+                                })
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .text_sm()
+                                        .text_color(text_color)
+                                        .child(label),
+                                )
+                                .child(div().text_xs().text_color(muted).child(keybinding)),
+                        );
+                    }
+                }
+            }
+        }
+        MenuEntries::Flat(entries) => {
+            for (idx, entry) in entries.iter().enumerate() {
+                let item_ent = entity.clone();
+                let action = entry.action;
+                let label = entry.label;
+                let keybinding = entry.keybinding.unwrap_or_default();
+
+                dropdown = dropdown.child(
+                    div()
+                        .id(ElementId::Name(format!("titlebar-menu-item-{idx}").into()))
+                        .h(px(28.0))
+                        .px_3()
+                        .flex()
+                        .items_center()
+                        .gap_3()
+                        .cursor_pointer()
+                        .hover(move |s| s.bg(hover_bg))
+                        .on_click(move |_ev, _window, cx| {
+                            if let Some(e) = item_ent.upgrade() {
+                                e.update(cx, |app, cx| {
+                                    app.execute_app_command(action, cx);
+                                });
+                            }
+                        })
+                        .child(div().flex_1().text_sm().text_color(text_color).child(label))
+                        .child(div().text_xs().text_color(muted).child(keybinding)),
+                );
+            }
+        }
     }
 
     dropdown
@@ -449,10 +504,6 @@ pub fn render_titlebar(
         if let Some(controls) = render_window_controls(window, icon_color, icon_hover, hover_bg) {
             bar = bar.child(controls);
         }
-    }
-
-    if let Some(menu) = active_menu {
-        bar = bar.child(render_titlebar_menu_dropdown(menu, colors, entity));
     }
 
     bar

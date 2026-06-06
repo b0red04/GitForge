@@ -13,6 +13,7 @@ use super::diff_panel::CommitDiffState;
 use super::diff_panel::DiffPanel;
 use super::graph_panel::GraphPanel;
 use super::settings::{AppSettings, CustomCommand};
+use super::settings_window::{SettingsDraft, SettingsRepoData, SettingsSection, SettingsWindow};
 use super::sidebar::SidebarState;
 use super::status_panel::StatusPanel;
 
@@ -36,6 +37,16 @@ actions!(
         PullCurrent,
         ToggleTheme,
         ShowCommandPalette,
+        NewTab,
+        CloseTab,
+        ReopenClosedTab,
+        InitRepo,
+        OpenRepoManagement,
+        OpenInEditor,
+        OpenInTerminal,
+        OpenInFileManager,
+        Preferences,
+        QuitApp,
     ]
 );
 
@@ -77,7 +88,6 @@ pub enum AppDialog {
     AddAccount {
         provider: String,
     },
-    ManageAccounts,
     SearchHosting {
         provider: String,
     },
@@ -86,15 +96,16 @@ pub enum AppDialog {
         repo: String,
         provider: String,
     },
-    AiSettings,
-    SetAiApiKey {
-        provider: String,
-    },
     CreateWorktree,
     RemoveWorktree {
         path: String,
     },
+    InitRepo {
+        parent: PathBuf,
+    },
 }
+
+const MAX_CLOSED_TABS: usize = 20;
 
 struct OpenRepoTab {
     id: u64,
@@ -134,6 +145,9 @@ pub struct GitForgeApp {
     titlebar_menus_visible: bool,
     active_titlebar_menu: Option<TitlebarMenu>,
     pub command_palette: CommandPalette,
+    closed_repo_tabs: Vec<PathBuf>,
+    settings_window: Option<WindowHandle<SettingsWindow>>,
+    quit_requested: bool,
 }
 
 impl Focusable for GitForgeApp {
@@ -178,6 +192,9 @@ impl GitForgeApp {
             titlebar_menus_visible: false,
             active_titlebar_menu: None,
             command_palette: CommandPalette::new(cx),
+            closed_repo_tabs: Vec::new(),
+            settings_window: None,
+            quit_requested: false,
         };
         app.sidebar_state.branches_expanded = app.settings.sidebar_branches_expanded;
         app.sidebar_state.remotes_expanded = app.settings.sidebar_remotes_expanded;
@@ -461,6 +478,7 @@ impl GitForgeApp {
                 if is_active {
                     self.apply_active_repo_tab_to_view();
                 }
+                self.record_recent_repo(&repo_state.path);
                 self.save_settings();
             }
             Err(error) => {
@@ -494,8 +512,10 @@ impl GitForgeApp {
         let Some(index) = self.open_repo_tabs.iter().position(|tab| tab.id == tab_id) else {
             return;
         };
+        let closed_path = self.open_repo_tabs[index].path.clone();
         let was_active = self.active_repo_tab_id == Some(tab_id);
         self.open_repo_tabs.remove(index);
+        self.push_closed_tab(closed_path);
 
         if was_active {
             self.active_repo_tab_id = if self.open_repo_tabs.is_empty() {
@@ -512,12 +532,33 @@ impl GitForgeApp {
         cx.notify();
     }
 
+    fn push_closed_tab(&mut self, path: PathBuf) {
+        let normalized = Self::normalize_repo_path(&path);
+        self.closed_repo_tabs.retain(|p| p != &normalized);
+        self.closed_repo_tabs.push(normalized);
+        while self.closed_repo_tabs.len() > MAX_CLOSED_TABS {
+            self.closed_repo_tabs.remove(0);
+        }
+    }
+
+    fn record_recent_repo(&mut self, path: &Path) {
+        let path_str = path.to_string_lossy().to_string();
+        self.settings
+            .recent_repo_paths
+            .retain(|p| p != &path_str);
+        self.settings.recent_repo_paths.insert(0, path_str);
+        while self.settings.recent_repo_paths.len() > 20 {
+            self.settings.recent_repo_paths.pop();
+        }
+    }
+
     pub fn set_theme(&mut self, name: &str, cx: &mut Context<Self>) {
         match Theme::load_by_name(name) {
             Ok(theme) => {
                 self.colors = AppColors::from_theme(&theme);
                 self.settings.theme = name.to_string();
                 self.settings.save();
+                self.push_settings_window_theme(cx);
                 cx.notify();
             }
             Err(e) => {
@@ -526,18 +567,47 @@ impl GitForgeApp {
         }
     }
 
+    /// Sync theme to the settings window after the current entity update finishes.
+    fn push_settings_window_theme(&mut self, cx: &mut Context<Self>) {
+        let Some(handle) = self.settings_window.clone() else {
+            return;
+        };
+        let colors = self.colors.clone();
+        let theme = self.settings.theme.clone();
+        cx.spawn(async move |_, cx| {
+            cx.update(|cx| {
+                handle
+                    .update(cx, |settings, _, cx| {
+                        settings.draft.theme = theme;
+                        settings.sync_colors(colors, cx);
+                    })
+                    .ok();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     fn handle_toggle_theme(
         &mut self,
         _action: &ToggleTheme,
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let new_theme = if self.settings.theme == "default-dark" {
-            "default-light"
-        } else {
-            "default-dark"
-        };
-        self.set_theme(new_theme, cx);
+        self.cycle_theme(cx);
+    }
+
+    fn cycle_theme(&mut self, cx: &mut Context<Self>) {
+        let themes = Theme::discover_themes();
+        if themes.is_empty() {
+            return;
+        }
+        let next = themes
+            .iter()
+            .position(|t| t.name == self.settings.theme)
+            .map(|idx| (idx + 1) % themes.len())
+            .unwrap_or(0);
+        self.set_theme(&themes[next].name, cx);
     }
 
     fn handle_show_command_palette(
@@ -567,12 +637,12 @@ impl GitForgeApp {
             "close_dialog" => self.cancel_dialog(cx),
             "select_prev" => {
                 if self.graph_panel.select_prev() {
-                    self.load_diff_for_selected(cx);
+                    self.on_graph_selection_changed(cx);
                 }
             }
             "select_next" => {
                 if self.graph_panel.select_next() {
-                    self.load_diff_for_selected(cx);
+                    self.on_graph_selection_changed(cx);
                 }
             }
             "view_file" => {
@@ -592,21 +662,14 @@ impl GitForgeApp {
             "fetch_all" => self.fetch_all(cx),
             "pull" => self.open_pull_dialog(cx),
             "push" => self.open_push_dialog(cx),
-            "toggle_theme" => self.set_theme(
-                if self.settings.theme == "default-dark" {
-                    "default-light"
-                } else {
-                    "default-dark"
-                },
-                cx,
-            ),
+            "toggle_theme" => self.cycle_theme(cx),
             "clone" => self.open_clone_dialog(cx),
             "clone_github" => self.open_clone_from_hosting_dialog("github".to_string(), cx),
             "clone_gitlab" => self.open_clone_from_hosting_dialog("gitlab".to_string(), cx),
             "add_remote" => self.open_add_remote_dialog(cx),
             "ssh_key" => self.open_ssh_generate_key_dialog(cx),
-            "accounts" => self.open_manage_accounts_dialog(cx),
-            "ai_settings" => self.open_ai_settings_dialog(cx),
+            "accounts" => self.open_settings_window(Some(SettingsSection::Accounts), cx),
+            "ai_settings" => self.open_settings_window(Some(SettingsSection::Ai), cx),
             "open_browser" => self.open_repo_in_browser(cx),
             "worktree" => self.open_create_worktree_dialog(cx),
             "show_status" => {
@@ -624,8 +687,367 @@ impl GitForgeApp {
                     self.open_in_terminal(path, cx);
                 }
             }
+            "new_tab" => {
+                self.loading = true;
+                cx.notify();
+                self.spawn_open_dialog(cx);
+            }
+            "close_tab" => {
+                if let Some(tab_id) = self.active_repo_tab_id {
+                    self.close_repo_tab(tab_id, cx);
+                }
+            }
+            "reopen_closed_tab" => self.reopen_closed_tab(cx),
+            "init_repo" => self.spawn_init_repo_picker(cx),
+            "repo_management" => {
+                self.open_settings_window(Some(SettingsSection::Repositories), cx)
+            }
+            "open_file_manager" => {
+                if let Some(path) = self.active_repo_state().map(|r| r.path.clone()) {
+                    self.open_in_file_manager(path, cx);
+                }
+            }
+            "preferences" => self.open_settings_window(None, cx),
+            "quit" => {
+                self.quit_requested = true;
+                cx.notify();
+            }
             _ => {}
         }
+    }
+
+    fn reopen_closed_tab(&mut self, cx: &mut Context<Self>) {
+        let Some(path) = self.closed_repo_tabs.pop() else {
+            return;
+        };
+        self.open_or_activate_repo_tab(path, cx);
+    }
+
+    pub fn open_repo_from_settings(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+        self.open_or_activate_repo_tab(path, cx);
+        self.notify_settings_window(cx);
+    }
+
+    pub fn remove_recent_repo_path(&mut self, path: String, cx: &mut Context<Self>) {
+        self.settings.recent_repo_paths.retain(|p| p != &path);
+        self.settings.save();
+        self.notify_settings_window(cx);
+        cx.notify();
+    }
+
+    pub fn reopen_closed_repo_from_settings(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+        self.closed_repo_tabs.retain(|p| p != &path);
+        self.open_or_activate_repo_tab(path, cx);
+        self.notify_settings_window(cx);
+    }
+
+    pub fn activate_repo_tab_from_settings(&mut self, tab_id: u64, cx: &mut Context<Self>) {
+        self.activate_repo_tab(tab_id, cx);
+        self.notify_settings_window(cx);
+    }
+
+    pub fn settings_repo_data(&self) -> SettingsRepoData {
+        SettingsRepoData {
+            open_tabs: self
+                .open_repo_tabs
+                .iter()
+                .map(|tab| (tab.id, tab.path.clone()))
+                .collect(),
+            recent_paths: self.settings.recent_repo_paths.clone(),
+            closed_paths: self.closed_repo_tabs.clone(),
+        }
+    }
+
+    pub fn hosting_accounts_snapshot(&self) -> Vec<gitforge_hosting::HostingAccount> {
+        self.hosting_accounts.clone()
+    }
+
+    pub fn clear_settings_window_handle(&mut self) {
+        self.settings_window = None;
+    }
+
+    fn notify_settings_window(&mut self, cx: &mut Context<Self>) {
+        let Some(handle) = self.settings_window.clone() else {
+            return;
+        };
+        let repo_data = self.settings_repo_data();
+        let accounts = self.hosting_accounts_snapshot();
+        let colors = self.colors.clone();
+        let theme = self.settings.theme.clone();
+        let _ = handle.update(cx, |settings, _, cx| {
+            settings.draft.theme = theme;
+            settings.sync_colors(colors, cx);
+            settings.refresh_snapshot(repo_data, accounts);
+            cx.notify();
+        });
+    }
+
+    pub fn open_settings_window(
+        &mut self,
+        section: Option<SettingsSection>,
+        cx: &mut Context<Self>,
+    ) {
+        let initial_section = section.unwrap_or(SettingsSection::General);
+
+        if let Some(handle) = self.settings_window.clone() {
+            let draft = SettingsDraft::from_settings(&self.settings);
+            let colors = self.colors.clone();
+            let repo_data = self.settings_repo_data();
+            let accounts = self.hosting_accounts_snapshot();
+            if handle
+                .update(cx, |settings, window, cx| {
+                    window.activate_window();
+                    settings.draft = draft;
+                    settings.sync_colors(colors, cx);
+                    settings.refresh_snapshot(repo_data, accounts);
+                    settings.set_section(initial_section, cx);
+                    settings.bootstrap_ai(cx);
+                })
+                .is_ok()
+            {
+                return;
+            }
+            self.settings_window = None;
+        }
+
+        let draft = SettingsDraft::from_settings(&self.settings);
+        let colors = self.colors.clone();
+        let repo_data = self.settings_repo_data();
+        let accounts = self.hosting_accounts_snapshot();
+        let main = cx.entity().downgrade();
+        let window_bounds = WindowBounds::Windowed(Bounds::centered(
+            None,
+            size(px(900.0), px(700.0)),
+            cx,
+        ));
+
+        match cx.open_window(
+            WindowOptions {
+                window_bounds: Some(window_bounds),
+                titlebar: Some(TitlebarOptions {
+                    title: Some("GitForge Settings".into()),
+                    appears_transparent: false,
+                    traffic_light_position: None,
+                }),
+                window_decorations: Some(WindowDecorations::Server),
+                app_id: Some("dev.gitforge.GitForge".into()),
+                focus: true,
+                ..Default::default()
+            },
+            |window, cx| {
+                cx.bind_keys([
+                    KeyBinding::new(
+                        "escape",
+                        super::settings_window::CloseSettingsWindow,
+                        None,
+                    ),
+                    KeyBinding::new(
+                        "ctrl-v",
+                        super::settings_window::PasteApiKey,
+                        None,
+                    ),
+                    KeyBinding::new(
+                        "cmd-v",
+                        super::settings_window::PasteApiKey,
+                        None,
+                    ),
+                ]);
+                let view = cx.new(|cx| SettingsWindow::new(main, colors, draft, initial_section, cx));
+                view.update(cx, |settings, cx| settings.bootstrap_ai(cx));
+                view.focus_handle(cx).focus(window);
+                view
+            },
+        ) {
+            Ok(handle) => {
+                let _ = handle.update(cx, |settings, _, cx| {
+                    settings.refresh_snapshot(repo_data, accounts);
+                    settings.bootstrap_ai(cx);
+                    cx.notify();
+                });
+                self.settings_window = Some(handle);
+            }
+            Err(e) => tracing::error!("Failed to open settings window: {}", e),
+        }
+        cx.notify();
+    }
+
+    pub fn apply_settings_from_window(&mut self, draft: &SettingsDraft, cx: &mut Context<Self>) {
+        let prev_checkpoint = self.settings.show_checkpoint_refs;
+        draft.apply_to(&mut self.settings);
+        self.sidebar_state.branches_expanded = draft.sidebar_branches_expanded;
+        self.sidebar_state.remotes_expanded = draft.sidebar_remotes_expanded;
+        self.sidebar_state.tags_expanded = draft.sidebar_tags_expanded;
+        self.set_theme(&draft.theme, cx);
+        self.save_settings();
+        if draft.show_checkpoint_refs != prev_checkpoint {
+            self.refresh_repository(cx);
+        }
+        cx.notify();
+    }
+
+    pub fn spawn_init_repo_picker(&mut self, cx: &mut Context<Self>) {
+        cx.spawn(async move |this, cx| {
+            let path = cx.update(|_cx| {
+                rfd::AsyncFileDialog::new().set_title("Select Parent Directory")
+            });
+            let folder = match path {
+                Ok(dialog) => dialog.pick_folder().await,
+                Err(_) => None,
+            };
+
+            let Some(folder) = folder else {
+                return;
+            };
+
+            let parent = std::path::PathBuf::from(folder.path());
+            this.update(cx, |this, cx| {
+                this.active_dialog = AppDialog::InitRepo { parent };
+                this.dialog_input = "new-repo".to_string();
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn init_repository(&mut self, parent: PathBuf, name: String, cx: &mut Context<Self>) {
+        let repo_path = parent.join(&name);
+        cx.spawn(async move |this, cx| {
+            let result = tokio::task::spawn_blocking(move || {
+                std::fs::create_dir_all(&repo_path)
+                    .map_err(|e| GitError::OperationFailed(e.to_string()))?;
+                Repository::init_repo(&repo_path, false)?;
+                Ok::<PathBuf, GitError>(repo_path)
+            })
+            .await;
+
+            match result {
+                Ok(Ok(path)) => {
+                    this.update(cx, |this, cx| {
+                        this.open_or_activate_repo_tab(path, cx);
+                    })
+                    .ok();
+                }
+                Ok(Err(e)) => {
+                    this.update(cx, |this, cx| {
+                        this.last_error = Some(format!("Failed to init repository: {}", e));
+                        cx.notify();
+                    })
+                    .ok();
+                }
+                Err(e) => {
+                    this.update(cx, |this, cx| {
+                        this.last_error = Some(format!("Init task panicked: {}", e));
+                        cx.notify();
+                    })
+                    .ok();
+                }
+            }
+        })
+        .detach();
+    }
+
+    pub fn open_in_file_manager(&mut self, path: std::path::PathBuf, _cx: &mut Context<Self>) {
+        let _ = std::process::Command::new("xdg-open").arg(&path).spawn();
+    }
+
+    fn handle_quit(
+        &mut self,
+        _action: &QuitApp,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(handle) = self.settings_window.take() {
+            let _ = handle.update(cx, |_, w, _| w.remove_window());
+        }
+        window.remove_window();
+    }
+
+    fn handle_new_tab(
+        &mut self,
+        _action: &NewTab,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.execute_app_command("new_tab", cx);
+    }
+
+    fn handle_close_tab(
+        &mut self,
+        _action: &CloseTab,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.execute_app_command("close_tab", cx);
+    }
+
+    fn handle_reopen_closed_tab(
+        &mut self,
+        _action: &ReopenClosedTab,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.execute_app_command("reopen_closed_tab", cx);
+    }
+
+    fn handle_init_repo(
+        &mut self,
+        _action: &InitRepo,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.spawn_init_repo_picker(cx);
+    }
+
+    fn handle_open_repo_management(
+        &mut self,
+        _action: &OpenRepoManagement,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_settings_window(Some(SettingsSection::Repositories), cx);
+    }
+
+    fn handle_open_in_editor(
+        &mut self,
+        _action: &OpenInEditor,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(path) = self.active_repo_state().map(|r| r.path.clone()) {
+            self.open_in_editor(path, cx);
+        }
+    }
+
+    fn handle_open_in_terminal(
+        &mut self,
+        _action: &OpenInTerminal,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(path) = self.active_repo_state().map(|r| r.path.clone()) {
+            self.open_in_terminal(path, cx);
+        }
+    }
+
+    fn handle_open_in_file_manager(
+        &mut self,
+        _action: &OpenInFileManager,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(path) = self.active_repo_state().map(|r| r.path.clone()) {
+            self.open_in_file_manager(path, cx);
+        }
+    }
+
+    fn handle_preferences(
+        &mut self,
+        _action: &Preferences,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_settings_window(None, cx);
     }
 
     fn spawn_open_dialog(&mut self, cx: &mut Context<Self>) {
@@ -739,7 +1161,7 @@ impl GitForgeApp {
         cx: &mut Context<Self>,
     ) {
         if self.graph_panel.select_prev() {
-            self.load_diff_for_selected(cx);
+            self.on_graph_selection_changed(cx);
         }
     }
 
@@ -750,7 +1172,7 @@ impl GitForgeApp {
         cx: &mut Context<Self>,
     ) {
         if self.graph_panel.select_next() {
-            self.load_diff_for_selected(cx);
+            self.on_graph_selection_changed(cx);
         }
     }
 
@@ -865,8 +1287,21 @@ impl GitForgeApp {
             built_graph,
             has_uncommitted,
         );
-        self.status_panel.set_status(repo_state_data.status.clone());
+        let in_history = self.view_mode == MainViewMode::CommitHistory;
+        let preserve_staging =
+            in_history && self.status_panel.is_graph_staging();
+        self.status_panel
+            .set_status(repo_state_data.status.clone(), preserve_staging);
         self.diff_panel.clear();
+
+        if has_uncommitted {
+            self.graph_panel.select_uncommitted();
+            if in_history {
+                self.status_panel.enter_graph_staging();
+            }
+        } else {
+            self.graph_panel.clear_selection();
+        }
     }
 
     fn apply_repo_state(&mut self, repo_state_data: RepoState) {
@@ -879,10 +1314,40 @@ impl GitForgeApp {
         }
     }
 
+    pub fn select_uncommitted(&mut self, cx: &mut Context<Self>) {
+        self.view_mode = MainViewMode::CommitHistory;
+        self.graph_panel.select_uncommitted();
+        self.diff_panel.clear();
+        self.status_panel.enter_graph_staging();
+        cx.notify();
+    }
+
     pub fn select_commit(&mut self, idx: usize, cx: &mut Context<Self>) {
         self.view_mode = MainViewMode::CommitHistory;
-        self.graph_panel.select(idx);
+        self.graph_panel.select_commit(idx);
+        self.status_panel.exit_graph_staging();
         self.load_diff_for_selected(cx);
+    }
+
+    fn on_graph_selection_changed(&mut self, cx: &mut Context<Self>) {
+        use super::graph_panel::GraphSelection;
+
+        match self.graph_panel.selection() {
+            GraphSelection::Uncommitted => {
+                self.view_mode = MainViewMode::CommitHistory;
+                self.diff_panel.clear();
+                self.status_panel.enter_graph_staging();
+                cx.notify();
+            }
+            GraphSelection::Commit(_) => {
+                self.status_panel.exit_graph_staging();
+                self.load_diff_for_selected(cx);
+            }
+            GraphSelection::None => {
+                self.diff_panel.clear();
+                cx.notify();
+            }
+        }
     }
 
     pub fn select_diff_file(&mut self, file_idx: usize, cx: &mut Context<Self>) {
@@ -1151,17 +1616,21 @@ impl GitForgeApp {
         if provider_name == "disabled" {
             return;
         }
-        let model = if self.settings.ai.model.is_empty() {
-            match provider_name.as_str() {
-                "ollama" => "codellama".to_string(),
-                "openai" => "gpt-4o-mini".to_string(),
-                "anthropic" => "claude-sonnet-4-20250514".to_string(),
-                _ => return,
-            }
-        } else {
-            self.settings.ai.model.clone()
-        };
-        let conventional = self.settings.ai.conventional_commits;
+        let commit_config = self.settings.ai.commit_message_config();
+        let mut provider_config = self.settings.ai.provider_config();
+        let model = provider_config.model_or_default(&provider_name);
+        if model.is_empty() {
+            self.last_error = Some(format!(
+                "No model configured for provider \"{provider_name}\""
+            ));
+            cx.notify();
+            return;
+        }
+        provider_config.model = model.clone();
+        let provider_setup =
+            tokio::task::spawn_blocking(move || {
+                gitforge_ai::create_provider(&provider_name, &provider_config)
+            });
         let Some(open_repo) = self.require_active_repo_handle() else {
             cx.notify();
             return;
@@ -1213,11 +1682,20 @@ impl GitForgeApp {
                 return;
             }
 
-            let provider_result = gitforge_ai::create_provider(&provider_name, &model);
-            let provider = match provider_result {
-                Ok(p) => p,
-                Err(e) => {
+            let provider = match provider_setup.await {
+                Ok(Ok(p)) => p,
+                Ok(Err(e)) => {
                     tracing::error!("Failed to create AI provider: {}", e);
+                    this.update(cx, |this, cx| {
+                        this.ai_generating = false;
+                        this.last_error = Some(format!("AI provider error: {e}"));
+                        cx.notify();
+                    })
+                    .ok();
+                    return;
+                }
+                Err(e) => {
+                    tracing::error!("Provider setup task panicked: {}", e);
                     this.update(cx, |this, cx| {
                         this.ai_generating = false;
                         cx.notify();
@@ -1227,18 +1705,17 @@ impl GitForgeApp {
                 }
             };
 
-            match provider
-                .generate_commit_messages(&diff, conventional, 3)
-                .await
-            {
+            match provider.generate_commit_messages(&diff, &commit_config).await {
                 Ok(messages) => {
+                    let default_idx =
+                        gitforge_ai::pick_default_message(&messages, &commit_config.default_alternative);
                     this.update(cx, |this, cx| {
                         this.ai_generating = false;
                         if !messages.is_empty() {
                             this.status_panel.commit_message_mut().clear();
-                            this.status_panel
-                                .commit_message_mut()
-                                .push_str(&messages[0]);
+                            if let Some(msg) = messages.get(default_idx) {
+                                this.status_panel.commit_message_mut().push_str(msg);
+                            }
                             this.status_panel.set_ai_alternatives(messages);
                         }
                         cx.notify();
@@ -1249,6 +1726,7 @@ impl GitForgeApp {
                     tracing::error!("AI generation failed: {}", e);
                     this.update(cx, |this, cx| {
                         this.ai_generating = false;
+                        this.last_error = Some(format!("AI generation failed: {e}"));
                         cx.notify();
                     })
                     .ok();
@@ -1256,13 +1734,6 @@ impl GitForgeApp {
             }
         })
         .detach();
-    }
-
-    pub fn open_ai_settings_dialog(&mut self, cx: &mut Context<Self>) {
-        self.active_dialog = AppDialog::AiSettings;
-        self.dialog_input = self.settings.ai.provider.clone();
-        self.dialog_input_2 = self.settings.ai.model.clone();
-        cx.notify();
     }
 
     pub fn select_ai_alternative(&mut self, idx: usize, cx: &mut Context<Self>) {
@@ -1271,94 +1742,6 @@ impl GitForgeApp {
             self.status_panel.commit_message_mut().clear();
             self.status_panel.commit_message_mut().push_str(msg);
         }
-        cx.notify();
-    }
-
-    pub fn summarize_file_diff(&mut self, path: String, cx: &mut Context<Self>) {
-        let provider_name = self.settings.ai.provider.clone();
-        if provider_name == "disabled" {
-            return;
-        }
-        let model = if self.settings.ai.model.is_empty() {
-            match provider_name.as_str() {
-                "ollama" => "codellama".to_string(),
-                "openai" => "gpt-4o-mini".to_string(),
-                "anthropic" => "claude-sonnet-4-20250514".to_string(),
-                _ => return,
-            }
-        } else {
-            self.settings.ai.model.clone()
-        };
-        let Some(open_repo) = self.require_active_repo_handle() else {
-            cx.notify();
-            return;
-        };
-        let path_for_result = path.clone();
-
-        cx.spawn(async move |this, cx| {
-            let p = path_for_result.clone();
-            let diff_result = tokio::task::spawn_blocking(move || {
-                let repo_lock = open_repo.lock();
-                let Some(repo) = repo_lock.as_ref() else {
-                    return Err::<String, anyhow::Error>(anyhow::anyhow!("No repository open"));
-                };
-                let path = std::path::Path::new(&p);
-                repo.diff_index_to_worktree(Some(path))
-                    .or_else(|_| repo.diff_head_to_index(Some(path)))
-                    .map_err(|e| anyhow::anyhow!("{}", e))
-            })
-            .await;
-
-            let diff = match diff_result {
-                Ok(Ok(d)) => d,
-                Ok(Err(e)) => {
-                    tracing::error!("Failed to get diff for {}: {}", path_for_result, e);
-                    return;
-                }
-                Err(e) => {
-                    tracing::error!("Diff task panicked: {}", e);
-                    return;
-                }
-            };
-
-            if diff.trim().is_empty() {
-                return;
-            }
-
-            let provider = match gitforge_ai::create_provider(&provider_name, &model) {
-                Ok(p) => p,
-                Err(e) => {
-                    tracing::error!("Failed to create AI provider: {}", e);
-                    return;
-                }
-            };
-
-            match provider.summarize_diff(&diff).await {
-                Ok(summary) => {
-                    let p = path_for_result.clone();
-                    this.update(cx, |this, cx| {
-                        this.status_panel.set_file_summary(p.clone(), summary);
-                        this.status_panel.show_file_summary(Some(p));
-                        cx.notify();
-                    })
-                    .ok();
-                }
-                Err(e) => {
-                    tracing::error!("AI summarization failed: {}", e);
-                }
-            }
-        })
-        .detach();
-    }
-
-    pub fn dismiss_file_summary(&mut self, cx: &mut Context<Self>) {
-        self.status_panel.show_file_summary(None);
-        cx.notify();
-    }
-
-    fn open_ai_api_key_dialog(&mut self, provider: String, cx: &mut Context<Self>) {
-        self.active_dialog = AppDialog::SetAiApiKey { provider };
-        self.dialog_input.clear();
         cx.notify();
     }
 
@@ -1383,7 +1766,7 @@ impl GitForgeApp {
             match result {
                 Ok(Ok(status)) => {
                     this.update(cx, |this, cx| {
-                        this.status_panel.set_status(status);
+                        this.status_panel.set_status(status, false);
                         cx.notify();
                     })
                     .ok();
@@ -1656,7 +2039,6 @@ impl GitForgeApp {
                 }
                 self.add_hosting_account(provider, input, cx);
             }
-            AppDialog::ManageAccounts => {}
             AppDialog::SearchHosting { provider } => {
                 if input.is_empty() {
                     return;
@@ -1669,24 +2051,6 @@ impl GitForgeApp {
                 provider,
             } => {
                 self.fork_repo(owner, repo, provider, cx);
-            }
-            AppDialog::AiSettings => {
-                let provider = input.to_string();
-                let model = input_2.to_string();
-                if !provider.is_empty() && provider != "disabled" {
-                    self.settings.ai.provider = provider;
-                    self.settings.ai.model = model;
-                    self.save_settings();
-                }
-            }
-            AppDialog::SetAiApiKey { provider } => {
-                if input.is_empty() {
-                    return;
-                }
-                if let Err(e) = gitforge_ai::store_api_key(&provider, &input) {
-                    tracing::error!("Failed to store API key: {}", e);
-                }
-                self.open_ai_settings_dialog(cx);
             }
             AppDialog::CreateWorktree => {
                 if input.is_empty() {
@@ -1702,6 +2066,13 @@ impl GitForgeApp {
             }
             AppDialog::RemoveWorktree { path } => {
                 self.remove_worktree(path, true, cx);
+            }
+            AppDialog::InitRepo { parent } => {
+                let name = input.trim().to_string();
+                if name.is_empty() {
+                    return;
+                }
+                self.init_repository(parent, name, cx);
             }
             AppDialog::None => {}
         }
@@ -2366,6 +2737,7 @@ impl GitForgeApp {
                         this.hosting_accounts.push(account);
                         this.save_hosting_accounts();
                         this.remote_status = "Account authenticated successfully".to_string();
+                        this.notify_settings_window(cx);
                         cx.notify();
                     })
                     .ok();
@@ -2398,6 +2770,7 @@ impl GitForgeApp {
         self.hosting_accounts
             .retain(|a| !(a.username == username && a.provider == provider));
         self.save_hosting_accounts();
+        self.notify_settings_window(cx);
         cx.notify();
     }
 
@@ -2517,8 +2890,7 @@ impl GitForgeApp {
     }
 
     pub fn open_manage_accounts_dialog(&mut self, cx: &mut Context<Self>) {
-        self.active_dialog = AppDialog::ManageAccounts;
-        cx.notify();
+        self.open_settings_window(Some(SettingsSection::Accounts), cx);
     }
 
     pub fn open_search_hosting_dialog(&mut self, provider: String, cx: &mut Context<Self>) {
@@ -3041,6 +3413,14 @@ impl GitForgeApp {
 
 impl Render for GitForgeApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.quit_requested {
+            self.quit_requested = false;
+            if let Some(handle) = self.settings_window.take() {
+                let _ = handle.update(cx, |_, w, _| w.remove_window());
+            }
+            window.remove_window();
+        }
+
         let bg = rgba_to_hsla(self.colors.background);
         let text = rgba_to_hsla(self.colors.text);
         let entity = cx.entity().downgrade();
@@ -3071,13 +3451,25 @@ impl Render for GitForgeApp {
         ));
 
         let right_content = match self.view_mode {
-            MainViewMode::CommitHistory => self.diff_panel.render(
-                active_repo_state,
-                self.graph_panel.selected_idx(),
-                &self.colors,
-                entity.clone(),
-                self.loading,
-            ),
+            MainViewMode::CommitHistory => {
+                if self.graph_panel.is_uncommitted_selected() {
+                    self.status_panel.render_graph_staging(
+                        active_repo_state,
+                        &self.colors,
+                        entity.clone(),
+                        window,
+                        self.ai_generating,
+                    )
+                } else {
+                    self.diff_panel.render(
+                        active_repo_state,
+                        self.graph_panel.selected_commit_idx(),
+                        &self.colors,
+                        entity.clone(),
+                        self.loading,
+                    )
+                }
+            }
             MainViewMode::Status => {
                 self.status_panel
                     .render(&self.colors, entity.clone(), window, self.ai_generating)
@@ -3113,6 +3505,7 @@ impl Render for GitForgeApp {
 
         let mut inner = div()
             .id("app-content")
+            .relative()
             .flex()
             .flex_col()
             .size_full()
@@ -3181,8 +3574,16 @@ impl Render for GitForgeApp {
             ));
         }
 
-        if let Some(palette) = self.command_palette.render(&self.colors, entity, window) {
+        if let Some(palette) = self.command_palette.render(&self.colors, entity.clone(), window) {
             inner = inner.child(palette);
+        }
+
+        if let Some(menu) = self.active_titlebar_menu {
+            inner = inner.child(super::titlebar::render_titlebar_menu_dropdown(
+                menu,
+                &self.colors,
+                entity.clone(),
+            ));
         }
 
         div()
@@ -3206,6 +3607,16 @@ impl Render for GitForgeApp {
             .on_action(cx.listener(Self::handle_pull_current))
             .on_action(cx.listener(Self::handle_toggle_theme))
             .on_action(cx.listener(Self::handle_show_command_palette))
+            .on_action(cx.listener(Self::handle_new_tab))
+            .on_action(cx.listener(Self::handle_close_tab))
+            .on_action(cx.listener(Self::handle_reopen_closed_tab))
+            .on_action(cx.listener(Self::handle_init_repo))
+            .on_action(cx.listener(Self::handle_open_repo_management))
+            .on_action(cx.listener(Self::handle_open_in_editor))
+            .on_action(cx.listener(Self::handle_open_in_terminal))
+            .on_action(cx.listener(Self::handle_open_in_file_manager))
+            .on_action(cx.listener(Self::handle_preferences))
+            .on_action(cx.listener(Self::handle_quit))
             .child(super::window_chrome::render_window_chrome(
                 inner,
                 &self.colors,
@@ -3224,7 +3635,7 @@ fn render_dialog_overlay(
     window: &mut Window,
     hosting_repos: &[gitforge_hosting::RemoteRepo],
     hosting_repos_loading: bool,
-    hosting_accounts_from_render: &[gitforge_hosting::HostingAccount],
+    _hosting_accounts_from_render: &[gitforge_hosting::HostingAccount],
 ) -> Stateful<Div> {
     let overlay_bg = rgba_to_hsla(colors.background).opacity(0.7);
     let surface = rgba_to_hsla(colors.surface);
@@ -3248,13 +3659,11 @@ fn render_dialog_overlay(
         AppDialog::CredentialAdd => "Add Credential",
         AppDialog::CloneFromHosting { .. } => "Clone from Hosting",
         AppDialog::AddAccount { .. } => "Add Account",
-        AppDialog::ManageAccounts => "Manage Accounts",
         AppDialog::SearchHosting { .. } => "Search Repositories",
         AppDialog::ForkRepo { .. } => "Fork Repository",
-        AppDialog::AiSettings => "AI Settings",
-        AppDialog::SetAiApiKey { .. } => "Set API Key",
         AppDialog::CreateWorktree => "Create Worktree",
         AppDialog::RemoveWorktree { .. } => "Remove Worktree",
+        AppDialog::InitRepo { .. } => "Init Repository",
         AppDialog::None => "",
     };
 
@@ -3272,20 +3681,9 @@ fn render_dialog_overlay(
         AppDialog::CredentialAdd => "host username",
         AppDialog::CloneFromHosting { .. } => "Search repos...",
         AppDialog::AddAccount { .. } => "Personal Access Token",
-        AppDialog::ManageAccounts => "",
         AppDialog::SearchHosting { .. } => "Search query...",
         AppDialog::ForkRepo { owner, repo, .. } => {
             return render_fork_confirm_overlay(owner, repo, colors, entity);
-        }
-        AppDialog::AiSettings => {
-            return render_ai_settings_overlay(
-                input_value,
-                input_value_2,
-                input_focus,
-                colors,
-                entity,
-                window,
-            );
         }
         AppDialog::CreateWorktree => {
             return render_create_worktree_overlay(
@@ -3297,10 +3695,10 @@ fn render_dialog_overlay(
                 window,
             );
         }
-        AppDialog::SetAiApiKey { .. } => "sk-... (API key)",
         AppDialog::RemoveWorktree { path } => {
             return render_remove_worktree_overlay(path, colors, entity);
         }
+        AppDialog::InitRepo { .. } => "Repository name",
         AppDialog::None => "",
     };
 
@@ -3315,10 +3713,6 @@ fn render_dialog_overlay(
             hosting_repos,
             hosting_repos_loading,
         );
-    }
-
-    if matches!(dialog, AppDialog::ManageAccounts) {
-        return render_manage_accounts_overlay(colors, entity, &hosting_accounts_from_render);
     }
 
     if matches!(dialog, AppDialog::SearchHosting { .. }) {
@@ -3666,216 +4060,6 @@ fn render_hosting_repos_overlay(
         .child(content)
 }
 
-fn render_manage_accounts_overlay(
-    colors: &AppColors,
-    entity: WeakEntity<GitForgeApp>,
-    accounts: &[gitforge_hosting::HostingAccount],
-) -> Stateful<Div> {
-    let overlay_bg = rgba_to_hsla(colors.background).opacity(0.7);
-    let surface = rgba_to_hsla(colors.surface);
-    let border = rgba_to_hsla(colors.border);
-    let text_color = rgba_to_hsla(colors.text);
-    let muted = rgba_to_hsla(colors.text_muted);
-    let accent = rgba_to_hsla(colors.accent);
-    let warning = rgba_to_hsla(colors.warning);
-
-    let ent_cancel = entity.clone();
-    let ent_github = entity.clone();
-    let ent_gitlab = entity.clone();
-    let ent_codeberg = entity.clone();
-
-    let mut content = div()
-        .id("dialog-box")
-        .w(px(420.0))
-        .max_h(px(500.0))
-        .bg(surface)
-        .border_1()
-        .border_color(border)
-        .rounded(px(6.0))
-        .p_4()
-        .flex()
-        .flex_col()
-        .gap_3()
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .justify_between()
-                .child(
-                    div()
-                        .text_sm()
-                        .font_weight(FontWeight::BOLD)
-                        .text_color(text_color)
-                        .child("Hosting Accounts"),
-                )
-                .child(
-                    div()
-                        .id("accounts-cancel")
-                        .px_2()
-                        .py_0()
-                        .border_1()
-                        .border_color(border)
-                        .rounded(px(3.0))
-                        .cursor_pointer()
-                        .text_xs()
-                        .text_color(muted)
-                        .child("Close")
-                        .on_click(move |_ev, _window, cx| {
-                            if let Some(e) = ent_cancel.upgrade() {
-                                e.update(cx, |this, cx| {
-                                    this.cancel_dialog(cx);
-                                });
-                            }
-                        }),
-                ),
-        )
-        .child(
-            div()
-                .text_xs()
-                .text_color(muted)
-                .child("Add an account by entering a Personal Access Token (PAT)."),
-        )
-        .child(
-            div()
-                .flex()
-                .gap_2()
-                .child(render_add_provider_button(
-                    "GitHub", accent, border, ent_github, "github",
-                ))
-                .child(render_add_provider_button(
-                    "GitLab", accent, border, ent_gitlab, "gitlab",
-                ))
-                .child(render_add_provider_button(
-                    "Codeberg",
-                    accent,
-                    border,
-                    ent_codeberg,
-                    "codeberg",
-                )),
-        );
-
-    if accounts.is_empty() {
-        content = content.child(
-            div()
-                .text_xs()
-                .text_color(muted)
-                .child("No accounts configured."),
-        );
-    } else {
-        let mut list = div().flex().flex_col().gap_1();
-        for (i, account) in accounts.iter().enumerate() {
-            let ent_remove = entity.clone();
-            let username = account.username.clone();
-            let provider = account.provider.clone();
-            let display = account.display_name.clone();
-            let prov_lower = account.provider.clone();
-
-            let provider_color = match account.provider.as_str() {
-                "github" => accent,
-                "gitlab" => rgba_to_hsla(colors.accent_secondary),
-                "codeberg" => rgba_to_hsla(colors.success),
-                _ => muted,
-            };
-
-            list = list.child(
-                div()
-                    .id(ElementId::NamedInteger("account-row".into(), i as u64))
-                    .px_2()
-                    .py_1()
-                    .border_1()
-                    .border_color(border)
-                    .rounded(px(3.0))
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap_2()
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .text_color(provider_color)
-                                    .child(prov_lower),
-                            )
-                            .child(div().text_sm().text_color(text_color).child(display))
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(muted)
-                                    .child(format!("@{}", username)),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .id(ElementId::NamedInteger("remove-account".into(), i as u64))
-                            .px_2()
-                            .py_0()
-                            .border_1()
-                            .border_color(warning)
-                            .rounded(px(3.0))
-                            .cursor_pointer()
-                            .text_xs()
-                            .text_color(warning)
-                            .child("Remove")
-                            .on_click(move |_ev, _window, cx| {
-                                if let Some(e) = ent_remove.upgrade() {
-                                    let u = username.clone();
-                                    let p = provider.clone();
-                                    e.update(cx, |this, cx| {
-                                        this.remove_hosting_account(u, p, cx);
-                                    });
-                                }
-                            }),
-                    ),
-            );
-        }
-        content = content.child(list);
-    }
-
-    div()
-        .id("dialog-overlay")
-        .absolute()
-        .top_0()
-        .left_0()
-        .size_full()
-        .bg(overlay_bg)
-        .flex()
-        .items_center()
-        .justify_center()
-        .child(content)
-}
-
-fn render_add_provider_button(
-    label: &str,
-    color: Hsla,
-    border_color: Hsla,
-    entity: WeakEntity<GitForgeApp>,
-    provider: &str,
-) -> Stateful<Div> {
-    let provider = provider.to_string();
-    div()
-        .id(ElementId::Name(format!("add-{}", provider).into()))
-        .px_2()
-        .py_0()
-        .border_1()
-        .border_color(border_color)
-        .rounded(px(3.0))
-        .cursor_pointer()
-        .text_xs()
-        .text_color(color)
-        .child(format!("+ {}", label))
-        .on_click(move |_ev, _window, cx| {
-            if let Some(e) = entity.upgrade() {
-                let p = provider.clone();
-                e.update(cx, |this, cx| {
-                    this.open_add_account_dialog(p, cx);
-                });
-            }
-        })
-}
 
 fn render_fork_confirm_overlay(
     owner: &str,
@@ -3986,281 +4170,6 @@ fn render_fork_confirm_overlay(
         )
 }
 
-fn render_ai_settings_overlay(
-    provider_input: &str,
-    model_input: &str,
-    input_focus: &FocusHandle,
-    colors: &AppColors,
-    entity: WeakEntity<GitForgeApp>,
-    window: &mut Window,
-) -> Stateful<Div> {
-    let overlay_bg = rgba_to_hsla(colors.background).opacity(0.7);
-    let surface = rgba_to_hsla(colors.surface);
-    let border = rgba_to_hsla(colors.border);
-    let text_color = rgba_to_hsla(colors.text);
-    let accent = rgba_to_hsla(colors.accent);
-    let muted = rgba_to_hsla(colors.text_muted);
-
-    let providers = ["disabled", "ollama", "openai", "anthropic"];
-    let current_provider = if providers.contains(&provider_input) {
-        provider_input
-    } else {
-        "disabled"
-    };
-    let show_model = current_provider != "disabled";
-    let show_api_key = current_provider == "openai" || current_provider == "anthropic";
-
-    let ent_cancel = entity.clone();
-    let ent_confirm = entity.clone();
-
-    let mut provider_buttons = Vec::new();
-    for p in providers {
-        let is_active = p == current_provider;
-        let bg = if is_active { accent } else { surface };
-        let tc = if is_active {
-            rgba_to_hsla(colors.background)
-        } else {
-            text_color
-        };
-        let bc = if is_active { accent } else { border };
-        let ent = entity.clone();
-        let p_owned = p.to_string();
-        provider_buttons.push(
-            div()
-                .id(ElementId::Name(format!("ai-provider-{}", p).into()))
-                .px_3()
-                .py_1()
-                .border_1()
-                .border_color(bc)
-                .rounded(px(3.0))
-                .bg(bg)
-                .cursor_pointer()
-                .text_xs()
-                .text_color(tc)
-                .font_weight(if is_active {
-                    FontWeight::SEMIBOLD
-                } else {
-                    FontWeight::NORMAL
-                })
-                .child(p.to_string())
-                .on_click(move |_ev, _window, cx| {
-                    if let Some(e) = ent.upgrade() {
-                        let val = p_owned.clone();
-                        e.update(cx, |this, cx| {
-                            this.dialog_input = val;
-                            match this.dialog_input.as_str() {
-                                "ollama" => {
-                                    if this.dialog_input_2.is_empty() {
-                                        this.dialog_input_2 = "codellama".to_string();
-                                    }
-                                }
-                                "openai" => {
-                                    if this.dialog_input_2.is_empty() {
-                                        this.dialog_input_2 = "gpt-4o-mini".to_string();
-                                    }
-                                }
-                                "anthropic" => {
-                                    if this.dialog_input_2.is_empty() {
-                                        this.dialog_input_2 =
-                                            "claude-sonnet-4-20250514".to_string();
-                                    }
-                                }
-                                _ => {}
-                            }
-                            cx.notify();
-                        });
-                    }
-                }),
-        );
-    }
-
-    let is_focused = input_focus.is_focused(window);
-    let model_display = if model_input.is_empty() && !is_focused {
-        "Model name".to_string()
-    } else {
-        let mut t = model_input.to_string();
-        if is_focused {
-            t.push('\u{2502}');
-        }
-        t
-    };
-    let model_color = if model_input.is_empty() && !is_focused {
-        muted
-    } else {
-        text_color
-    };
-
-    let ent_model = entity.clone();
-    let fh = input_focus.clone();
-
-    let mut dialog_box = div()
-        .id("dialog-box")
-        .w(px(420.0))
-        .bg(surface)
-        .border_1()
-        .border_color(border)
-        .rounded(px(6.0))
-        .p_4()
-        .flex()
-        .flex_col()
-        .gap_3()
-        .child(
-            div()
-                .text_sm()
-                .font_weight(FontWeight::BOLD)
-                .text_color(text_color)
-                .child("AI Settings"),
-        )
-        .child(div().text_xs().text_color(muted).child("Provider"))
-        .child(div().flex().gap_2().children(provider_buttons));
-
-    if show_model {
-        let ent_m = ent_model.clone();
-        let fh2 = fh.clone();
-        dialog_box = dialog_box
-            .child(div().text_xs().text_color(muted).child("Model"))
-            .child(
-                div()
-                    .id(ElementId::Name("ai-model-input".into()))
-                    .track_focus(&fh2)
-                    .px_2()
-                    .py_1()
-                    .border_1()
-                    .border_color(border)
-                    .rounded(px(3.0))
-                    .bg(rgba_to_hsla(colors.background))
-                    .cursor_pointer()
-                    .on_click(move |_ev, window, _cx| {
-                        window.focus(&fh2);
-                    })
-                    .on_key_down(move |ev: &KeyDownEvent, _window, cx| {
-                        match ev.keystroke.key.as_str() {
-                            "backspace" => {
-                                if let Some(e) = ent_m.upgrade() {
-                                    e.update(cx, |this, cx| {
-                                        this.dialog_input_2.pop();
-                                        cx.notify();
-                                    });
-                                }
-                            }
-                            "enter" => {
-                                if let Some(e) = ent_m.upgrade() {
-                                    e.update(cx, |this, cx| {
-                                        this.confirm_dialog(cx);
-                                    });
-                                }
-                            }
-                            "escape" => {
-                                if let Some(e) = ent_m.upgrade() {
-                                    e.update(cx, |this, cx| {
-                                        this.cancel_dialog(cx);
-                                    });
-                                }
-                            }
-                            _ => {
-                                if let Some(ch) = ev.keystroke.key_char.clone() {
-                                    if !ev.keystroke.modifiers.platform {
-                                        if let Some(e) = ent_m.upgrade() {
-                                            let c = ch;
-                                            e.update(cx, |this, cx| {
-                                                this.dialog_input_2.push_str(&c);
-                                                cx.notify();
-                                            });
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    })
-                    .child(div().text_sm().text_color(model_color).child(model_display)),
-            );
-    }
-
-    if show_api_key {
-        let ent_key = entity.clone();
-        let provider_name = current_provider.to_string();
-        dialog_box = dialog_box.child(
-            div()
-                .id("ai-set-key-btn")
-                .px_3()
-                .py_1()
-                .border_1()
-                .border_color(accent)
-                .rounded(px(3.0))
-                .cursor_pointer()
-                .text_xs()
-                .text_color(accent)
-                .child("Set API Key (stored in keyring)")
-                .on_click(move |_ev, _window, cx| {
-                    if let Some(e) = ent_key.upgrade() {
-                        let p = provider_name.clone();
-                        e.update(cx, |this, cx| {
-                            this.open_ai_api_key_dialog(p, cx);
-                        });
-                    }
-                }),
-        );
-    }
-
-    dialog_box = dialog_box.child(
-        div()
-            .flex()
-            .gap_2()
-            .justify_end()
-            .child(
-                div()
-                    .id("ai-cancel")
-                    .px_3()
-                    .py_1()
-                    .border_1()
-                    .border_color(border)
-                    .rounded(px(3.0))
-                    .cursor_pointer()
-                    .text_xs()
-                    .text_color(muted)
-                    .child("Cancel")
-                    .on_click(move |_ev, _window, cx| {
-                        if let Some(e) = ent_cancel.upgrade() {
-                            e.update(cx, |this, cx| {
-                                this.cancel_dialog(cx);
-                            });
-                        }
-                    }),
-            )
-            .child(
-                div()
-                    .id("ai-confirm")
-                    .px_3()
-                    .py_1()
-                    .border_1()
-                    .border_color(accent)
-                    .rounded(px(3.0))
-                    .cursor_pointer()
-                    .text_xs()
-                    .text_color(accent)
-                    .child("Save")
-                    .on_click(move |_ev, _window, cx| {
-                        if let Some(e) = ent_confirm.upgrade() {
-                            e.update(cx, |this, cx| {
-                                this.confirm_dialog(cx);
-                            });
-                        }
-                    }),
-            ),
-    );
-
-    div()
-        .id("dialog-overlay")
-        .absolute()
-        .top_0()
-        .left_0()
-        .size_full()
-        .bg(overlay_bg)
-        .flex()
-        .items_center()
-        .justify_center()
-        .child(dialog_box)
-}
 
 fn render_create_worktree_overlay(
     input_value: &str,
@@ -4619,3 +4528,4 @@ fn render_remove_worktree_overlay(
         .justify_center()
         .child(dialog_box)
 }
+

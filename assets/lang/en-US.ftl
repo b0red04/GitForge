@@ -107,6 +107,7 @@ diff-file-modified = Modified
 diff-file-renamed = Renamed
 
 ## Status Panel
+status-graph-staging-header = { $count } file changes on { $branch }
 status-staged = Staged
 status-unstaged = Unstaged
 status-untracked = Untracked

@@ -13,11 +13,18 @@ const COMMIT_CIRCLE_RADIUS: f32 = 3.5;
 const COMMIT_CIRCLE_STROKE_WIDTH: f32 = 1.5;
 const LINE_WIDTH: f32 = 1.5;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GraphSelection {
+    None,
+    Uncommitted,
+    Commit(usize),
+}
+
 pub struct GraphPanel {
     commits: Vec<CommitInfo>,
     references: Vec<RefInfo>,
     graph: Graph,
-    selected_idx: Option<usize>,
+    selection: GraphSelection,
     has_uncommitted: bool,
     scroll_handle: UniformListScrollHandle,
     branch_filter: Option<String>,
@@ -32,7 +39,7 @@ impl GraphPanel {
             commits: Vec::new(),
             references: Vec::new(),
             graph: Graph::new(),
-            selected_idx: None,
+            selection: GraphSelection::None,
             has_uncommitted: false,
             scroll_handle: UniformListScrollHandle::default(),
             branch_filter: None,
@@ -58,7 +65,7 @@ impl GraphPanel {
         self.references = references;
         self.graph = graph;
         self.has_uncommitted = has_uncommitted;
-        self.selected_idx = None;
+        self.selection = GraphSelection::None;
         self.update_filtered_indices();
     }
 
@@ -105,16 +112,44 @@ impl GraphPanel {
 
     pub fn set_branch_filter(&mut self, branch: Option<String>) {
         self.branch_filter = branch;
-        self.selected_idx = None;
+        self.clear_selection();
         self.update_filtered_indices();
     }
 
-    pub fn selected_idx(&self) -> Option<usize> {
-        self.selected_idx
+    pub fn selection(&self) -> GraphSelection {
+        self.selection
     }
 
-    pub fn select(&mut self, idx: usize) {
-        self.selected_idx = Some(idx);
+    pub fn is_uncommitted_selected(&self) -> bool {
+        self.selection == GraphSelection::Uncommitted
+    }
+
+    pub fn selected_commit_idx(&self) -> Option<usize> {
+        match self.selection {
+            GraphSelection::Commit(idx) => Some(idx),
+            _ => None,
+        }
+    }
+
+    /// Alias for [`Self::selected_commit_idx`].
+    pub fn selected_idx(&self) -> Option<usize> {
+        self.selected_commit_idx()
+    }
+
+    pub fn clear_selection(&mut self) {
+        self.selection = GraphSelection::None;
+    }
+
+    pub fn select_uncommitted(&mut self) {
+        if self.has_uncommitted {
+            self.selection = GraphSelection::Uncommitted;
+        }
+    }
+
+    pub fn select_commit(&mut self, idx: usize) {
+        if idx < self.commits.len() {
+            self.selection = GraphSelection::Commit(idx);
+        }
     }
 
     pub fn select_prev(&mut self) -> bool {
@@ -126,21 +161,46 @@ impl GraphPanel {
     }
 
     fn select_delta(&mut self, delta: isize) -> bool {
-        let new_idx = match self.selected_idx {
-            Some(idx) => {
-                let candidate = (idx as isize + delta) as usize;
-                if delta > 0 && candidate >= self.commits.len() {
+        if self.commits.is_empty() && !self.has_uncommitted {
+            return false;
+        }
+
+        let new_selection = match (self.selection, delta) {
+            (GraphSelection::None, 1) => {
+                if self.has_uncommitted {
+                    GraphSelection::Uncommitted
+                } else if !self.commits.is_empty() {
+                    GraphSelection::Commit(0)
+                } else {
                     return false;
                 }
-                if delta < 0 && idx == 0 {
-                    return false;
-                }
-                candidate
             }
-            None if !self.commits.is_empty() => 0,
+            (GraphSelection::None, -1) => return false,
+            (GraphSelection::Uncommitted, 1) => {
+                if self.commits.is_empty() {
+                    return false;
+                }
+                GraphSelection::Commit(0)
+            }
+            (GraphSelection::Uncommitted, -1) => return false,
+            (GraphSelection::Commit(0), -1) => {
+                if self.has_uncommitted {
+                    GraphSelection::Uncommitted
+                } else {
+                    return false;
+                }
+            }
+            (GraphSelection::Commit(idx), d) => {
+                let candidate = idx as isize + d;
+                if candidate < 0 || candidate as usize >= self.commits.len() {
+                    return false;
+                }
+                GraphSelection::Commit(candidate as usize)
+            }
             _ => return false,
         };
-        self.selected_idx = Some(new_idx);
+
+        self.selection = new_selection;
         true
     }
 
@@ -224,7 +284,7 @@ impl GraphPanel {
         let commits = self.commits.clone();
         let references = self.references.clone();
         let graph = self.graph.clone();
-        let selected_idx = self.selected_idx;
+        let selection = self.selection;
         let has_uncommitted = self.has_uncommitted;
         let cl = colors.clone();
         let cl_canvas = cl.clone();
@@ -239,11 +299,18 @@ impl GraphPanel {
                 for item_i in visible_range {
                     if has_uncommitted && item_i == 0 {
                         let cl_for_row = cl.clone();
+                        let wip_selected = selection == GraphSelection::Uncommitted;
+                        let row_bg = if wip_selected {
+                            rgba_to_hsla(cl_for_row.sidebar_selected)
+                        } else {
+                            rgba_to_hsla(cl_for_row.background)
+                        };
+                        let wip_entity = entity.clone();
                         let row = div()
                             .id("uncommitted-row")
                             .px_0()
                             .py_0()
-                            .bg(rgba_to_hsla(cl_for_row.background))
+                            .bg(row_bg)
                             .border_b_1()
                             .border_color(rgba_to_hsla(Rgba {
                                 r: 0.3,
@@ -255,6 +322,14 @@ impl GraphPanel {
                             .flex_row()
                             .items_center()
                             .h(px(ROW_HEIGHT))
+                            .cursor_pointer()
+                            .on_click(move |_ev, _window, cx| {
+                                if let Some(e) = wip_entity.upgrade() {
+                                    e.update(cx, |this, cx| {
+                                        this.select_uncommitted(cx);
+                                    });
+                                }
+                            })
                             .child(empty_refs_column())
                             .child(graph_spacer())
                             .child(
@@ -274,7 +349,7 @@ impl GraphPanel {
 
                     let commit_idx = if has_uncommitted { item_i - 1 } else { item_i };
                     let commit = &commits[commit_idx];
-                    let is_selected = selected_idx == Some(commit_idx);
+                    let is_selected = selection == GraphSelection::Commit(commit_idx);
                     let row_bg = if is_selected {
                         rgba_to_hsla(cl.sidebar_selected)
                     } else {
@@ -370,7 +445,7 @@ impl GraphPanel {
                     &graph,
                     has_uncommitted,
                     total_items,
-                    selected_idx,
+                    selection,
                     &scroll_handle,
                     &cl_canvas,
                     window,
@@ -435,7 +510,7 @@ fn paint_graph_overlay(
     graph: &Graph,
     has_uncommitted: bool,
     total_list_items: usize,
-    _selected_idx: Option<usize>,
+    _selection: GraphSelection,
     scroll_handle: &UniformListScrollHandle,
     colors: &AppColors,
     window: &mut Window,

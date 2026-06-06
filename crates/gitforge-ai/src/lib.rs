@@ -1,42 +1,41 @@
-pub mod provider;
-pub mod local;
-pub mod cloud;
+pub mod config;
 pub mod prompt;
+pub mod provider;
+pub mod providers;
+pub mod registry;
+mod secrets;
 
+pub use config::{
+    CommitMessageConfig, ProviderConfig, ZaiEndpoint, clamp_options_count, clamp_temperature,
+    default_body_wrap_at, default_default_alternative, default_message_options_count,
+    default_model_for_provider, default_temperature, default_variation_mode, normalize_tone,
+    pick_default_message,
+};
+pub use prompt::truncate_diff;
 pub use provider::AiProvider;
-pub use local::OllamaProvider;
-pub use cloud::{OpenAiProvider, AnthropicProvider};
+pub use providers::{
+    AnthropicProvider, OllamaProvider, OpenAiCompatibleProvider, list_ollama_models,
+    list_openai_compatible_models,
+};
+pub use registry::{
+    AI_PROVIDERS, ProviderDescriptor, create_provider, list_models_for_provider,
+    parse_zai_endpoint, provider_descriptor,
+};
 
 use anyhow::Result;
 
 pub fn store_api_key(provider: &str, key: &str) -> Result<()> {
-    let entry = keyring::Entry::new("gitforge-ai", provider)?;
-    entry.set_password(key)?;
-    Ok(())
+    secrets::store_api_key(provider, key)
 }
 
 pub fn get_api_key(provider: &str) -> Result<String> {
-    let entry = keyring::Entry::new("gitforge-ai", provider)?;
-    Ok(entry.get_password()?)
+    secrets::get_api_key(provider)
+}
+
+pub fn has_api_key(provider: &str) -> bool {
+    secrets::has_api_key(provider)
 }
 
 pub fn delete_api_key(provider: &str) -> Result<()> {
-    let entry = keyring::Entry::new("gitforge-ai", provider)?;
-    entry.delete_credential()?;
-    Ok(())
-}
-
-pub fn create_provider(name: &str, model: &str) -> Result<Box<dyn AiProvider>> {
-    match name {
-        "ollama" => Ok(Box::new(OllamaProvider::new("http://localhost:11434", model))),
-        "openai" => {
-            let api_key = get_api_key("openai")?;
-            Ok(Box::new(OpenAiProvider::new(&api_key, model)))
-        }
-        "anthropic" => {
-            let api_key = get_api_key("anthropic")?;
-            Ok(Box::new(AnthropicProvider::new(&api_key, model)))
-        }
-        other => anyhow::bail!("Unknown AI provider: {}", other),
-    }
+    secrets::delete_api_key(provider)
 }

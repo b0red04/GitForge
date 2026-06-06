@@ -1,5 +1,8 @@
+use crate::diff_stat::{parse_numstat, untracked_line_count};
 use crate::error::{GitError, GitResult};
 use crate::repository::Repository;
+use crate::status::{DiffStat, RepoStatus};
+use std::collections::HashMap;
 use std::path::Path;
 use std::process::Command;
 
@@ -337,6 +340,36 @@ impl Repository {
         Ok(!output.status.success())
     }
 
+    /// Per-file line stats for all changes since `HEAD` (matches Zed's git panel).
+    pub fn diff_numstat_vs_head(&self) -> GitResult<HashMap<String, DiffStat>> {
+        let output = self.run_git(&["diff", "--numstat", "--no-renames", "HEAD"])?;
+        Ok(parse_numstat(&String::from_utf8_lossy(&output.stdout)))
+    }
+
+    pub fn attach_diff_stats(&self, status: &mut RepoStatus) -> GitResult<()> {
+        let numstat = self.diff_numstat_vs_head().unwrap_or_default();
+        let attach = |entry: &mut crate::status::FileEntry| {
+            if let Some(stat) = numstat.get(&entry.path) {
+                entry.diff_stat = Some(*stat);
+            } else if entry.status == crate::status::FileStatus::Untracked {
+                entry.diff_stat = untracked_line_count(self.path(), &entry.path);
+            }
+        };
+        for entry in &mut status.staged {
+            attach(entry);
+        }
+        for entry in &mut status.unstaged {
+            attach(entry);
+        }
+        for entry in &mut status.untracked {
+            attach(entry);
+        }
+        for entry in &mut status.conflicted {
+            attach(entry);
+        }
+        Ok(())
+    }
+
     pub fn diff_head_to_index(&self, path: Option<&Path>) -> GitResult<String> {
         let mut args = vec!["diff", "--cached", "--no-color"];
         if let Some(p) = path {
@@ -510,6 +543,24 @@ impl Repository {
             args.push(p.to_str().unwrap_or(""));
         }
         self.run_git(&args)?;
+        Ok(())
+    }
+
+    pub fn init_repo(path: &Path, bare: bool) -> GitResult<()> {
+        let mut args: Vec<&str> = vec!["init"];
+        if bare {
+            args.push("--bare");
+        }
+        let output = Command::new("git")
+            .args(&args)
+            .current_dir(path)
+            .output()
+            .map_err(|e| GitError::OperationFailed(format!("Failed to run git init: {}", e)))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(GitError::OperationFailed(stderr.to_string()));
+        }
         Ok(())
     }
 }

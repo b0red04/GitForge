@@ -1,8 +1,8 @@
 use gitforge_diff::{DiffLineType, FileDiff};
-use gitforge_git::{FileEntry, FileStatus, RepoStatus};
+use gitforge_git::{DiffStat, FileEntry, FileStatus, RepoState, RepoStatus};
+use std::path::Path;
 use gitforge_ui::{AppColors, rgba_to_hsla};
 use gpui::*;
-use std::collections::HashMap;
 use std::ops::Range;
 
 use super::layout::{FILE_LIST_WIDTH, RIGHT_MIN_WIDTH};
@@ -36,8 +36,6 @@ pub struct StatusPanel {
     diff_sel_anchor: Option<usize>,
     diff_sel_end: Option<usize>,
     ai_message_alternatives: Vec<String>,
-    ai_file_summaries: HashMap<String, String>,
-    ai_file_summary_visible: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,6 +45,7 @@ pub enum StatusViewMode {
     Diff,
     Code,
     Commit,
+    GraphStaging,
 }
 
 #[allow(dead_code)]
@@ -63,18 +62,37 @@ impl StatusPanel {
             diff_sel_anchor: None,
             diff_sel_end: None,
             ai_message_alternatives: Vec::new(),
-            ai_file_summaries: HashMap::new(),
-            ai_file_summary_visible: None,
         }
     }
 
-    pub fn set_status(&mut self, status: RepoStatus) {
+    pub fn set_status(&mut self, status: RepoStatus, preserve_graph_staging: bool) {
         self.status = Some(status);
-        self.selection = None;
         self.diff_for_selected = None;
-        self.view_mode = StatusViewMode::Status;
         self.diff_sel_anchor = None;
         self.diff_sel_end = None;
+
+        if preserve_graph_staging {
+            self.view_mode = StatusViewMode::GraphStaging;
+        } else {
+            self.selection = None;
+            self.view_mode = StatusViewMode::Status;
+        }
+    }
+
+    pub fn is_graph_staging(&self) -> bool {
+        self.view_mode == StatusViewMode::GraphStaging
+    }
+
+    pub fn enter_graph_staging(&mut self) {
+        self.view_mode = StatusViewMode::GraphStaging;
+        self.selection = None;
+        self.diff_for_selected = None;
+    }
+
+    pub fn exit_graph_staging(&mut self) {
+        if self.view_mode == StatusViewMode::GraphStaging {
+            self.view_mode = StatusViewMode::Status;
+        }
     }
 
     pub fn clear(&mut self) {
@@ -102,7 +120,9 @@ impl StatusPanel {
     }
 
     pub fn cancel_commit(&mut self) {
-        self.view_mode = StatusViewMode::Status;
+        if self.view_mode != StatusViewMode::GraphStaging {
+            self.view_mode = StatusViewMode::Status;
+        }
     }
 
     pub fn commit_message(&self) -> &str {
@@ -116,7 +136,11 @@ impl StatusPanel {
     pub fn take_commit_message(&mut self) -> String {
         let msg = self.commit_message.clone();
         self.commit_message.clear();
-        self.view_mode = StatusViewMode::Status;
+        self.view_mode = if self.view_mode == StatusViewMode::GraphStaging {
+            StatusViewMode::GraphStaging
+        } else {
+            StatusViewMode::Status
+        };
         self.ai_message_alternatives.clear();
         msg
     }
@@ -127,24 +151,6 @@ impl StatusPanel {
 
     pub fn ai_alternatives(&self) -> &[String] {
         &self.ai_message_alternatives
-    }
-
-    pub fn set_file_summary(&mut self, path: String, summary: String) {
-        self.ai_file_summaries.insert(path, summary);
-    }
-
-    pub fn file_summary(&self, path: &str) -> Option<&str> {
-        self.ai_file_summaries.get(path).map(|s| s.as_str())
-    }
-
-    pub fn show_file_summary(&mut self, path: Option<String>) {
-        self.ai_file_summary_visible = path;
-    }
-
-    pub fn visible_summary(&self) -> Option<&str> {
-        self.ai_file_summary_visible
-            .as_ref()
-            .and_then(|p| self.ai_file_summaries.get(p).map(|s| s.as_str()))
     }
 
     pub fn select_diff_line(&mut self, line_idx: usize, extend: bool) {
@@ -212,10 +218,14 @@ impl StatusPanel {
                     .child("CHANGES"),
             );
 
-        let mut panel = match &self.status {
-            Some(status) if status.has_changes() || self.view_mode == StatusViewMode::Commit => {
+        let panel = match &self.status {
+            Some(status)
+                if status.has_changes()
+                    || self.view_mode == StatusViewMode::Commit
+                    || self.view_mode == StatusViewMode::GraphStaging =>
+            {
                 match self.view_mode {
-                    StatusViewMode::Status | StatusViewMode::Commit => {
+                    StatusViewMode::Status | StatusViewMode::Commit | StatusViewMode::GraphStaging => {
                         let file_list = self.render_file_list(status, colors, entity.clone());
                         if self.view_mode == StatusViewMode::Commit {
                             let editor = self.render_commit_editor(
@@ -223,6 +233,7 @@ impl StatusPanel {
                                 entity.clone(),
                                 window,
                                 ai_generating,
+                                false,
                             );
                             let p = status_panel_shell(surface).child(header).child(
                                 div()
@@ -271,33 +282,161 @@ impl StatusPanel {
             ),
         };
 
-        if let Some(summary) = self.visible_summary() {
-            let popup = render_ai_summary_popup(summary, colors, entity);
-            panel = panel.child(popup);
-        }
-
         panel
     }
 
-    fn render_file_list(
+    pub fn render_graph_staging(
         &self,
+        repo_state: Option<&RepoState>,
+        colors: &AppColors,
+        entity: WeakEntity<super::app::GitForgeApp>,
+        window: &mut Window,
+        ai_generating: bool,
+    ) -> Div {
+        let surface = rgba_to_hsla(colors.surface);
+        let border = rgba_to_hsla(colors.border);
+        let muted = rgba_to_hsla(colors.text_muted);
+        let text_color = rgba_to_hsla(colors.text);
+
+        let branch = repo_state
+            .and_then(|rs| rs.head_branch.as_deref())
+            .or_else(|| self.status.as_ref().and_then(|s| s.head_branch.as_deref()))
+            .unwrap_or("HEAD");
+
+        let Some(status) = &self.status else {
+            return status_panel_shell(surface).child(
+                div()
+                    .flex_1()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(muted)
+                            .child("No uncommitted changes"),
+                    ),
+            );
+        };
+
+        if !status.has_changes() {
+            return status_panel_shell(surface).child(
+                div()
+                    .flex_1()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(muted)
+                            .child("No uncommitted changes"),
+                    ),
+            );
+        }
+
+        let file_count = status.changed_file_count();
+        let header_label = format!("{file_count} file changes on {branch}");
+
+        let file_list = div()
+            .id(ElementId::Name("graph-staging-file-list".into()))
+            .flex_1()
+            .min_h(px(0.0))
+            .overflow_y_scroll()
+            .flex()
+            .flex_col();
+        let file_list = self.populate_file_sections(
+            file_list,
+            status,
+            colors,
+            entity.clone(),
+            false,
+            false,
+        );
+
+        let commit_editor =
+            self.render_commit_editor(colors, entity.clone(), window, ai_generating, true);
+
+        let can_commit = !status.staged.is_empty();
+        let commit_label = if can_commit {
+            format!("Commit {} files", status.staged.len())
+        } else {
+            "Stage changes to commit".to_string()
+        };
+        let commit_ent = entity.clone();
+        let btn_bg = if can_commit {
+            rgba_to_hsla(colors.accent)
+        } else {
+            muted
+        };
+
+        let primary_action = div()
+            .px_3()
+            .py_2()
+            .border_t_1()
+            .border_color(border)
+            .flex_shrink_0()
+            .child(
+                div()
+                    .id("graph-staging-commit-btn")
+                    .w_full()
+                    .py_2()
+                    .rounded(px(4.0))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .bg(btn_bg)
+                    .cursor_pointer()
+                    .text_sm()
+                    .text_color(rgba_to_hsla(colors.background))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(commit_label)
+                    .on_click(move |_ev, _window, cx| {
+                        if let Some(e) = commit_ent.upgrade() {
+                            e.update(cx, |this, cx| {
+                                if can_commit {
+                                    this.perform_commit(false, cx);
+                                } else {
+                                    this.stage_all(cx);
+                                }
+                            });
+                        }
+                    }),
+            );
+
+        status_panel_shell(surface)
+            .child(
+                div()
+                    .px_3()
+                    .py_2()
+                    .border_b_1()
+                    .border_color(border)
+                    .flex_shrink_0()
+                    .child(
+                        div()
+                            .text_sm()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(text_color)
+                            .child(header_label),
+                    ),
+            )
+            .child(file_list)
+            .child(commit_editor.flex_shrink_0())
+            .child(primary_action)
+    }
+
+    fn populate_file_sections(
+        &self,
+        mut list: Stateful<Div>,
         status: &RepoStatus,
         colors: &AppColors,
         entity: WeakEntity<super::app::GitForgeApp>,
+        open_diff_on_click: bool,
+        include_sidebar_commit_button: bool,
     ) -> Stateful<Div> {
         let border = rgba_to_hsla(colors.border);
         let muted = rgba_to_hsla(colors.text_muted);
         let accent = rgba_to_hsla(colors.accent);
-
-        let mut list = div()
-            .id(ElementId::Name("status-file-list".into()))
-            .w(px(STATUS_FILE_WIDTH))
-            .h_full()
-            .border_r_1()
-            .border_color(border)
-            .flex()
-            .flex_col()
-            .overflow_y_scroll();
 
         if !status.staged.is_empty() {
             let unstage_ent = entity.clone();
@@ -338,7 +477,7 @@ impl StatusPanel {
                     ),
             );
             for (i, entry) in status.staged.iter().enumerate() {
-                let is_sel = self.selection.as_ref().map_or(false, |s| {
+                let is_sel = self.selection.as_ref().is_some_and(|s| {
                     s.section == StatusFileSection::Staged && s.file_idx == i
                 });
                 list = list.child(render_status_file_entry(
@@ -348,6 +487,7 @@ impl StatusPanel {
                     i,
                     colors,
                     entity.clone(),
+                    open_diff_on_click,
                 ));
             }
         }
@@ -392,7 +532,7 @@ impl StatusPanel {
                     ),
             );
             for (i, entry) in status.unstaged.iter().enumerate() {
-                let is_sel = self.selection.as_ref().map_or(false, |s| {
+                let is_sel = self.selection.as_ref().is_some_and(|s| {
                     s.section == StatusFileSection::Unstaged && s.file_idx == i
                 });
                 list = list.child(render_status_file_entry(
@@ -402,6 +542,7 @@ impl StatusPanel {
                     i,
                     colors,
                     entity.clone(),
+                    open_diff_on_click,
                 ));
             }
         }
@@ -422,7 +563,7 @@ impl StatusPanel {
                             .text_xs()
                             .font_weight(FontWeight::BOLD)
                             .text_color(muted)
-                            .child(format!("UNTRACKED FILES ({})", status.untracked.len())),
+                            .child(format!("Untracked ({})", status.untracked.len())),
                     )
                     .child(div().flex_1())
                     .child(
@@ -446,7 +587,7 @@ impl StatusPanel {
                     ),
             );
             for (i, entry) in status.untracked.iter().enumerate() {
-                let is_sel = self.selection.as_ref().map_or(false, |s| {
+                let is_sel = self.selection.as_ref().is_some_and(|s| {
                     s.section == StatusFileSection::Untracked && s.file_idx == i
                 });
                 list = list.child(render_status_file_entry(
@@ -456,6 +597,7 @@ impl StatusPanel {
                     i,
                     colors,
                     entity.clone(),
+                    open_diff_on_click,
                 ));
             }
         }
@@ -480,7 +622,7 @@ impl StatusPanel {
                     ),
             );
             for (i, entry) in status.conflicted.iter().enumerate() {
-                let is_sel = self.selection.as_ref().map_or(false, |s| {
+                let is_sel = self.selection.as_ref().is_some_and(|s| {
                     s.section == StatusFileSection::Conflicted && s.file_idx == i
                 });
                 list = list.child(render_status_file_entry(
@@ -490,45 +632,69 @@ impl StatusPanel {
                     i,
                     colors,
                     entity.clone(),
+                    open_diff_on_click,
                 ));
             }
         }
 
-        let commit_ent = entity.clone();
-        let can_commit = !status.staged.is_empty();
-        list = list.child(div().p_2().border_t_1().border_color(border).child({
-            let commit_ent2 = commit_ent.clone();
-            let btn_bg = if can_commit {
-                rgba_to_hsla(colors.accent)
-            } else {
-                muted
-            };
-            div()
-                .id("commit-btn")
-                .w_full()
-                .py_1()
-                .rounded(px(4.0))
-                .flex()
-                .items_center()
-                .justify_center()
-                .bg(btn_bg)
-                .cursor_pointer()
-                .text_xs()
-                .text_color(rgba_to_hsla(colors.background))
-                .font_weight(FontWeight::SEMIBOLD)
-                .child("Commit")
-                .on_click(move |_ev, _window, cx| {
-                    if can_commit {
-                        if let Some(e) = commit_ent2.upgrade() {
-                            e.update(cx, |this, cx| {
-                                this.show_commit_dialog(cx);
-                            });
+        if include_sidebar_commit_button {
+            let commit_ent = entity.clone();
+            let can_commit = !status.staged.is_empty();
+            list = list.child(div().p_2().border_t_1().border_color(border).child({
+                let commit_ent2 = commit_ent.clone();
+                let btn_bg = if can_commit {
+                    rgba_to_hsla(colors.accent)
+                } else {
+                    muted
+                };
+                div()
+                    .id("commit-btn")
+                    .w_full()
+                    .py_1()
+                    .rounded(px(4.0))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .bg(btn_bg)
+                    .cursor_pointer()
+                    .text_xs()
+                    .text_color(rgba_to_hsla(colors.background))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child("Commit")
+                    .on_click(move |_ev, _window, cx| {
+                        if can_commit {
+                            if let Some(e) = commit_ent2.upgrade() {
+                                e.update(cx, |this, cx| {
+                                    this.show_commit_dialog(cx);
+                                });
+                            }
                         }
-                    }
-                })
-        }));
+                    })
+            }));
+        }
 
         list
+    }
+
+    fn render_file_list(
+        &self,
+        status: &RepoStatus,
+        colors: &AppColors,
+        entity: WeakEntity<super::app::GitForgeApp>,
+    ) -> Stateful<Div> {
+        let border = rgba_to_hsla(colors.border);
+
+        let list = div()
+            .id(ElementId::Name("status-file-list".into()))
+            .w(px(STATUS_FILE_WIDTH))
+            .h_full()
+            .border_r_1()
+            .border_color(border)
+            .flex()
+            .flex_col()
+            .overflow_y_scroll();
+
+        self.populate_file_sections(list, status, colors, entity, true, true)
     }
 
     fn render_selected_diff(
@@ -785,6 +951,7 @@ impl StatusPanel {
         entity: WeakEntity<super::app::GitForgeApp>,
         window: &mut Window,
         ai_generating: bool,
+        compact: bool,
     ) -> Stateful<Div> {
         let surface = rgba_to_hsla(colors.surface);
         let border = rgba_to_hsla(colors.border);
@@ -824,24 +991,23 @@ impl StatusPanel {
         };
         let generate_color = if ai_generating { muted } else { accent };
 
-        let mut editor = div()
-            .id("commit-editor-panel")
-            .flex_1()
-            .h_full()
-            .bg(surface)
-            .flex()
-            .flex_col()
-            .child(
-                div()
-                    .px_3()
-                    .py_2()
-                    .border_b_1()
-                    .border_color(border)
-                    .text_xs()
-                    .font_weight(FontWeight::BOLD)
-                    .text_color(muted)
-                    .child("COMMIT"),
-            );
+        let mut editor = div().id("commit-editor-panel").bg(surface).flex().flex_col();
+        if compact {
+            editor = editor.flex_shrink_0().border_t_1().border_color(border);
+        } else {
+            editor = editor.flex_1().h_full();
+        }
+        editor = editor.child(
+            div()
+                .px_3()
+                .py_2()
+                .border_b_1()
+                .border_color(border)
+                .text_xs()
+                .font_weight(FontWeight::BOLD)
+                .text_color(muted)
+                .child("COMMIT"),
+        );
 
         if self.ai_message_alternatives.len() > 1 {
             let mut alt_row = div()
@@ -895,81 +1061,85 @@ impl StatusPanel {
             editor = editor.child(alt_row);
         }
 
-        editor = editor
-            .child(
-                div()
-                    .id("commit-msg-input")
-                    .track_focus(&self.commit_message_focus)
-                    .m_3()
-                    .p_2()
-                    .min_h(px(120.0))
-                    .border_1()
-                    .border_color(border_color)
-                    .rounded(px(4.0))
-                    .bg(bg)
-                    .on_click(move |_ev, window, _cx| {
-                        window.focus(&fh);
-                    })
-                    .on_key_down(move |ev: &KeyDownEvent, _window, cx| {
-                        let key = &ev.keystroke.key;
-                        match key.as_str() {
-                            "backspace" => {
-                                if let Some(e) = ent1.upgrade() {
-                                    e.update(cx, |this, cx| {
-                                        this.edit_commit_message(None, cx);
-                                    });
+        let mut msg_input = div()
+            .id("commit-msg-input")
+            .track_focus(&self.commit_message_focus)
+            .m_3()
+            .p_2()
+            .min_h(px(if compact { 80.0 } else { 120.0 }))
+            .overflow_y_scroll()
+            .border_1()
+            .border_color(border_color)
+            .rounded(px(4.0))
+            .bg(bg)
+            .on_click(move |_ev, window, _cx| {
+                window.focus(&fh);
+            })
+            .on_key_down(move |ev: &KeyDownEvent, _window, cx| {
+                let key = &ev.keystroke.key;
+                match key.as_str() {
+                    "backspace" => {
+                        if let Some(e) = ent1.upgrade() {
+                            e.update(cx, |this, cx| {
+                                this.edit_commit_message(None, cx);
+                            });
+                        }
+                    }
+                    "enter" => {
+                        if let Some(e) = ent1.upgrade() {
+                            let ch = ev.keystroke.key_char.clone();
+                            e.update(cx, |this, cx| {
+                                if let Some(c) = ch {
+                                    this.edit_commit_message(Some(&c), cx);
+                                } else {
+                                    this.edit_commit_message(Some("\n"), cx);
                                 }
-                            }
-                            "enter" => {
+                            });
+                        }
+                    }
+                    "escape" => {
+                        if let Some(e) = ent1.upgrade() {
+                            e.update(cx, |this, cx| {
+                                this.cancel_commit_dialog(cx);
+                            });
+                        }
+                    }
+                    _ => {
+                        let ch = ev.keystroke.key_char.clone();
+                        if let Some(typed) = ch {
+                            if !ev.keystroke.modifiers.platform {
                                 if let Some(e) = ent1.upgrade() {
-                                    let ch = ev.keystroke.key_char.clone();
+                                    let c = typed;
                                     e.update(cx, |this, cx| {
-                                        if let Some(c) = ch {
-                                            this.edit_commit_message(Some(&c), cx);
-                                        } else {
-                                            this.edit_commit_message(Some("\n"), cx);
-                                        }
+                                        this.edit_commit_message(Some(&c), cx);
                                     });
-                                }
-                            }
-                            "escape" => {
-                                if let Some(e) = ent1.upgrade() {
-                                    e.update(cx, |this, cx| {
-                                        this.cancel_commit_dialog(cx);
-                                    });
-                                }
-                            }
-                            _ => {
-                                let ch = ev.keystroke.key_char.clone();
-                                if let Some(typed) = ch {
-                                    if !ev.keystroke.modifiers.platform {
-                                        if let Some(e) = ent1.upgrade() {
-                                            let c = typed;
-                                            e.update(cx, |this, cx| {
-                                                this.edit_commit_message(Some(&c), cx);
-                                            });
-                                        }
-                                    }
                                 }
                             }
                         }
-                    })
-                    .child(
-                        div()
-                            .text_sm()
-                            .font_family("monospace")
-                            .text_color(display_color)
-                            .child(display_text),
-                    ),
-            )
-            .child(div().flex_1())
+                    }
+                }
+            })
             .child(
+                div()
+                    .text_sm()
+                    .font_family("monospace")
+                    .text_color(display_color)
+                    .child(display_text),
+            );
+        if compact {
+            msg_input = msg_input.max_h(px(160.0)).overflow_x_hidden();
+        } else {
+            msg_input = msg_input.flex_1().min_h(px(0.0));
+        }
+        editor = editor.child(msg_input);
+        editor = editor.child(
                 div()
                     .px_3()
                     .py_2()
                     .border_t_1()
                     .border_color(border)
                     .flex()
+                    .flex_shrink_0()
                     .gap_2()
                     .child({
                         let ent_gen = ent4.clone();
@@ -1078,6 +1248,7 @@ fn render_status_file_entry(
     idx: usize,
     colors: &AppColors,
     entity: WeakEntity<super::app::GitForgeApp>,
+    open_diff_on_click: bool,
 ) -> Stateful<Div> {
     let surface = rgba_to_hsla(colors.surface);
     let selected_bg = rgba_to_hsla(colors.sidebar_selected);
@@ -1085,10 +1256,10 @@ fn render_status_file_entry(
     let text_color = if is_selected {
         rgba_to_hsla(colors.text)
     } else {
-        rgba_to_hsla(colors.text_muted)
+        rgba_to_hsla(colors.text)
     };
-
-    let (status_char, status_color) = status_badge(&entry.status, colors);
+    let path_muted = rgba_to_hsla(colors.text_muted);
+    let is_deleted = entry.status == FileStatus::Deleted;
 
     let ent = entity.clone();
     let path_owned = entry.path.clone();
@@ -1096,15 +1267,10 @@ fn render_status_file_entry(
     let action_ent = entity.clone();
     let action_path = entry.path.clone();
     let action_section = section;
-
-    let (action_label, action_color) = match section {
-        StatusFileSection::Staged => ("\u{2212}", rgba_to_hsla(colors.diff_removed)),
-        _ => ("+", rgba_to_hsla(colors.diff_added)),
-    };
+    let is_staged_row = matches!(section, StatusFileSection::Staged);
 
     let show_discard = matches!(section, StatusFileSection::Unstaged);
     let show_remove = matches!(section, StatusFileSection::Untracked);
-    let show_gitignore = matches!(section, StatusFileSection::Untracked);
     let show_conflict_actions = matches!(section, StatusFileSection::Conflicted);
 
     let mut entry_row = div()
@@ -1114,113 +1280,69 @@ fn render_status_file_entry(
         .w_full()
         .px_2()
         .py_1()
-        .bg(bg)
-        .cursor_pointer()
-        .hover(|s| s.bg(rgba_to_hsla(colors.sidebar_hover)))
-        .on_click(move |_ev, _window, cx| {
-            if let Some(e) = ent.upgrade() {
-                let p = path_owned.clone();
-                e.update(cx, |this, cx| {
-                    this.select_status_file(section, idx, p, cx);
-                });
-            }
-        });
+        .bg(bg);
+    if open_diff_on_click {
+        entry_row = entry_row
+            .cursor_pointer()
+            .hover(|s| s.bg(rgba_to_hsla(colors.sidebar_hover)))
+            .on_click(move |_ev, _window, cx| {
+                if let Some(e) = ent.upgrade() {
+                    let p = path_owned.clone();
+                    e.update(cx, |this, cx| {
+                        this.select_status_file(section, idx, p, cx);
+                    });
+                }
+            });
+    }
 
-    let show_ai_summary = matches!(
-        section,
-        StatusFileSection::Staged | StatusFileSection::Unstaged
+    let (file_name, parent_path) = split_path_display(&entry.path);
+    let name_color = if is_deleted { path_muted } else { text_color };
+
+    let mut path_label = div()
+        .flex_1()
+        .min_w(px(0.0))
+        .flex()
+        .flex_row()
+        .items_center()
+        .overflow_hidden();
+    if let Some(parent) = parent_path {
+        let prefix = format_parent_path(&parent);
+        path_label = path_label.child(
+            div()
+                .min_w(px(0.0))
+                .flex_shrink()
+                .overflow_hidden()
+                .text_ellipsis()
+                .text_xs()
+                .text_color(path_muted)
+                .child(format!("{prefix}/")),
+        );
+    }
+    path_label = path_label.child(
+        div()
+            .flex_shrink_0()
+            .text_xs()
+            .font_weight(FontWeight::SEMIBOLD)
+            .text_color(name_color)
+            .child(file_name),
     );
-    let ai_ent = entity.clone();
-    let ai_path = entry.path.clone();
 
     let mut inner_row = div()
         .flex()
         .items_center()
-        .gap_1()
-        .child(
-            div()
-                .w(px(16.0))
-                .h(px(16.0))
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded(px(2.0))
-                .bg(status_color)
-                .text_xs()
-                .font_weight(FontWeight::BOLD)
-                .text_color(rgba_to_hsla(colors.background))
-                .child(status_char.clone()),
-        )
-        .child(
-            div()
-                .flex_1()
-                .text_xs()
-                .text_color(text_color)
-                .overflow_hidden()
-                .text_ellipsis()
-                .child(entry.path.clone()),
-        );
+        .gap_2()
+        .min_w(px(0.0))
+        .child(render_git_status_icon(&entry.status, colors))
+        .child(path_label)
+        .child(render_line_diff_stat(entry.diff_stat, colors));
 
-    if show_ai_summary {
-        inner_row = inner_row.child(
-            div()
-                .id(ElementId::Name(
-                    format!("ai-summary-{:?}-{}", section, idx).into(),
-                ))
-                .px(px(2.0))
-                .py(px(0.0))
-                .rounded(px(2.0))
-                .cursor_pointer()
-                .text_xs()
-                .text_color(rgba_to_hsla(colors.accent))
-                .child("AI")
-                .on_click(move |_ev, _window, cx| {
-                    if let Some(e) = ai_ent.upgrade() {
-                        let p = ai_path.clone();
-                        e.update(cx, |this, cx| {
-                            this.summarize_file_diff(p, cx);
-                        });
-                    }
-                }),
-        );
-    }
-
-    inner_row = inner_row.child(
-        div()
-            .id(ElementId::Name(
-                format!("action-{:?}-{}", section, idx).into(),
-            ))
-            .w(px(18.0))
-            .h(px(18.0))
-            .flex()
-            .items_center()
-            .justify_center()
-            .rounded(px(2.0))
-            .border_1()
-            .border_color(action_color)
-            .cursor_pointer()
-            .text_xs()
-            .font_weight(FontWeight::BOLD)
-            .text_color(action_color)
-            .child(action_label.to_string())
-            .on_click(move |_ev, _window, cx| {
-                if let Some(e) = action_ent.upgrade() {
-                    let p = action_path.clone();
-                    e.update(cx, |this, cx| match action_section {
-                        StatusFileSection::Staged => this.unstage_file(p, cx),
-                        StatusFileSection::Conflicted => this.stage_file(p, cx),
-                        _ => this.stage_file(p, cx),
-                    });
-                }
-            }),
-    );
-
-    entry_row = entry_row.child(inner_row);
+    let border = rgba_to_hsla(colors.border);
+    let accent = rgba_to_hsla(colors.accent);
 
     if show_discard {
         let discard_ent = entity.clone();
         let discard_path = entry.path.clone();
-        entry_row = entry_row.child(
+        inner_row = inner_row.child(
             div()
                 .id(ElementId::Name(
                     format!("discard-{:?}-{}", section, idx).into(),
@@ -1251,7 +1373,7 @@ fn render_status_file_entry(
     if show_remove {
         let remove_ent = entity.clone();
         let remove_path = entry.path.clone();
-        entry_row = entry_row.child(
+        inner_row = inner_row.child(
             div()
                 .id(ElementId::Name(
                     format!("remove-{:?}-{}", section, idx).into(),
@@ -1279,32 +1401,36 @@ fn render_status_file_entry(
         );
     }
 
-    if show_gitignore {
-        let gitignore_ent = entity.clone();
-        let gitignore_path = entry.path.clone();
-        entry_row = entry_row.child(
-            div()
-                .id(ElementId::Name(
-                    format!("gitignore-{:?}-{}", section, idx).into(),
-                ))
-                .px_1()
-                .rounded(px(2.0))
-                .border_1()
-                .border_color(rgba_to_hsla(colors.border))
-                .cursor_pointer()
-                .text_xs()
-                .text_color(rgba_to_hsla(colors.text_muted))
-                .child("ign")
-                .on_click(move |_ev, _window, cx| {
-                    if let Some(e) = gitignore_ent.upgrade() {
-                        let p = gitignore_path.clone();
-                        e.update(cx, |this, cx| {
-                            this.add_to_gitignore(p, cx);
-                        });
-                    }
-                }),
-        );
-    }
+    let checkbox_bg = if is_staged_row { accent } else { surface };
+    inner_row = inner_row.child(
+        div()
+            .id(ElementId::Name(
+                format!("stage-checkbox-{:?}-{}", section, idx).into(),
+            ))
+            .w(px(14.0))
+            .h(px(14.0))
+            .flex_shrink_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(px(2.0))
+            .border_1()
+            .border_color(if is_staged_row { accent } else { border })
+            .bg(checkbox_bg)
+            .cursor_pointer()
+            .on_click(move |_ev, _window, cx| {
+                if let Some(e) = action_ent.upgrade() {
+                    let p = action_path.clone();
+                    e.update(cx, |this, cx| match action_section {
+                        StatusFileSection::Staged => this.unstage_file(p, cx),
+                        StatusFileSection::Conflicted => this.stage_file(p, cx),
+                        _ => this.stage_file(p, cx),
+                    });
+                }
+            }),
+    );
+
+    entry_row = entry_row.child(inner_row);
 
     if show_conflict_actions {
         let ours_ent = entity.clone();
@@ -1362,79 +1488,85 @@ fn render_status_file_entry(
     entry_row
 }
 
-fn render_ai_summary_popup(
-    summary: &str,
-    colors: &AppColors,
-    entity: WeakEntity<super::app::GitForgeApp>,
-) -> Stateful<Div> {
-    let surface = rgba_to_hsla(colors.surface);
-    let _border = rgba_to_hsla(colors.border);
-    let text_color = rgba_to_hsla(colors.text);
-    let accent = rgba_to_hsla(colors.accent);
-    let muted = rgba_to_hsla(colors.text_muted);
-    let ent = entity.clone();
-
-    div()
-        .id("ai-summary-popup")
-        .absolute()
-        .left(px(0.0))
-        .top(px(24.0))
-        .w(px(280.0))
-        .bg(surface)
-        .border_1()
-        .border_color(accent)
-        .rounded(px(4.0))
-        .p_2()
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .gap_1()
-                .mb_1()
-                .child(
-                    div()
-                        .text_xs()
-                        .font_weight(FontWeight::BOLD)
-                        .text_color(accent)
-                        .child("AI Summary"),
-                )
-                .child(div().flex_1())
-                .child(
-                    div()
-                        .id("ai-summary-close")
-                        .px_1()
-                        .cursor_pointer()
-                        .text_xs()
-                        .text_color(muted)
-                        .child("x")
-                        .on_click(move |_ev, _window, cx| {
-                            if let Some(e) = ent.upgrade() {
-                                e.update(cx, |this, cx| {
-                                    this.dismiss_file_summary(cx);
-                                });
-                            }
-                        }),
-                ),
-        )
-        .child(
-            div()
-                .text_xs()
-                .text_color(text_color)
-                .child(summary.to_string()),
-        )
+fn split_path_display(path: &str) -> (String, Option<String>) {
+    let path = Path::new(path);
+    let file_name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| path.to_string_lossy().into_owned());
+    let parent = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .map(|p| p.to_string_lossy().replace('\\', "/"));
+    (file_name, parent)
 }
 
-fn status_badge(status: &FileStatus, colors: &AppColors) -> (String, Hsla) {
-    match status {
-        FileStatus::Modified => ("M".to_string(), rgba_to_hsla(colors.warning)),
-        FileStatus::Added => ("A".to_string(), rgba_to_hsla(colors.diff_added)),
-        FileStatus::Deleted => ("D".to_string(), rgba_to_hsla(colors.diff_removed)),
-        FileStatus::Renamed => ("R".to_string(), rgba_to_hsla(colors.accent)),
-        FileStatus::Copied => ("C".to_string(), rgba_to_hsla(colors.accent)),
-        FileStatus::Untracked => ("?".to_string(), rgba_to_hsla(colors.text_muted)),
-        FileStatus::Conflicted => ("!".to_string(), rgba_to_hsla(colors.diff_removed)),
-        FileStatus::Unmodified | FileStatus::Ignored => {
-            (" ".to_string(), rgba_to_hsla(colors.text_muted))
-        }
+fn format_parent_path(parent: &str) -> String {
+    const MAX: usize = 36;
+    if parent.len() <= MAX {
+        return format!("...{parent}");
     }
+    format!("...{}", &parent[parent.len() - (MAX - 3)..])
+}
+
+/// Zed-style status glyph: modified = amber M, new/untracked = green +, etc.
+fn render_git_status_icon(status: &FileStatus, colors: &AppColors) -> Div {
+    let (label, bg) = match status {
+        FileStatus::Untracked | FileStatus::Added => ("+", rgba_to_hsla(colors.diff_added)),
+        FileStatus::Modified | FileStatus::Renamed | FileStatus::Copied => {
+            ("M", rgba_to_hsla(colors.warning))
+        }
+        FileStatus::Deleted => ("−", rgba_to_hsla(colors.diff_removed)),
+        FileStatus::Conflicted => ("!", rgba_to_hsla(colors.error)),
+        _ => ("·", rgba_to_hsla(colors.text_muted)),
+    };
+
+    div()
+        .w(px(16.0))
+        .h(px(16.0))
+        .flex_shrink_0()
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(px(2.0))
+        .bg(bg)
+        .text_xs()
+        .font_weight(FontWeight::BOLD)
+        .text_color(rgba_to_hsla(colors.background))
+        .child(label.to_string())
+}
+
+fn render_line_diff_stat(stat: Option<DiffStat>, colors: &AppColors) -> Div {
+    let Some(stat) = stat else {
+        return div().flex_shrink_0();
+    };
+    if stat.added == 0 && stat.deleted == 0 {
+        return div().flex_shrink_0();
+    }
+
+    let added_color = rgba_to_hsla(colors.diff_added);
+    let removed_color = rgba_to_hsla(colors.diff_removed);
+
+    let mut row = div().flex().items_center().gap_1().flex_shrink_0();
+
+    if stat.added > 0 {
+        row = row.child(
+            div()
+                .text_xs()
+                .font_family("monospace")
+                .text_color(added_color)
+                .child(format!("+{}", stat.added)),
+        );
+    }
+    if stat.deleted > 0 {
+        row = row.child(
+            div()
+                .text_xs()
+                .font_family("monospace")
+                .text_color(removed_color)
+                .child(format!("-{}", stat.deleted)),
+        );
+    }
+
+    row
 }

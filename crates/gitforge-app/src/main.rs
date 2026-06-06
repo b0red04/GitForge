@@ -26,6 +26,15 @@ fn main() {
         .run(|cx: &mut App| {
         cx.bind_keys([
             KeyBinding::new("ctrl-o", views::OpenRepository, None),
+            KeyBinding::new("ctrl-t", views::NewTab, None),
+            KeyBinding::new("ctrl-w", views::CloseTab, None),
+            KeyBinding::new("ctrl-i", views::InitRepo, None),
+            KeyBinding::new("ctrl-shift-e", views::OpenInEditor, None),
+            KeyBinding::new("alt-t", views::OpenInTerminal, None),
+            KeyBinding::new("alt-o", views::OpenInFileManager, None),
+            KeyBinding::new("alt-ctrl-o", views::OpenRepoManagement, None),
+            KeyBinding::new("ctrl-comma", views::Preferences, None),
+            KeyBinding::new("ctrl-q", views::QuitApp, None),
             KeyBinding::new("escape", views::CloseDialog, None),
             KeyBinding::new("up", views::SelectPrevCommit, None),
             KeyBinding::new("down", views::SelectNextCommit, None),

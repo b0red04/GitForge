@@ -152,13 +152,11 @@ impl Theme {
     }
 
     pub fn default_dark() -> Self {
-        Self::load_from_str(include_str!("../../../assets/themes/default-dark.json"))
-            .expect("default dark theme should be valid")
+        load_bundled("default-dark").expect("default-dark should be bundled")
     }
 
     pub fn default_light() -> Self {
-        Self::load_from_str(include_str!("../../../assets/themes/default-light.json"))
-            .expect("default light theme should be valid")
+        load_bundled("default-light").expect("default-light should be bundled")
     }
 
     pub fn graph_lane_color(&self, lane: usize) -> &str {
@@ -176,64 +174,82 @@ impl Theme {
     }
 
     pub fn load_by_name(name: &str) -> anyhow::Result<Self> {
-        if name == "default-dark" {
-            return Ok(Self::default_dark());
-        }
-        if name == "default-light" {
-            return Ok(Self::default_light());
+        if let Some(theme) = load_bundled(name) {
+            return Ok(theme);
         }
 
-        let user_themes_dir = dirs::config_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join("gitforge")
-            .join("themes");
+        if let Some(theme) = load_user_theme(name) {
+            return Ok(theme);
+        }
 
-        let user_path = user_themes_dir.join(format!("{}.json", name));
-        if user_path.exists() {
-            return Self::load_from_file(&user_path);
+        if let Some(theme) = load_system_theme(name) {
+            return Ok(theme);
         }
 
         anyhow::bail!("Theme '{}' not found", name)
     }
 
     pub fn discover_themes() -> Vec<ThemeEntry> {
-        let mut themes = Vec::new();
+        let mut themes = bundled_theme_entries();
 
-        themes.push(ThemeEntry {
-            name: "default-dark".into(),
-            display_name: "GitForge Dark".into(),
-            appearance: Appearance::Dark,
-        });
-        themes.push(ThemeEntry {
-            name: "default-light".into(),
-            display_name: "GitForge Light".into(),
-            appearance: Appearance::Light,
-        });
+        let bundled_names: std::collections::HashSet<String> =
+            themes.iter().map(|t| t.name.clone()).collect();
 
-        let user_themes_dir = dirs::config_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join("gitforge")
-            .join("themes");
-
-        if let Ok(entries) = std::fs::read_dir(&user_themes_dir) {
+        if let Ok(entries) = std::fs::read_dir(user_themes_dir()) {
             for entry in entries.flatten() {
                 let path = entry.path();
-                if path.extension().and_then(|e| e.to_str()) == Some("json") {
-                    if let Ok(theme) = Self::load_from_file(&path) {
-                        let stem = path.file_stem()
-                            .and_then(|s| s.to_str())
-                            .unwrap_or("unknown");
-                        themes.push(ThemeEntry {
-                            name: stem.to_string(),
-                            display_name: theme.name.clone(),
-                            appearance: theme.appearance,
-                        });
-                    }
+                if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                    continue;
+                }
+                let stem = path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("unknown");
+                if bundled_names.contains(stem) {
+                    continue;
+                }
+                if let Ok(theme) = Self::load_from_file(&path) {
+                    themes.push(ThemeEntry {
+                        name: stem.to_string(),
+                        display_name: theme.name.clone(),
+                        appearance: theme.appearance,
+                    });
                 }
             }
         }
 
         themes
+    }
+}
+
+include!(concat!(env!("OUT_DIR"), "/bundled_themes.rs"));
+
+fn user_themes_dir() -> PathBuf {
+    dirs::config_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("gitforge")
+        .join("themes")
+}
+
+fn system_themes_dir() -> PathBuf {
+    PathBuf::from("/usr/share/gitforge/themes")
+}
+
+fn load_user_theme(name: &str) -> Option<Theme> {
+    let path = user_themes_dir().join(format!("{name}.json"));
+    if path.exists() {
+        Theme::load_from_file(&path).ok()
+    } else {
+        None
+    }
+}
+
+fn load_system_theme(name: &str) -> Option<Theme> {
+    let path = system_themes_dir().join(format!("{name}.json"));
+    if path.exists() {
+        Theme::load_from_file(&path).ok()
+    } else {
+        None
     }
 }
 

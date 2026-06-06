@@ -8,6 +8,8 @@ pub struct AppSettings {
     #[serde(default)]
     pub open_repo_paths: Vec<String>,
     #[serde(default)]
+    pub recent_repo_paths: Vec<String>,
+    #[serde(default)]
     pub active_repo_path: Option<String>,
     pub sidebar_branches_expanded: bool,
     pub sidebar_remotes_expanded: bool,
@@ -30,6 +32,51 @@ pub struct AiSettings {
     pub conventional_commits: bool,
     pub tone: String,
     pub ollama_url: String,
+    /// Z.ai API surface: "general" or "coding" (GLM Coding Plan).
+    #[serde(default = "default_zai_endpoint")]
+    pub zai_endpoint: String,
+    #[serde(default = "gitforge_ai::default_message_options_count")]
+    pub message_options_count: u8,
+    #[serde(default = "gitforge_ai::default_variation_mode")]
+    pub variation_mode: String,
+    #[serde(default = "gitforge_ai::default_default_alternative")]
+    pub default_alternative: String,
+    #[serde(default)]
+    pub summary_max_chars: u32,
+    #[serde(default = "gitforge_ai::default_body_wrap_at")]
+    pub body_wrap_at: u32,
+    #[serde(default)]
+    pub max_diff_chars: usize,
+    #[serde(default = "gitforge_ai::default_temperature")]
+    pub temperature: f32,
+}
+
+impl AiSettings {
+    pub fn commit_message_config(&self) -> gitforge_ai::CommitMessageConfig {
+        gitforge_ai::CommitMessageConfig {
+            tone: self.tone.clone(),
+            conventional_commits: self.conventional_commits,
+            message_options_count: gitforge_ai::clamp_options_count(self.message_options_count),
+            variation_mode: self.variation_mode.clone(),
+            default_alternative: self.default_alternative.clone(),
+            summary_max_chars: self.summary_max_chars,
+            body_wrap_at: self.body_wrap_at,
+            max_diff_chars: self.max_diff_chars,
+        }
+    }
+
+    pub fn provider_config(&self) -> gitforge_ai::ProviderConfig {
+        gitforge_ai::ProviderConfig {
+            model: self.model.clone(),
+            ollama_url: self.ollama_url.clone(),
+            zai_endpoint: gitforge_ai::parse_zai_endpoint(&self.zai_endpoint),
+            temperature: gitforge_ai::clamp_temperature(self.temperature),
+        }
+    }
+}
+
+fn default_zai_endpoint() -> String {
+    "general".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -103,6 +150,14 @@ impl Default for AiSettings {
             conventional_commits: false,
             tone: "balanced".to_string(),
             ollama_url: "http://localhost:11434".to_string(),
+            zai_endpoint: default_zai_endpoint(),
+            message_options_count: gitforge_ai::default_message_options_count(),
+            variation_mode: gitforge_ai::default_variation_mode(),
+            default_alternative: gitforge_ai::default_default_alternative(),
+            summary_max_chars: 0,
+            body_wrap_at: gitforge_ai::default_body_wrap_at(),
+            max_diff_chars: 0,
+            temperature: gitforge_ai::default_temperature(),
         }
     }
 }
@@ -113,6 +168,7 @@ impl Default for AppSettings {
             theme: "default-dark".to_string(),
             last_repo_path: None,
             open_repo_paths: Vec::new(),
+            recent_repo_paths: Vec::new(),
             active_repo_path: None,
             sidebar_branches_expanded: true,
             sidebar_remotes_expanded: true,

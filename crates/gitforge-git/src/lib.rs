@@ -1,5 +1,6 @@
 pub mod repository;
 pub mod status;
+pub mod diff_stat;
 pub mod error;
 pub mod commit;
 pub mod reference;
@@ -14,7 +15,7 @@ pub use repository::Repository;
 pub use repository::log_impl::{CommitLogOptions, is_standard_git_ref};
 pub use error::GitError;
 pub use diff::{FileChange, FileChangeKind};
-pub use status::{FileEntry, FileStatus, RepoStatus};
+pub use status::{DiffStat, FileEntry, FileStatus, RepoStatus};
 pub use commit::CommitInfo;
 pub use reference::{RefInfo, RefKind};
 pub use loader::RepoLoader;

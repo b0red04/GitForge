@@ -370,7 +370,10 @@ fn render_more_menu(
                 if let Some(e) = ent.upgrade() {
                     e.update(cx, |this, cx| {
                         this.close_toolbar_more(cx);
-                        this.open_ai_settings_dialog(cx);
+                        this.open_settings_window(
+                            Some(crate::views::SettingsSection::Ai),
+                            cx,
+                        );
                     });
                 }
             },

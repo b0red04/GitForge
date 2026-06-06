@@ -2,6 +2,21 @@ use crate::error::{GitError, GitResult};
 use crate::repository::Repository;
 use crate::status::{FileEntry, FileStatus, RepoStatus};
 
+fn file_entry(
+    path: String,
+    old_path: Option<String>,
+    status: FileStatus,
+    staged: bool,
+) -> FileEntry {
+    FileEntry {
+        path,
+        old_path,
+        status,
+        staged,
+        diff_stat: None,
+    }
+}
+
 impl Repository {
     pub fn status(&self) -> GitResult<RepoStatus> {
         let mut result = RepoStatus::default();
@@ -23,30 +38,27 @@ impl Repository {
                     let (location, _index, _mode, _id) = change.fields();
                     let path_str = location.to_string();
                     let entry = match change {
-                        gix_diff::index::ChangeRef::Addition { .. } => FileEntry {
-                            path: path_str,
-                            old_path: None,
-                            status: FileStatus::Added,
-                            staged: true,
-                        },
-                        gix_diff::index::ChangeRef::Deletion { .. } => FileEntry {
-                            path: path_str,
-                            old_path: None,
-                            status: FileStatus::Deleted,
-                            staged: true,
-                        },
-                        gix_diff::index::ChangeRef::Modification { .. } => FileEntry {
-                            path: path_str,
-                            old_path: None,
-                            status: FileStatus::Modified,
-                            staged: true,
-                        },
-                        gix_diff::index::ChangeRef::Rewrite { source_location, copy, .. } => FileEntry {
-                            path: path_str,
-                            old_path: Some(source_location.to_string()),
-                            status: if *copy { FileStatus::Copied } else { FileStatus::Renamed },
-                            staged: true,
-                        },
+                        gix_diff::index::ChangeRef::Addition { .. } => {
+                            file_entry(path_str, None, FileStatus::Added, true)
+                        }
+                        gix_diff::index::ChangeRef::Deletion { .. } => {
+                            file_entry(path_str, None, FileStatus::Deleted, true)
+                        }
+                        gix_diff::index::ChangeRef::Modification { .. } => {
+                            file_entry(path_str, None, FileStatus::Modified, true)
+                        }
+                        gix_diff::index::ChangeRef::Rewrite { source_location, copy, .. } => {
+                            file_entry(
+                                path_str,
+                                Some(source_location.to_string()),
+                                if *copy {
+                                    FileStatus::Copied
+                                } else {
+                                    FileStatus::Renamed
+                                },
+                                true,
+                            )
+                        }
                     };
                     result.staged.push(entry);
                 }
@@ -62,47 +74,49 @@ impl Repository {
                                         gix_status::index_as_worktree::Change::Type { .. } => FileStatus::Modified,
                                         gix_status::index_as_worktree::Change::SubmoduleModification(_) => FileStatus::Modified,
                                     };
-                                    result.unstaged.push(FileEntry {
-                                        path: path_str,
-                                        old_path: None,
-                                        status: file_status,
-                                        staged: false,
-                                    });
+                                    result
+                                        .unstaged
+                                        .push(file_entry(path_str, None, file_status, false));
                                 }
                                 gix_status::index_as_worktree::EntryStatus::Conflict(_) => {
-                                    result.conflicted.push(FileEntry {
-                                        path: path_str,
-                                        old_path: None,
-                                        status: FileStatus::Conflicted,
-                                        staged: false,
-                                    });
+                                    result.conflicted.push(file_entry(
+                                        path_str,
+                                        None,
+                                        FileStatus::Conflicted,
+                                        false,
+                                    ));
                                 }
                                 _ => {}
                             }
                         }
                         gix::status::index_worktree::Item::DirectoryContents { entry, .. } => {
                             if matches!(entry.status, gix_dir::entry::Status::Untracked) {
-                                result.untracked.push(FileEntry {
-                                    path: entry.rela_path.to_string(),
-                                    old_path: None,
-                                    status: FileStatus::Untracked,
-                                    staged: false,
-                                });
+                                result.untracked.push(file_entry(
+                                    entry.rela_path.to_string(),
+                                    None,
+                                    FileStatus::Untracked,
+                                    false,
+                                ));
                             }
                         }
                         gix::status::index_worktree::Item::Rewrite { source, dirwalk_entry, copy, .. } => {
-                            result.unstaged.push(FileEntry {
-                                path: dirwalk_entry.rela_path.to_string(),
-                                old_path: Some(source.rela_path().to_string()),
-                                status: if *copy { FileStatus::Copied } else { FileStatus::Renamed },
-                                staged: false,
-                            });
+                            result.unstaged.push(file_entry(
+                                dirwalk_entry.rela_path.to_string(),
+                                Some(source.rela_path().to_string()),
+                                if *copy {
+                                    FileStatus::Copied
+                                } else {
+                                    FileStatus::Renamed
+                                },
+                                false,
+                            ));
                         }
                     }
                 }
             }
         }
 
+        self.attach_diff_stats(&mut result)?;
         Ok(result)
     }
 }
