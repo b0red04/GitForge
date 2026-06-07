@@ -1,5 +1,5 @@
 {
-  "name": "Catppuccin Frappé",
+  "name": "Catppuccin Frapp\u00e9",
   "appearance": "dark",
   "colors": {
     "background": "#303446",
@@ -47,13 +47,7 @@
     "syntax_comment": "#838ba7",
     "syntax_type": "#e5c890",
     "syntax_variable": "#c6d0f5",
-    "syntax_operator": "#99d1db",
-    "syntax_property": "#8caaee",
-    "syntax_tag": "#e78284",
-    "syntax_attribute": "#ef9f76",
-    "syntax_constant": "#ef9f76",
-    "syntax_module": "#8caaee",
-    "syntax_punctuation": "#c6d0f5"
+    "syntax_property": "#8caaee"
   },
   "fonts": {
     "ui": "Inter",

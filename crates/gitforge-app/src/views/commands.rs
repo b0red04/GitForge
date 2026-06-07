@@ -2,8 +2,8 @@ use gpui::Action;
 
 use crate::views::app::{
     OpenRepository, SelectPrevCommit, SelectNextCommit, BackToDiff,
-    ShowStatusPanel, ShowHistory, RefreshRepository, SoftReset, CreateBranch, StashPush, StashPop, FetchAll,
-    PushCurrent, PullCurrent, ToggleTheme, ShowCommandPalette, NewTab, CloseTab,
+    ShowStatusPanel, ShowHistory, RefreshRepository, SoftReset, CreateBranch, StashPush, StashPop,
+    ToggleTheme, ShowCommandPalette, NewTab, CloseTab,
     ReopenClosedTab, InitRepo, OpenRepoManagement, OpenInEditor, OpenInTerminal,
     OpenInFileManager, OpenInBrowser, Preferences, QuitApp, CloneRepo, CloneFromGithub,
     CloneFromGitlab, AddRemote, CreateWorktree, OpenSshKey, ManageAccounts, OpenAiSettings,
@@ -89,9 +89,6 @@ pub enum CommandAction {
     ShowStatus,
     CommandPalette,
     ToggleTheme,
-    FetchAll,
-    Pull,
-    Push,
 }
 
 impl CommandAction {
@@ -130,9 +127,6 @@ impl CommandAction {
             Self::ShowStatus => Box::new(ShowStatusPanel),
             Self::CommandPalette => Box::new(ShowCommandPalette),
             Self::ToggleTheme => Box::new(ToggleTheme),
-            Self::FetchAll => Box::new(FetchAll),
-            Self::Pull => Box::new(PullCurrent),
-            Self::Push => Box::new(PushCurrent),
         }
     }
 }

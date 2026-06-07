@@ -3,12 +3,6 @@ pub enum GitError {
     #[error("Repository not found: {0}")]
     RepositoryNotFound(String),
 
-    #[error("Invalid reference: {0}")]
-    InvalidReference(String),
-
-    #[error("Merge conflict: {0}")]
-    MergeConflict(String),
-
     #[error("Operation failed: {0}")]
     OperationFailed(String),
 

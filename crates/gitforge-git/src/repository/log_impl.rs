@@ -185,7 +185,6 @@ impl Repository {
                 RefKind::RemoteBranch => 1,
                 RefKind::Tag => 2,
                 RefKind::Stash => 3,
-                RefKind::Note => 4,
             };
             kind_order(&a.kind).cmp(&kind_order(&b.kind))
                 .then_with(|| a.name.cmp(&b.name))

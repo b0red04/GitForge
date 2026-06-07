@@ -48,13 +48,7 @@ pub struct AppColors {
     pub syntax_comment: gpui::Rgba,
     pub syntax_type: gpui::Rgba,
     pub syntax_variable: gpui::Rgba,
-    pub syntax_operator: gpui::Rgba,
     pub syntax_property: gpui::Rgba,
-    pub syntax_tag: gpui::Rgba,
-    pub syntax_attribute: gpui::Rgba,
-    pub syntax_constant: gpui::Rgba,
-    pub syntax_module: gpui::Rgba,
-    pub syntax_punctuation: gpui::Rgba,
 }
 
 fn parse_hex(hex: &str) -> gpui::Rgba {
@@ -125,13 +119,7 @@ impl AppColors {
             syntax_comment: parse_hex(&c.syntax_comment),
             syntax_type: parse_hex(&c.syntax_type),
             syntax_variable: parse_hex(&c.syntax_variable),
-            syntax_operator: parse_hex(&c.syntax_operator),
             syntax_property: parse_hex(&c.syntax_property),
-            syntax_tag: parse_hex(&c.syntax_tag),
-            syntax_attribute: parse_hex(&c.syntax_attribute),
-            syntax_constant: parse_hex(&c.syntax_constant),
-            syntax_module: parse_hex(&c.syntax_module),
-            syntax_punctuation: parse_hex(&c.syntax_punctuation),
         }
     }
 
@@ -139,8 +127,8 @@ impl AppColors {
         self.graph_lanes[lane % self.graph_lanes.len()]
     }
 
-    pub fn scope_color(&self, scope: &gitforge_syntax::theme::HighlightScope) -> gpui::Rgba {
-        use gitforge_syntax::theme::HighlightScope;
+    pub fn scope_color(&self, scope: &gitforge_syntax::HighlightScope) -> gpui::Rgba {
+        use gitforge_syntax::HighlightScope;
         match scope {
             HighlightScope::Keyword => self.syntax_keyword,
             HighlightScope::Function => self.syntax_function,
@@ -149,13 +137,7 @@ impl AppColors {
             HighlightScope::Comment => self.syntax_comment,
             HighlightScope::Type => self.syntax_type,
             HighlightScope::Variable => self.syntax_variable,
-            HighlightScope::Operator => self.syntax_operator,
             HighlightScope::Property => self.syntax_property,
-            HighlightScope::Tag => self.syntax_tag,
-            HighlightScope::Attribute => self.syntax_attribute,
-            HighlightScope::Constant => self.syntax_constant,
-            HighlightScope::Module => self.syntax_module,
-            HighlightScope::Punctuation => self.syntax_punctuation,
             HighlightScope::Default => self.text,
         }
     }

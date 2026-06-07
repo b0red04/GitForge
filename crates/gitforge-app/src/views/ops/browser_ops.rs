@@ -70,45 +70,6 @@ impl GitForgeApp {
         self.open_in_browser(browser_url);
     }
 
-    pub fn open_commit_in_browser(&mut self, commit_id: String) {
-        let remote_url = self.get_first_remote_url();
-        let Some(url) = remote_url else { return };
-
-        let clean_url = gitforge_hosting::urls::normalize_remote_url(&url);
-        let provider = gitforge_hosting::urls::detect_provider(&clean_url);
-        let full_name = gitforge_hosting::urls::extract_repo_full_name(&clean_url);
-
-        let browser_url = match provider {
-            Some(p) => p.commit_url(&full_name, &commit_id),
-            None => clean_url,
-        };
-
-        self.open_in_browser(browser_url);
-    }
-
-    pub fn open_file_at_line_in_browser(&mut self, path: String, line: Option<u32>) {
-        let Some(rs) = self.active_repo_state() else {
-            return;
-        };
-
-        let sha = rs.commits.first().map(|c| c.id.clone());
-        let Some(sha) = sha else { return };
-
-        let remote_url = self.get_first_remote_url();
-        let Some(url) = remote_url else { return };
-
-        let clean_url = gitforge_hosting::urls::normalize_remote_url(&url);
-        let provider = gitforge_hosting::urls::detect_provider(&clean_url);
-        let full_name = gitforge_hosting::urls::extract_repo_full_name(&clean_url);
-
-        let browser_url = match provider {
-            Some(p) => p.file_url(&full_name, &sha, &path, line),
-            None => return,
-        };
-
-        self.open_in_browser(browser_url);
-    }
-
     fn get_remote_url(&self, remote_name: &str) -> Option<String> {
         let open_repo = self.active_repo_handle()?;
         let repo_lock = open_repo.lock();
@@ -118,13 +79,5 @@ impl GitForgeApp {
             .iter()
             .find(|(name, _)| name == remote_name)
             .map(|(_, url)| url.clone())
-    }
-
-    fn get_first_remote_url(&self) -> Option<String> {
-        let open_repo = self.active_repo_handle()?;
-        let repo_lock = open_repo.lock();
-        let repo = repo_lock.as_ref()?;
-        let remotes = repo.remote_list().ok()?;
-        remotes.first().map(|(_, url)| url.clone())
     }
 }

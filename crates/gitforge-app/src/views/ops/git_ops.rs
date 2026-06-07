@@ -609,26 +609,8 @@ impl GitForgeApp {
         self.run_git_op("Checkout", cx, move |repo| repo.checkout_branch(&name));
     }
 
-    pub fn checkout_commit(&mut self, sha: String, cx: &mut Context<Self>) {
-        self.run_git_op("Checkout commit", cx, move |repo| {
-            repo.checkout_commit(&sha)
-        });
-    }
-
     pub fn merge_branch(&mut self, branch: String, no_ff: bool, cx: &mut Context<Self>) {
         self.run_git_op("Merge", cx, move |repo| repo.merge(&branch, no_ff));
-    }
-
-    pub fn rebase_branch(&mut self, branch: String, cx: &mut Context<Self>) {
-        self.run_git_op("Rebase", cx, move |repo| repo.rebase(&branch));
-    }
-
-    pub fn mixed_reset(&mut self, reference: String, cx: &mut Context<Self>) {
-        self.run_git_op("Mixed reset", cx, move |repo| repo.mixed_reset(&reference));
-    }
-
-    pub fn hard_reset(&mut self, reference: String, cx: &mut Context<Self>) {
-        self.run_git_op("Hard reset", cx, move |repo| repo.hard_reset(&reference));
     }
 
     pub fn cherry_pick(&mut self, sha: String, cx: &mut Context<Self>) {
@@ -767,11 +749,6 @@ impl GitForgeApp {
 
     pub fn remove_remote(&mut self, name: String, cx: &mut Context<Self>) {
         self.run_git_op("Remove remote", cx, move |repo| repo.remote_remove(&name));
-    }
-    pub fn add_to_gitignore(&mut self, path: String, cx: &mut Context<Self>) {
-        self.run_git_op("Add to gitignore", cx, move |repo| {
-            repo.add_to_gitignore(&path)
-        });
     }
 
     pub fn resolve_conflict_ours(&mut self, path: String, cx: &mut Context<Self>) {

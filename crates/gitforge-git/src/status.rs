@@ -2,14 +2,12 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum FileStatus {
-    Unmodified,
     Modified,
     Added,
     Deleted,
     Renamed,
     Copied,
     Untracked,
-    Ignored,
     Conflicted,
 }
 

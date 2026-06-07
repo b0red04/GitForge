@@ -47,13 +47,7 @@
     "syntax_comment": "#8087a2",
     "syntax_type": "#eed49f",
     "syntax_variable": "#cad3f5",
-    "syntax_operator": "#91d7e3",
-    "syntax_property": "#8aadf4",
-    "syntax_tag": "#ed8796",
-    "syntax_attribute": "#f5a97f",
-    "syntax_constant": "#f5a97f",
-    "syntax_module": "#8aadf4",
-    "syntax_punctuation": "#cad3f5"
+    "syntax_property": "#8aadf4"
   },
   "fonts": {
     "ui": "Inter",

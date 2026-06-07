@@ -40,7 +40,6 @@
     "scroll_bar_hover": "#484f58",
     "selection": "#e6edf3",
     "selection_bg": "#264f78",
-
     "syntax_keyword": "#ff7b72",
     "syntax_function": "#d2a8ff",
     "syntax_string": "#a5d6ff",
@@ -48,13 +47,7 @@
     "syntax_comment": "#8b949e",
     "syntax_type": "#ffa657",
     "syntax_variable": "#e6edf3",
-    "syntax_operator": "#79c0ff",
-    "syntax_property": "#79c0ff",
-    "syntax_tag": "#7ee787",
-    "syntax_attribute": "#79c0ff",
-    "syntax_constant": "#79c0ff",
-    "syntax_module": "#ffa657",
-    "syntax_punctuation": "#e6edf3"
+    "syntax_property": "#79c0ff"
   },
   "fonts": {
     "ui": "Inter",

@@ -1,6 +1,18 @@
-use crate::theme::HighlightScope;
 use std::cell::RefCell;
 use std::path::Path;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HighlightScope {
+    Keyword,
+    Function,
+    String,
+    Number,
+    Comment,
+    Type,
+    Variable,
+    Property,
+    Default,
+}
 
 thread_local! {
     static PARSER_POOL: RefCell<Option<tree_sitter::Parser>> = RefCell::new(None);

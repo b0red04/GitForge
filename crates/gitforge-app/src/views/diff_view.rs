@@ -55,7 +55,7 @@ impl SharedHighlightState {
             HighlightedLine {
                 segments: vec![gitforge_syntax::highlight::HighlightedSegment {
                     text: content.to_string(),
-                    scope: gitforge_syntax::theme::HighlightScope::Default,
+                    scope: gitforge_syntax::HighlightScope::Default,
                 }],
             }
         };
@@ -127,7 +127,7 @@ pub fn render_highlighted_segments(
         if seg.text.is_empty() {
             continue;
         }
-        let color = if seg.scope == gitforge_syntax::theme::HighlightScope::Default {
+        let color = if seg.scope == gitforge_syntax::HighlightScope::Default {
             default_fg
         } else {
             rgba_to_hsla(colors.scope_color(&seg.scope))

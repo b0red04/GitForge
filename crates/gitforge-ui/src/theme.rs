@@ -78,20 +78,8 @@ pub struct ThemeColors {
     pub syntax_type: String,
     #[serde(default = "default_syntax_variable")]
     pub syntax_variable: String,
-    #[serde(default = "default_syntax_operator")]
-    pub syntax_operator: String,
     #[serde(default = "default_syntax_property")]
     pub syntax_property: String,
-    #[serde(default = "default_syntax_tag")]
-    pub syntax_tag: String,
-    #[serde(default = "default_syntax_attribute")]
-    pub syntax_attribute: String,
-    #[serde(default = "default_syntax_constant")]
-    pub syntax_constant: String,
-    #[serde(default = "default_syntax_module")]
-    pub syntax_module: String,
-    #[serde(default = "default_syntax_punctuation")]
-    pub syntax_punctuation: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -131,13 +119,7 @@ fn default_syntax_number() -> String { "#79c0ff".into() }
 fn default_syntax_comment() -> String { "#8b949e".into() }
 fn default_syntax_type() -> String { "#ffa657".into() }
 fn default_syntax_variable() -> String { "#e6edf3".into() }
-fn default_syntax_operator() -> String { "#79c0ff".into() }
 fn default_syntax_property() -> String { "#79c0ff".into() }
-fn default_syntax_tag() -> String { "#7ee787".into() }
-fn default_syntax_attribute() -> String { "#79c0ff".into() }
-fn default_syntax_constant() -> String { "#79c0ff".into() }
-fn default_syntax_module() -> String { "#ffa657".into() }
-fn default_syntax_punctuation() -> String { "#e6edf3".into() }
 
 impl Theme {
     pub fn load_from_file(path: &Path) -> anyhow::Result<Self> {

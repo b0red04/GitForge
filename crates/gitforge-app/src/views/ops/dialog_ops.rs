@@ -24,12 +24,6 @@ impl GitForgeApp {
         cx.notify();
     }
 
-    pub fn open_create_tag_dialog(&mut self, target: Option<String>, cx: &mut Context<Self>) {
-        self.active_dialog = AppDialog::CreateTag { target };
-        self.dialog_input.clear();
-        cx.notify();
-    }
-
     pub fn open_stash_push_dialog(&mut self, cx: &mut Context<Self>) {
         self.active_dialog = AppDialog::StashPush;
         self.dialog_input.clear();
@@ -248,18 +242,7 @@ impl GitForgeApp {
         cx.notify();
     }
 
-    pub fn open_ssh_test_dialog(&mut self, cx: &mut Context<Self>) {
-        self.active_dialog = AppDialog::SshTestConnection;
-        self.dialog_input.clear();
-        cx.notify();
-    }
-    pub fn open_credential_add_dialog(&mut self, cx: &mut Context<Self>) {
-        self.active_dialog = AppDialog::CredentialAdd;
-        self.dialog_input.clear();
-        self.dialog_input_2.clear();
-        cx.notify();
-    }
-    pub fn add_credential(
+    fn add_credential(
         &mut self,
         host: String,
         username: String,
@@ -299,39 +282,6 @@ impl GitForgeApp {
         .detach();
     }
 
-    pub fn delete_credential(&mut self, host: String, username: String, cx: &mut Context<Self>) {
-        cx.spawn(async move |this, cx| {
-            let result = tokio::task::spawn_blocking(move || {
-                gitforge_git::credential::delete_credential(&host, &username)
-            })
-            .await;
-
-            match result {
-                Ok(Ok(())) => {
-                    this.update(cx, |this, cx| {
-                        this.remote_status = "Credential deleted".to_string();
-                        cx.notify();
-                    })
-                    .ok();
-                }
-                Ok(Err(e)) => {
-                    this.update(cx, |this, cx| {
-                        this.remote_status = format!("Failed to delete credential: {}", e);
-                        cx.notify();
-                    })
-                    .ok();
-                }
-                Err(e) => {
-                    this.update(cx, |this, cx| {
-                        this.remote_status = format!("Credential delete error: {}", e);
-                        cx.notify();
-                    })
-                    .ok();
-                }
-            }
-        })
-        .detach();
-    }
     pub fn open_add_account_dialog(&mut self, provider: String, cx: &mut Context<Self>) {
         self.active_dialog = AppDialog::AddAccount { provider };
         self.dialog_input.clear();
@@ -349,20 +299,6 @@ impl GitForgeApp {
         self.hosting_repos.clear();
         self.hosting_repos_loading = false;
         self.dialog_input.clear();
-        cx.notify();
-    }
-    pub fn open_fork_dialog(
-        &mut self,
-        owner: String,
-        repo: String,
-        provider: String,
-        cx: &mut Context<Self>,
-    ) {
-        self.active_dialog = AppDialog::ForkRepo {
-            owner,
-            repo,
-            provider,
-        };
         cx.notify();
     }
     pub fn spawn_init_repo_picker(&mut self, cx: &mut Context<Self>) {

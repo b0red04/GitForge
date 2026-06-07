@@ -1,4 +1,4 @@
-use gitforge_ui::{AppColors, Theme, ThemeEntry};
+use gitforge_ui::{AppColors, Theme};
 use gpui::*;
 
 use crate::views::app::GitForgeApp;
@@ -51,10 +51,6 @@ impl GitForgeApp {
             .map(|idx| (idx + 1) % themes.len())
             .unwrap_or(0);
         self.set_theme(&themes[next].name, cx);
-    }
-
-    pub fn available_themes() -> Vec<ThemeEntry> {
-        Theme::discover_themes()
     }
 
     pub fn hosting_accounts_snapshot(&self) -> Vec<gitforge_hosting::HostingAccount> {

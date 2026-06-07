@@ -42,6 +42,3 @@ serde_json.workspace = true
 dirs.workspace = true
 rfd = "0.15"
 anyhow.workspace = true
-fluent.workspace = true
-fluent-bundle.workspace = true
-sys-locale.workspace = true

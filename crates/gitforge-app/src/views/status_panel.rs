@@ -1366,7 +1366,6 @@ fn render_git_status_icon(status: &FileStatus, colors: &AppColors) -> Div {
         }
         FileStatus::Deleted => ("−", rgba_to_hsla(colors.diff_removed)),
         FileStatus::Conflicted => ("!", rgba_to_hsla(colors.error)),
-        _ => ("·", rgba_to_hsla(colors.text_muted)),
     };
 
     div()

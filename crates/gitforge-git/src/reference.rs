@@ -5,7 +5,6 @@ pub enum RefKind {
     Branch,
     RemoteBranch,
     Tag,
-    Note,
     Stash,
 }
 
