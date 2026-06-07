@@ -1,17 +1,13 @@
 use gitforge_diff::{DiffLineType, FileDiff};
 use gitforge_git::BlameLine;
 use gitforge_git::RepoState;
-use gitforge_syntax::SyntaxHighlighter;
-use gitforge_syntax::highlight::HighlightedLine;
 use gitforge_ui::{AppColors, rgba_to_hsla};
 use gpui::*;
-use std::cell::RefCell;
-use std::collections::HashMap;
 use std::ops::Range;
+use std::rc::Rc;
 use std::sync::Arc;
 
-const DIFF_LINE_HEIGHT: f32 = 20.0;
-const DIFF_LINE_NUM_WIDTH: f32 = 50.0;
+use super::diff_view::{DiffLineSelection, SharedHighlightState, DIFF_LINE_HEIGHT, DIFF_LINE_NUM_WIDTH, render_diff_empty_state, render_diff_lines, render_highlighted_segments};
 use super::layout::{FILE_LIST_WIDTH, RIGHT_MIN_WIDTH};
 
 const IMAGE_EXTENSIONS: &[&str] = &[
@@ -28,17 +24,6 @@ pub struct CommitDiffState {
     pub selected_file_idx: Option<usize>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct HighlightCacheKey {
-    path: String,
-    line_idx: usize,
-}
-
-struct SharedHighlightState {
-    highlighter: SyntaxHighlighter,
-    cache: RefCell<HashMap<HighlightCacheKey, HighlightedLine>>,
-}
-
 pub struct DiffPanel {
     diff_state: Option<CommitDiffState>,
     scroll_handle: UniformListScrollHandle,
@@ -47,8 +32,7 @@ pub struct DiffPanel {
     code_view_file: Option<String>,
     code_view_content: Option<String>,
     code_scroll_handle: UniformListScrollHandle,
-    selection_anchor: Option<usize>,
-    selection_end: Option<usize>,
+    selection: DiffLineSelection,
     blame: Option<BlameState>,
 }
 
@@ -64,75 +48,34 @@ struct BlameState {
     file_path: String,
 }
 
-impl SharedHighlightState {
-    fn highlight_line(
-        &self,
-        path: &str,
-        line_idx: usize,
-        content: &str,
-        prefix: &str,
-    ) -> HighlightedLine {
-        let key = HighlightCacheKey {
-            path: format!("{}{}", prefix, path),
-            line_idx,
-        };
-
-        {
-            let cache = self.cache.borrow();
-            if let Some(cached) = cache.get(&key) {
-                return cached.clone();
-            }
-        }
-
-        let hl = if let Some(lang) = self.highlighter.language_for_path(path) {
-            self.highlighter.highlight_line(content, 0, &lang)
-        } else {
-            HighlightedLine {
-                segments: vec![gitforge_syntax::highlight::HighlightedSegment {
-                    text: content.to_string(),
-                    scope: gitforge_syntax::theme::HighlightScope::Default,
-                }],
-            }
-        };
-
-        self.cache.borrow_mut().insert(key, hl.clone());
-        hl
-    }
-}
-
 #[allow(dead_code)]
 impl DiffPanel {
     pub fn new() -> Self {
         Self {
             diff_state: None,
             scroll_handle: UniformListScrollHandle::default(),
-            highlight: Arc::new(SharedHighlightState {
-                highlighter: SyntaxHighlighter::new(),
-                cache: RefCell::new(HashMap::new()),
-            }),
+            highlight: Arc::new(SharedHighlightState::new()),
             view_mode: DiffViewMode::Diff,
             code_view_file: None,
             code_view_content: None,
             code_scroll_handle: UniformListScrollHandle::default(),
-            selection_anchor: None,
-            selection_end: None,
+            selection: DiffLineSelection::new(),
             blame: None,
         }
     }
 
     pub fn set_diff(&mut self, state: CommitDiffState) {
-        self.highlight.cache.borrow_mut().clear();
+        self.highlight.clear_cache();
         self.diff_state = Some(state);
         self.view_mode = DiffViewMode::Diff;
         self.code_view_file = None;
         self.code_view_content = None;
-        self.selection_anchor = None;
-        self.selection_end = None;
+        self.selection.clear();
     }
 
     pub fn clear(&mut self) {
         self.diff_state = None;
-        self.highlight.cache.borrow_mut().clear();
+        self.highlight.clear_cache();
         self.view_mode = DiffViewMode::Diff;
         self.code_view_file = None;
         self.code_view_content = None;
@@ -142,8 +85,7 @@ impl DiffPanel {
         if let Some(ds) = self.diff_state.as_mut() {
             ds.selected_file_idx = Some(file_idx);
         }
-        self.selection_anchor = None;
-        self.selection_end = None;
+        self.selection.clear();
     }
 
     pub fn selected_file_path(&self) -> Option<String> {
@@ -164,16 +106,15 @@ impl DiffPanel {
         self.view_mode = DiffViewMode::Code;
         self.code_view_content = Some(content);
         self.code_view_file = Some(path);
-        self.highlight.cache.borrow_mut().clear();
+        self.highlight.clear_cache();
     }
 
     pub fn set_diff_mode(&mut self) {
         self.view_mode = DiffViewMode::Diff;
         self.code_view_file = None;
         self.code_view_content = None;
-        self.highlight.cache.borrow_mut().clear();
-        self.selection_anchor = None;
-        self.selection_end = None;
+        self.highlight.clear_cache();
+        self.selection.clear();
     }
 
     pub fn set_blame(&mut self, lines: Vec<BlameLine>, path: String) {
@@ -182,43 +123,23 @@ impl DiffPanel {
             lines,
             file_path: path,
         });
-        self.highlight.cache.borrow_mut().clear();
+        self.highlight.clear_cache();
     }
 
     pub fn select_line(&mut self, line_idx: usize, extend: bool) {
-        if extend {
-            if self.selection_anchor.is_some() {
-                self.selection_end = Some(line_idx);
-            } else {
-                self.selection_anchor = Some(line_idx);
-                self.selection_end = Some(line_idx);
-            }
-        } else {
-            self.selection_anchor = Some(line_idx);
-            self.selection_end = Some(line_idx);
-        }
+        self.selection.select(line_idx, extend);
     }
 
     pub fn clear_selection(&mut self) {
-        self.selection_anchor = None;
-        self.selection_end = None;
+        self.selection.clear();
     }
 
     pub fn selected_range(&self) -> Option<Range<usize>> {
-        match (self.selection_anchor, self.selection_end) {
-            (Some(a), Some(b)) => {
-                let start = a.min(b);
-                let end = a.max(b) + 1;
-                Some(start..end)
-            }
-            _ => None,
-        }
+        self.selection.range()
     }
 
     pub fn selected_indices(&self) -> Vec<usize> {
-        self.selected_range()
-            .map(|r| r.collect())
-            .unwrap_or_default()
+        self.selection.indices()
     }
 
     pub fn render(
@@ -618,32 +539,6 @@ fn render_commit_detail(
     )
 }
 
-fn render_highlighted_segments(
-    highlighted: &HighlightedLine,
-    colors: &AppColors,
-    default_fg: Hsla,
-) -> Div {
-    let mut container = div().flex().flex_row();
-    for seg in &highlighted.segments {
-        if seg.text.is_empty() {
-            continue;
-        }
-        let color = if seg.scope == gitforge_syntax::theme::HighlightScope::Default {
-            default_fg
-        } else {
-            rgba_to_hsla(colors.scope_color(&seg.scope))
-        };
-        container = container.child(
-            div()
-                .text_xs()
-                .font_family("monospace")
-                .text_color(color)
-                .child(seg.text.clone()),
-        );
-    }
-    container
-}
-
 fn render_diff_content(
     file_diff: Option<FileDiff>,
     colors: &AppColors,
@@ -655,29 +550,11 @@ fn render_diff_content(
     let border = rgba_to_hsla(colors.border);
     let muted = rgba_to_hsla(colors.text_muted);
     let text_color = rgba_to_hsla(colors.text);
-    let added_bg = rgba_to_hsla(colors.diff_added_bg);
-    let removed_bg = rgba_to_hsla(colors.diff_removed_bg);
-    let added_fg = rgba_to_hsla(colors.diff_added);
-    let removed_fg = rgba_to_hsla(colors.diff_removed);
-    let hunk_header_bg = rgba_to_hsla(colors.diff_hunk_header);
     let surface = rgba_to_hsla(colors.surface);
     let accent = rgba_to_hsla(colors.accent);
-    let selection_bg = rgba_to_hsla(colors.selection_bg);
 
     let Some(diff) = file_diff else {
-        return div()
-            .flex_1()
-            .h_full()
-            .flex()
-            .items_center()
-            .justify_center()
-            .bg(surface)
-            .child(
-                div()
-                    .text_sm()
-                    .text_color(muted)
-                    .child("Select a file to view diff"),
-            );
+        return render_diff_empty_state(colors);
     };
 
     let path_label = diff
@@ -803,11 +680,6 @@ fn render_diff_content(
         }
     }
 
-    let total_lines = diff.lines.len();
-    let lines_data = diff.lines.clone();
-    let path_for_hl = path_label.to_string();
-    let cl = colors.clone();
-
     let file_header = div()
         .px_3()
         .py_2()
@@ -868,155 +740,28 @@ fn render_diff_content(
                 })
         });
 
-    let diff_lines = uniform_list(
-        "diff-lines",
-        total_lines,
-        move |visible_range: Range<usize>, _window: &mut Window, _cx: &mut App| {
-            let mut row_elements = Vec::with_capacity(visible_range.len());
-
-            for line_i in visible_range {
-                let Some(line) = lines_data.get(line_i) else {
-                    continue;
-                };
-
-                let is_conflict_marker = line.content.starts_with("<<<<<<< ")
-                    || line.content.starts_with("=======\n")
-                    || line.content.starts_with("=======\r")
-                    || line.content == "======="
-                    || line.content.starts_with(">>>>>>> ");
-
-                let (base_bg, line_num_bg, prefix) = if is_conflict_marker {
-                    (rgba_to_hsla(cl.warning).alpha(0.15), surface, "\u{26a0}")
-                } else {
-                    match line.line_type {
-                        DiffLineType::Added => (added_bg, added_bg, "+"),
-                        DiffLineType::Removed => (removed_bg, removed_bg, "-"),
-                        DiffLineType::HunkHeader => (hunk_header_bg, surface, " "),
-                        DiffLineType::Context => (surface, surface, " "),
-                        DiffLineType::NoNewlineAtEof => (surface, surface, "\\"),
-                    }
-                };
-
-                let is_selected = selection_range
-                    .as_ref()
-                    .map_or(false, |r| r.contains(&line_i));
-                let line_bg = if is_selected { selection_bg } else { base_bg };
-
-                let line_fg = if is_conflict_marker {
-                    rgba_to_hsla(cl.warning)
-                } else {
-                    match line.line_type {
-                        DiffLineType::Added => added_fg,
-                        DiffLineType::Removed => removed_fg,
-                        DiffLineType::HunkHeader => muted,
-                        _ => text_color,
-                    }
-                };
-
-                let old_num = line
-                    .old_line
-                    .map(|n| format!("{:>4}", n))
-                    .unwrap_or_else(|| "    ".to_string());
-                let new_num = line
-                    .new_line
-                    .map(|n| format!("{:>4}", n))
-                    .unwrap_or_else(|| "    ".to_string());
-
-                let content = line.content.clone();
-                let use_syntax = matches!(
-                    line.line_type,
-                    DiffLineType::Context | DiffLineType::Added | DiffLineType::Removed
-                );
-                let display_content: String = content.chars().take(200).collect();
-
-                let content_col = if use_syntax {
-                    let highlighted =
-                        highlight.highlight_line(&path_for_hl, line_i, &display_content, "");
-                    render_highlighted_segments(&highlighted, &cl, line_fg)
-                        .flex_1()
-                        .pr_3()
-                        .overflow_hidden()
-                } else {
-                    div()
-                        .flex_1()
-                        .text_xs()
-                        .font_family("monospace")
-                        .text_color(line_fg)
-                        .pr_3()
-                        .overflow_hidden()
-                        .child(display_content)
-                };
-
-                let click_ent = entity.clone();
-                let row = div()
-                    .id(ElementId::Name(format!("diff-line-{line_i}").into()))
-                    .h(px(DIFF_LINE_HEIGHT))
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .bg(line_bg)
-                    .cursor_pointer()
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        move |ev: &MouseDownEvent, _window, cx| {
-                            if let Some(e) = click_ent.upgrade() {
-                                let extend = ev.modifiers.shift;
-                                e.update(cx, |this, cx| {
-                                    this.select_diff_line(line_i, extend, cx);
-                                });
-                            }
-                        },
-                    )
-                    .child(
-                        div()
-                            .w(px(DIFF_LINE_NUM_WIDTH))
-                            .h_full()
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .bg(line_num_bg)
-                            .border_r_1()
-                            .border_color(border)
-                            .child(
-                                div()
-                                    .w(px(DIFF_LINE_NUM_WIDTH / 2.0))
-                                    .text_xs()
-                                    .font_family("monospace")
-                                    .text_color(muted)
-                                    .pl_2()
-                                    .child(old_num),
-                            )
-                            .child(
-                                div()
-                                    .w(px(DIFF_LINE_NUM_WIDTH / 2.0))
-                                    .text_xs()
-                                    .font_family("monospace")
-                                    .text_color(muted)
-                                    .pl_1()
-                                    .child(new_num),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .w(px(14.0))
-                            .h_full()
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .text_xs()
-                            .font_family("monospace")
-                            .text_color(line_fg)
-                            .child(prefix.to_string()),
-                    )
-                    .child(content_col);
-
-                row_elements.push(row.into_any_element());
+    let on_click = {
+        let ent = entity.clone();
+        Rc::new(move |line_i: usize, extend: bool, cx: &mut App| {
+            if let Some(e) = ent.upgrade() {
+                e.update(cx, |this, cx| {
+                    this.select_diff_line(line_i, extend, cx);
+                });
             }
+        })
+    };
 
-            row_elements
-        },
-    )
-    .track_scroll(diff_scroll_handle);
+    let diff_lines = render_diff_lines(
+        &diff.lines,
+        path_label,
+        colors,
+        diff_scroll_handle,
+        selection_range,
+        Some(highlight),
+        "diff-lines",
+        "diff-line",
+        on_click,
+    );
 
     div()
         .flex_1()
@@ -1025,7 +770,7 @@ fn render_diff_content(
         .flex()
         .flex_col()
         .child(file_header)
-        .child(div().flex_1().child(diff_lines))
+        .child(diff_lines)
 }
 
 fn render_code_view(

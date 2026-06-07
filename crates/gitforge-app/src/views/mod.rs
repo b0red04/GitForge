@@ -3,6 +3,7 @@ pub mod command_palette;
 pub mod ops;
 pub mod commands;
 pub mod diff_panel;
+pub mod diff_view;
 pub mod graph_panel;
 pub mod i18n;
 pub mod layout;

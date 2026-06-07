@@ -1,15 +1,15 @@
-use gitforge_diff::{DiffLineType, FileDiff};
+use gitforge_diff::FileDiff;
 use gitforge_git::{DiffStat, FileEntry, FileStatus, RepoState, RepoStatus};
 use std::path::Path;
 use gitforge_ui::{AppColors, rgba_to_hsla};
 use gpui::*;
 use std::ops::Range;
+use std::rc::Rc;
 
+use super::diff_view::{DiffLineSelection, render_diff_lines};
 use super::layout::{FILE_LIST_WIDTH, RIGHT_MIN_WIDTH};
 
 const STATUS_FILE_WIDTH: f32 = FILE_LIST_WIDTH;
-const STATUS_DIFF_LINE_HEIGHT: f32 = 20.0;
-const STATUS_DIFF_LINE_NUM_WIDTH: f32 = 50.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StatusFileSection {
@@ -33,8 +33,7 @@ pub struct StatusPanel {
     view_mode: StatusViewMode,
     commit_message: String,
     commit_message_focus: FocusHandle,
-    diff_sel_anchor: Option<usize>,
-    diff_sel_end: Option<usize>,
+    diff_selection: DiffLineSelection,
     ai_message_alternatives: Vec<String>,
 }
 
@@ -59,8 +58,7 @@ impl StatusPanel {
             view_mode: StatusViewMode::Status,
             commit_message: String::new(),
             commit_message_focus: cx.focus_handle(),
-            diff_sel_anchor: None,
-            diff_sel_end: None,
+            diff_selection: DiffLineSelection::new(),
             ai_message_alternatives: Vec::new(),
         }
     }
@@ -68,8 +66,7 @@ impl StatusPanel {
     pub fn set_status(&mut self, status: RepoStatus, preserve_graph_staging: bool) {
         self.status = Some(status);
         self.diff_for_selected = None;
-        self.diff_sel_anchor = None;
-        self.diff_sel_end = None;
+        self.diff_selection.clear();
 
         if preserve_graph_staging {
             self.view_mode = StatusViewMode::GraphStaging;
@@ -100,15 +97,13 @@ impl StatusPanel {
         self.selection = None;
         self.diff_for_selected = None;
         self.view_mode = StatusViewMode::Status;
-        self.diff_sel_anchor = None;
-        self.diff_sel_end = None;
+        self.diff_selection.clear();
     }
 
     pub fn select_file(&mut self, section: StatusFileSection, file_idx: usize) {
         self.selection = Some(StatusSelection { section, file_idx });
         self.view_mode = StatusViewMode::Diff;
-        self.diff_sel_anchor = None;
-        self.diff_sel_end = None;
+        self.diff_selection.clear();
     }
 
     pub fn set_diff(&mut self, diff: FileDiff) {
@@ -154,34 +149,15 @@ impl StatusPanel {
     }
 
     pub fn select_diff_line(&mut self, line_idx: usize, extend: bool) {
-        if extend {
-            if self.diff_sel_anchor.is_some() {
-                self.diff_sel_end = Some(line_idx);
-            } else {
-                self.diff_sel_anchor = Some(line_idx);
-                self.diff_sel_end = Some(line_idx);
-            }
-        } else {
-            self.diff_sel_anchor = Some(line_idx);
-            self.diff_sel_end = Some(line_idx);
-        }
+        self.diff_selection.select(line_idx, extend);
     }
 
     pub fn diff_selected_range(&self) -> Option<Range<usize>> {
-        match (self.diff_sel_anchor, self.diff_sel_end) {
-            (Some(a), Some(b)) => {
-                let start = a.min(b);
-                let end = a.max(b) + 1;
-                Some(start..end)
-            }
-            _ => None,
-        }
+        self.diff_selection.range()
     }
 
     pub fn diff_selected_indices(&self) -> Vec<usize> {
-        self.diff_selected_range()
-            .map(|r| r.collect())
-            .unwrap_or_default()
+        self.diff_selection.indices()
     }
 
     pub fn current_diff(&self) -> Option<&FileDiff> {
@@ -706,22 +682,9 @@ impl StatusPanel {
         let muted = rgba_to_hsla(colors.text_muted);
         let border = rgba_to_hsla(colors.border);
         let accent = rgba_to_hsla(colors.accent);
-        let selection_bg = rgba_to_hsla(colors.selection_bg);
 
         let Some(diff) = &self.diff_for_selected else {
-            return div()
-                .flex_1()
-                .h_full()
-                .bg(surface)
-                .flex()
-                .items_center()
-                .justify_center()
-                .child(
-                    div()
-                        .text_sm()
-                        .text_color(muted)
-                        .child("Select a file to view diff"),
-                );
+            return super::diff_view::render_diff_empty_state(colors);
         };
 
         let path_label = diff
@@ -797,143 +760,28 @@ impl StatusPanel {
 
         file_header = file_header.child(div().text_xs().text_color(muted).child(section_label));
 
-        let total_lines = diff.lines.len();
-        let lines_data = diff.lines.clone();
-        let cl = colors.clone();
-
-        let diff_lines = uniform_list(
-            "status-diff-lines",
-            total_lines,
-            move |visible_range: Range<usize>, _window: &mut Window, _cx: &mut App| {
-                let mut rows = Vec::with_capacity(visible_range.len());
-                let added_bg = rgba_to_hsla(cl.diff_added_bg);
-                let removed_bg = rgba_to_hsla(cl.diff_removed_bg);
-                let added_fg = rgba_to_hsla(cl.diff_added);
-                let removed_fg = rgba_to_hsla(cl.diff_removed);
-                let hunk_header_bg = rgba_to_hsla(cl.diff_hunk_header);
-                let text_color = rgba_to_hsla(cl.text);
-                let muted = rgba_to_hsla(cl.text_muted);
-                let bdr = rgba_to_hsla(cl.border);
-                let surf = rgba_to_hsla(cl.surface);
-
-                for line_i in visible_range {
-                    let Some(line) = lines_data.get(line_i) else {
-                        continue;
-                    };
-
-                    let is_conflict_marker = line.content.starts_with("<<<<<<< ")
-                        || line.content.starts_with("=======\n")
-                        || line.content.starts_with("=======\r")
-                        || line.content == "======="
-                        || line.content.starts_with(">>>>>>> ");
-
-                    let (base_bg, line_fg, prefix) = if is_conflict_marker {
-                        (
-                            rgba_to_hsla(cl.warning).alpha(0.15),
-                            rgba_to_hsla(cl.warning),
-                            "\u{26a0}",
-                        )
-                    } else {
-                        match line.line_type {
-                            DiffLineType::Added => (added_bg, added_fg, "+"),
-                            DiffLineType::Removed => (removed_bg, removed_fg, "-"),
-                            DiffLineType::HunkHeader => (hunk_header_bg, muted, " "),
-                            DiffLineType::Context => (surf, text_color, " "),
-                            DiffLineType::NoNewlineAtEof => (surf, muted, "\\"),
-                        }
-                    };
-
-                    let is_selected = sel_range.as_ref().map_or(false, |r| r.contains(&line_i));
-                    let row_bg = if is_selected { selection_bg } else { base_bg };
-
-                    let old_num = line
-                        .old_line
-                        .map(|n| format!("{:>4}", n))
-                        .unwrap_or_else(|| "    ".to_string());
-                    let new_num = line
-                        .new_line
-                        .map(|n| format!("{:>4}", n))
-                        .unwrap_or_else(|| "    ".to_string());
-                    let display: String = line.content.chars().take(200).collect();
-
-                    let click_ent = entity.clone();
-                    let row = div()
-                        .id(ElementId::Name(format!("sdl-{line_i}").into()))
-                        .h(px(STATUS_DIFF_LINE_HEIGHT))
-                        .flex()
-                        .flex_row()
-                        .items_center()
-                        .bg(row_bg)
-                        .cursor_pointer()
-                        .on_mouse_down(
-                            MouseButton::Left,
-                            move |ev: &MouseDownEvent, _window, cx| {
-                                if let Some(e) = click_ent.upgrade() {
-                                    let extend = ev.modifiers.shift;
-                                    e.update(cx, |this, cx| {
-                                        this.select_status_diff_line(line_i, extend, cx);
-                                    });
-                                }
-                            },
-                        )
-                        .child(
-                            div()
-                                .w(px(STATUS_DIFF_LINE_NUM_WIDTH))
-                                .h_full()
-                                .flex()
-                                .flex_row()
-                                .items_center()
-                                .bg(row_bg)
-                                .border_r_1()
-                                .border_color(bdr)
-                                .child(
-                                    div()
-                                        .w(px(STATUS_DIFF_LINE_NUM_WIDTH / 2.0))
-                                        .text_xs()
-                                        .font_family("monospace")
-                                        .text_color(muted)
-                                        .pl_2()
-                                        .child(old_num),
-                                )
-                                .child(
-                                    div()
-                                        .w(px(STATUS_DIFF_LINE_NUM_WIDTH / 2.0))
-                                        .text_xs()
-                                        .font_family("monospace")
-                                        .text_color(muted)
-                                        .pl_1()
-                                        .child(new_num),
-                                ),
-                        )
-                        .child(
-                            div()
-                                .w(px(14.0))
-                                .h_full()
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .text_xs()
-                                .font_family("monospace")
-                                .text_color(line_fg)
-                                .child(prefix.to_string()),
-                        )
-                        .child(
-                            div()
-                                .flex_1()
-                                .text_xs()
-                                .font_family("monospace")
-                                .text_color(line_fg)
-                                .pr_3()
-                                .overflow_hidden()
-                                .child(display),
-                        );
-
-                    rows.push(row.into_any_element());
+        let on_click = {
+            let ent = entity.clone();
+            Rc::new(move |line_i: usize, extend: bool, cx: &mut App| {
+                if let Some(e) = ent.upgrade() {
+                    e.update(cx, |this, cx| {
+                        this.select_status_diff_line(line_i, extend, cx);
+                    });
                 }
-                rows
-            },
-        )
-        .track_scroll(self.scroll_handle.clone());
+            })
+        };
+
+        let diff_lines = render_diff_lines(
+            &diff.lines,
+            path_label,
+            colors,
+            self.scroll_handle.clone(),
+            sel_range,
+            None,
+            "status-diff-lines",
+            "sdl",
+            on_click,
+        );
 
         div()
             .flex_1()
@@ -942,7 +790,7 @@ impl StatusPanel {
             .flex()
             .flex_col()
             .child(file_header)
-            .child(div().flex_1().child(diff_lines))
+            .child(diff_lines)
     }
 
     fn render_commit_editor(
