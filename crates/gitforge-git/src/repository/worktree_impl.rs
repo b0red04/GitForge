@@ -4,6 +4,7 @@ use crate::worktree::WorktreeInfo;
 use std::path::Path;
 
 impl Repository {
+    /// Spawns a `git` subprocess.
     pub fn worktree_list(&self) -> GitResult<Vec<WorktreeInfo>> {
         let output = self.run_git(&["worktree", "list", "--porcelain"])?;
         let text = String::from_utf8_lossy(&output.stdout);
@@ -64,6 +65,7 @@ impl Repository {
         Ok(worktrees)
     }
 
+    /// Spawns a `git` subprocess.
     pub fn worktree_add(&self, target_path: &Path, refname: Option<&str>, create_branch: Option<&str>) -> GitResult<()> {
         let mut args = vec!["worktree", "add"];
         if let Some(branch_name) = create_branch {
@@ -78,6 +80,7 @@ impl Repository {
         Ok(())
     }
 
+    /// Spawns a `git` subprocess.
     pub fn worktree_remove(&self, path: &Path, force: bool) -> GitResult<()> {
         let mut args = vec!["worktree", "remove"];
         if force {
@@ -88,6 +91,7 @@ impl Repository {
         Ok(())
     }
 
+    /// Spawns a `git` subprocess.
     pub fn worktree_prune(&self) -> GitResult<()> {
         self.run_git(&["worktree", "prune"])?;
         Ok(())

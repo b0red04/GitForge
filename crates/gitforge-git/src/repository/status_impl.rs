@@ -1,6 +1,7 @@
 use crate::error::{GitError, GitResult};
 use crate::repository::Repository;
 use crate::status::{FileEntry, FileStatus, RepoStatus};
+use crate::diff_stat::untracked_line_count;
 
 fn file_entry(
     path: String,
@@ -118,5 +119,30 @@ impl Repository {
 
         self.attach_diff_stats(&mut result)?;
         Ok(result)
+    }
+
+    /// Spawns a `git` subprocess via `diff_numstat_vs_head`.
+    pub fn attach_diff_stats(&self, status: &mut RepoStatus) -> GitResult<()> {
+        let numstat = self.diff_numstat_vs_head().unwrap_or_default();
+        let attach = |entry: &mut FileEntry| {
+            if let Some(stat) = numstat.get(&entry.path) {
+                entry.diff_stat = Some(*stat);
+            } else if entry.status == FileStatus::Untracked {
+                entry.diff_stat = untracked_line_count(self.path(), &entry.path);
+            }
+        };
+        for entry in &mut status.staged {
+            attach(entry);
+        }
+        for entry in &mut status.unstaged {
+            attach(entry);
+        }
+        for entry in &mut status.untracked {
+            attach(entry);
+        }
+        for entry in &mut status.conflicted {
+            attach(entry);
+        }
+        Ok(())
     }
 }

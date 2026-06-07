@@ -5,6 +5,7 @@ use std::path::Path;
 use std::collections::HashMap;
 
 impl Repository {
+    /// Spawns a `git` subprocess.
     pub fn blame_file(&self, file_path: &Path, revision: Option<&str>) -> GitResult<Vec<BlameLine>> {
         let mut args = vec!["blame", "--porcelain"];
         if let Some(rev) = revision {

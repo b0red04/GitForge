@@ -4,6 +4,7 @@ use crate::commit::CommitInfo;
 use crate::reference::{RefInfo, RefKind};
 use gix::revision::walk::Sorting;
 use gix::traverse::commit::simple::CommitTimeOrder;
+use std::process::Command;
 
 /// Options for walking commit history (`git log --date-order` with selected ref tips).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -191,6 +192,31 @@ impl Repository {
         });
 
         Ok(result)
+    }
+
+    /// Spawns a `git` subprocess.
+    pub fn current_branch(&self) -> GitResult<Option<String>> {
+        let output = Command::new("git")
+            .args(["rev-parse", "--abbrev-ref", "HEAD"])
+            .current_dir(&self.path)
+            .output()
+            .map_err(|e| GitError::OperationFailed(format!("Failed to run git rev-parse: {}", e)))?;
+
+        if !output.status.success() {
+            return Ok(None);
+        }
+        let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        Ok(if name == "HEAD" { None } else { Some(name) })
+    }
+
+    /// Spawns a `git` subprocess.
+    pub fn is_detached_head(&self) -> GitResult<bool> {
+        let output = Command::new("git")
+            .args(["symbolic-ref", "-q", "HEAD"])
+            .current_dir(&self.path)
+            .output()
+            .map_err(|e| GitError::OperationFailed(format!("Failed to run git symbolic-ref: {}", e)))?;
+        Ok(!output.status.success())
     }
 
     fn commit_info_from_gix(&self, commit: &gix::Commit<'_>) -> GitResult<CommitInfo> {

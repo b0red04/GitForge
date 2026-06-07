@@ -1,6 +1,10 @@
 use crate::error::{GitError, GitResult};
 use crate::repository::Repository;
 use crate::diff::{FileChange, FileChangeKind};
+use crate::diff_stat::parse_numstat;
+use crate::status::DiffStat;
+use std::collections::HashMap;
+use std::path::Path;
 use std::process::Command;
 
 fn map_change(change: gix::object::tree::diff::ChangeDetached) -> FileChange {
@@ -73,6 +77,7 @@ impl Repository {
         Ok(changes.into_iter().map(map_change).collect())
     }
 
+    /// Spawns a `git` subprocess.
     pub fn unified_diff_for_commit(&self, commit_id: &str) -> GitResult<String> {
         let output = Command::new("git")
             .args(["diff-tree", "-p", "--no-color", commit_id])
@@ -87,5 +92,33 @@ impl Repository {
         }
 
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    }
+
+    /// Spawns a `git` subprocess.
+    pub fn diff_index_to_worktree(&self, path: Option<&Path>) -> GitResult<String> {
+        let mut args = vec!["diff", "--no-color"];
+        if let Some(p) = path {
+            args.push("--");
+            args.push(p.to_str().unwrap_or(""));
+        }
+        let output = self.run_git(&args)?;
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    }
+
+    /// Spawns a `git` subprocess.
+    pub fn diff_head_to_index(&self, path: Option<&Path>) -> GitResult<String> {
+        let mut args = vec!["diff", "--cached", "--no-color"];
+        if let Some(p) = path {
+            args.push("--");
+            args.push(p.to_str().unwrap_or(""));
+        }
+        let output = self.run_git(&args)?;
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    }
+
+    /// Spawns a `git` subprocess.
+    pub fn diff_numstat_vs_head(&self) -> GitResult<HashMap<String, DiffStat>> {
+        let output = self.run_git(&["diff", "--numstat", "--no-renames", "HEAD"])?;
+        Ok(parse_numstat(&String::from_utf8_lossy(&output.stdout)))
     }
 }

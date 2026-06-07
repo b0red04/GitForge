@@ -1,13 +1,19 @@
 use crate::error::{GitError, GitResult};
 use std::path::Path;
+use std::process::Command;
 
 pub mod log_impl;
 pub mod status_impl;
 pub mod diff_impl;
 pub mod objects_impl;
-pub mod write_impl;
 pub mod blame_impl;
 pub mod worktree_impl;
+pub mod staging_impl;
+pub mod branch_impl;
+pub mod merge_impl;
+pub mod network_impl;
+pub mod stash_impl;
+pub mod submodule_impl;
 
 pub struct Repository {
     pub(crate) repo: gix::Repository,
@@ -47,5 +53,39 @@ impl Repository {
         let commit = self.repo.find_commit(id)
             .map_err(|e| GitError::OperationFailed(e.to_string()))?;
         commit.tree().map_err(|e| GitError::OperationFailed(e.to_string()))
+    }
+
+    pub(crate) fn run_git(&self, args: &[&str]) -> GitResult<std::process::Output> {
+        let label = args[0];
+        let output = Command::new("git")
+            .args(args)
+            .current_dir(&self.path)
+            .output()
+            .map_err(|e| GitError::OperationFailed(format!("Failed to run git {}: {}", label, e)))?;
+
+        if !output.status.success() {
+            return Err(GitError::OperationFailed(
+                String::from_utf8_lossy(&output.stderr).to_string(),
+            ));
+        }
+        Ok(output)
+    }
+
+    pub(crate) fn run_git_with_combined_error(&self, args: &[&str]) -> GitResult<String> {
+        let label = args[0];
+        let output = Command::new("git")
+            .args(args)
+            .current_dir(&self.path)
+            .output()
+            .map_err(|e| GitError::OperationFailed(format!("Failed to run git {}: {}", label, e)))?;
+
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        let combined = format!("{}{}", stdout, stderr);
+
+        if !output.status.success() {
+            return Err(GitError::OperationFailed(combined));
+        }
+        Ok(combined)
     }
 }
