@@ -354,12 +354,13 @@ pub fn render_titlebar_menu_dropdown(
                                 .gap_3()
                                 .cursor_pointer()
                                 .hover(move |s| s.bg(hover_bg))
-                                .on_click(move |_ev, _window, cx| {
+                                .on_click(move |_ev, window, cx| {
                                     if let Some(e) = item_ent.upgrade() {
                                         e.update(cx, |app, cx| {
-                                            app.execute_app_command(action, cx);
+                                            app.close_titlebar_menu(cx);
                                         });
                                     }
+                                    window.dispatch_action(action.boxed_action(), cx);
                                 })
                                 .child(
                                     div()
@@ -391,12 +392,13 @@ pub fn render_titlebar_menu_dropdown(
                         .gap_3()
                         .cursor_pointer()
                         .hover(move |s| s.bg(hover_bg))
-                        .on_click(move |_ev, _window, cx| {
+                        .on_click(move |_ev, window, cx| {
                             if let Some(e) = item_ent.upgrade() {
                                 e.update(cx, |app, cx| {
-                                    app.execute_app_command(action, cx);
+                                    app.close_titlebar_menu(cx);
                                 });
                             }
+                            window.dispatch_action(action.boxed_action(), cx);
                         })
                         .child(div().flex_1().text_sm().text_color(text_color).child(label))
                         .child(div().text_xs().text_color(muted).child(keybinding)),

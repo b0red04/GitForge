@@ -25,6 +25,7 @@ actions!(
         ViewFileAtCommit,
         BackToDiff,
         ShowStatusPanel,
+        ShowHistory,
         RefreshRepository,
         SoftReset,
         CreateBranch,
@@ -43,8 +44,17 @@ actions!(
         OpenInEditor,
         OpenInTerminal,
         OpenInFileManager,
+        OpenInBrowser,
         Preferences,
         QuitApp,
+        CloneRepo,
+        CloneFromGithub,
+        CloneFromGitlab,
+        AddRemote,
+        CreateWorktree,
+        OpenSshKey,
+        ManageAccounts,
+        OpenAiSettings,
     ]
 );
 
@@ -407,6 +417,7 @@ impl Render for GitForgeApp {
             .on_action(cx.listener(Self::handle_select_next))
             .on_action(cx.listener(Self::back_to_diff))
             .on_action(cx.listener(Self::handle_show_status))
+            .on_action(cx.listener(Self::handle_show_history))
             .on_action(cx.listener(Self::handle_refresh))
             .on_action(cx.listener(Self::handle_soft_reset))
             .on_action(cx.listener(Self::handle_create_branch))
@@ -425,8 +436,18 @@ impl Render for GitForgeApp {
             .on_action(cx.listener(Self::handle_open_in_editor))
             .on_action(cx.listener(Self::handle_open_in_terminal))
             .on_action(cx.listener(Self::handle_open_in_file_manager))
+            .on_action(cx.listener(Self::handle_open_in_browser))
             .on_action(cx.listener(Self::handle_preferences))
             .on_action(cx.listener(Self::handle_quit))
+            .on_action(cx.listener(Self::handle_clone))
+            .on_action(cx.listener(Self::handle_clone_github))
+            .on_action(cx.listener(Self::handle_clone_gitlab))
+            .on_action(cx.listener(Self::handle_add_remote))
+            .on_action(cx.listener(Self::handle_create_worktree))
+            .on_action(cx.listener(Self::handle_open_ssh_key))
+            .on_action(cx.listener(Self::handle_manage_accounts))
+            .on_action(cx.listener(Self::handle_open_ai_settings))
+            .on_action(cx.listener(Self::handle_view_file))
             .child(super::window_chrome::render_window_chrome(
                 inner,
                 &self.colors,

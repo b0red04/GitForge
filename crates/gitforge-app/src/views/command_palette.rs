@@ -1,7 +1,7 @@
 use gitforge_ui::{AppColors, rgba_to_hsla};
 use gpui::*;
 
-use super::commands::{CommandEntry, command_palette_entries};
+use super::commands::{CommandAction, CommandEntry, command_palette_entries};
 
 pub struct CommandPalette {
     query: String,
@@ -46,9 +46,9 @@ impl CommandPalette {
         self.visible
     }
 
-    pub fn selected_action(&self) -> Option<&str> {
+    pub fn selected_action(&self) -> Option<CommandAction> {
         let idx = self.filtered.get(self.selected)?;
-        Some(&self.entries[*idx].action)
+        Some(self.entries[*idx].action)
     }
 
     pub fn on_input(&mut self, text: &str, cx: &mut Context<super::app::GitForgeApp>) {
@@ -171,10 +171,10 @@ impl CommandPalette {
                     .bg(item_bg)
                     .cursor_pointer()
                     .hover(move |s| s.bg(selection_bg))
-                    .on_click(move |_ev, _window, cx| {
+                    .on_click(move |_ev, window, cx| {
                         if let Some(e) = ent_item.upgrade() {
                             e.update(cx, |app, cx| {
-                                app.execute_command_palette_action(action, cx);
+                                app.execute_command_palette_action(action, window, cx);
                             });
                         }
                     })
@@ -232,7 +232,7 @@ impl CommandPalette {
                         }])
                         .on_click(|_ev, _window, _cx| {})
                         .track_focus(&focus_handle)
-                        .on_key_down(move |ev: &KeyDownEvent, _window, cx| {
+                        .on_key_down(move |ev: &KeyDownEvent, window, cx| {
                             if let Some(e) = ent_key.upgrade() {
                                 let key = &ev.keystroke.key;
                                 let mods = &ev.keystroke.modifiers;
@@ -250,7 +250,7 @@ impl CommandPalette {
                                     });
                                 } else if *key == "enter" {
                                     e.update(cx, |app, cx| {
-                                        app.execute_command_palette_selection(cx);
+                                        app.execute_command_palette_selection(window, cx);
                                     });
                                 } else if *key == "backspace" {
                                     e.update(cx, |app, cx| {

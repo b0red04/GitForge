@@ -1,3 +1,15 @@
+use gpui::Action;
+
+use crate::views::app::{
+    OpenRepository, SelectPrevCommit, SelectNextCommit, BackToDiff,
+    ShowStatusPanel, ShowHistory, RefreshRepository, SoftReset, CreateBranch, StashPush, StashPop, FetchAll,
+    PushCurrent, PullCurrent, ToggleTheme, ShowCommandPalette, NewTab, CloseTab,
+    ReopenClosedTab, InitRepo, OpenRepoManagement, OpenInEditor, OpenInTerminal,
+    OpenInFileManager, OpenInBrowser, Preferences, QuitApp, CloneRepo, CloneFromGithub,
+    CloneFromGitlab, AddRemote, CreateWorktree, OpenSshKey, ManageAccounts, OpenAiSettings,
+    ViewFileAtCommit,
+};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TitlebarMenu {
     File,
@@ -42,10 +54,93 @@ impl TitlebarMenu {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CommandAction {
+    NewTab,
+    CloseTab,
+    ReopenClosedTab,
+    Clone,
+    InitRepo,
+    OpenRepository,
+    RepoManagement,
+    CloneGithub,
+    CloneGitlab,
+    AddRemote,
+    OpenEditor,
+    OpenTerminal,
+    OpenFileManager,
+    OpenBrowser,
+    Worktree,
+    Preferences,
+    Accounts,
+    Quit,
+    Refresh,
+    CreateBranch,
+    StashPush,
+    StashPop,
+    SoftReset,
+    AiSettings,
+    SshKey,
+    SelectPrev,
+    SelectNext,
+    ViewFile,
+    BackToDiff,
+    ShowHistory,
+    ShowStatus,
+    CommandPalette,
+    ToggleTheme,
+    FetchAll,
+    Pull,
+    Push,
+}
+
+impl CommandAction {
+    pub fn boxed_action(self) -> Box<dyn Action> {
+        match self {
+            Self::NewTab => Box::new(NewTab),
+            Self::CloseTab => Box::new(CloseTab),
+            Self::ReopenClosedTab => Box::new(ReopenClosedTab),
+            Self::Clone => Box::new(CloneRepo),
+            Self::InitRepo => Box::new(InitRepo),
+            Self::OpenRepository => Box::new(OpenRepository),
+            Self::RepoManagement => Box::new(OpenRepoManagement),
+            Self::CloneGithub => Box::new(CloneFromGithub),
+            Self::CloneGitlab => Box::new(CloneFromGitlab),
+            Self::AddRemote => Box::new(AddRemote),
+            Self::OpenEditor => Box::new(OpenInEditor),
+            Self::OpenTerminal => Box::new(OpenInTerminal),
+            Self::OpenFileManager => Box::new(OpenInFileManager),
+            Self::OpenBrowser => Box::new(OpenInBrowser),
+            Self::Worktree => Box::new(CreateWorktree),
+            Self::Preferences => Box::new(Preferences),
+            Self::Accounts => Box::new(ManageAccounts),
+            Self::Quit => Box::new(QuitApp),
+            Self::Refresh => Box::new(RefreshRepository),
+            Self::CreateBranch => Box::new(CreateBranch),
+            Self::StashPush => Box::new(StashPush),
+            Self::StashPop => Box::new(StashPop),
+            Self::SoftReset => Box::new(SoftReset),
+            Self::AiSettings => Box::new(OpenAiSettings),
+            Self::SshKey => Box::new(OpenSshKey),
+            Self::SelectPrev => Box::new(SelectPrevCommit),
+            Self::SelectNext => Box::new(SelectNextCommit),
+            Self::ViewFile => Box::new(ViewFileAtCommit),
+            Self::BackToDiff => Box::new(BackToDiff),
+            Self::ShowHistory => Box::new(ShowHistory),
+            Self::ShowStatus => Box::new(ShowStatusPanel),
+            Self::CommandPalette => Box::new(ShowCommandPalette),
+            Self::ToggleTheme => Box::new(ToggleTheme),
+            Self::FetchAll => Box::new(FetchAll),
+            Self::Pull => Box::new(PullCurrent),
+            Self::Push => Box::new(PushCurrent),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct CommandEntry {
     pub label: &'static str,
-    pub action: &'static str,
+    pub action: CommandAction,
     pub keybinding: Option<&'static str>,
 }
 
@@ -58,96 +153,96 @@ pub enum MenuEntry {
 const FILE_MENU: &[MenuEntry] = &[
     MenuEntry::Item(CommandEntry {
         label: "New Tab",
-        action: "new_tab",
+        action: CommandAction::NewTab,
         keybinding: Some("Ctrl+T"),
     }),
     MenuEntry::Item(CommandEntry {
         label: "Close Tab",
-        action: "close_tab",
+        action: CommandAction::CloseTab,
         keybinding: Some("Ctrl+W"),
     }),
     MenuEntry::Item(CommandEntry {
         label: "Reopen Closed Tab",
-        action: "reopen_closed_tab",
+        action: CommandAction::ReopenClosedTab,
         keybinding: None,
     }),
     MenuEntry::Separator,
     MenuEntry::Item(CommandEntry {
         label: "Clone Repo...",
-        action: "clone",
+        action: CommandAction::Clone,
         keybinding: None,
     }),
     MenuEntry::Item(CommandEntry {
         label: "Init Repo...",
-        action: "init_repo",
+        action: CommandAction::InitRepo,
         keybinding: Some("Ctrl+I"),
     }),
     MenuEntry::Item(CommandEntry {
         label: "Open Repo...",
-        action: "open_repository",
+        action: CommandAction::OpenRepository,
         keybinding: Some("Ctrl+O"),
     }),
     MenuEntry::Item(CommandEntry {
         label: "Open Repo Management",
-        action: "repo_management",
+        action: CommandAction::RepoManagement,
         keybinding: Some("Alt+Ctrl+O"),
     }),
     MenuEntry::Item(CommandEntry {
         label: "Clone from GitHub",
-        action: "clone_github",
+        action: CommandAction::CloneGithub,
         keybinding: None,
     }),
     MenuEntry::Item(CommandEntry {
         label: "Clone from GitLab",
-        action: "clone_gitlab",
+        action: CommandAction::CloneGitlab,
         keybinding: None,
     }),
     MenuEntry::Item(CommandEntry {
         label: "Add Remote",
-        action: "add_remote",
+        action: CommandAction::AddRemote,
         keybinding: None,
     }),
     MenuEntry::Separator,
     MenuEntry::Item(CommandEntry {
         label: "Open Repo in External Editor",
-        action: "open_editor",
+        action: CommandAction::OpenEditor,
         keybinding: Some("Ctrl+Shift+E"),
     }),
     MenuEntry::Item(CommandEntry {
         label: "Open External Terminal",
-        action: "open_terminal",
+        action: CommandAction::OpenTerminal,
         keybinding: Some("Alt+T"),
     }),
     MenuEntry::Item(CommandEntry {
         label: "Open in File Manager",
-        action: "open_file_manager",
+        action: CommandAction::OpenFileManager,
         keybinding: Some("Alt+O"),
     }),
     MenuEntry::Item(CommandEntry {
         label: "Open in Browser",
-        action: "open_browser",
+        action: CommandAction::OpenBrowser,
         keybinding: None,
     }),
     MenuEntry::Item(CommandEntry {
         label: "Create Worktree",
-        action: "worktree",
+        action: CommandAction::Worktree,
         keybinding: None,
     }),
     MenuEntry::Separator,
     MenuEntry::Item(CommandEntry {
         label: "Preferences...",
-        action: "preferences",
+        action: CommandAction::Preferences,
         keybinding: Some("Ctrl+,"),
     }),
     MenuEntry::Separator,
     MenuEntry::Item(CommandEntry {
         label: "Sign into a Different Account",
-        action: "accounts",
+        action: CommandAction::Accounts,
         keybinding: None,
     }),
     MenuEntry::Item(CommandEntry {
         label: "Quit GitForge",
-        action: "quit",
+        action: CommandAction::Quit,
         keybinding: Some("Ctrl+Q"),
     }),
 ];
@@ -155,42 +250,42 @@ const FILE_MENU: &[MenuEntry] = &[
 const EDIT_MENU: &[CommandEntry] = &[
     CommandEntry {
         label: "Refresh Repository",
-        action: "refresh",
+        action: CommandAction::Refresh,
         keybinding: None,
     },
     CommandEntry {
         label: "Create Branch",
-        action: "create_branch",
+        action: CommandAction::CreateBranch,
         keybinding: Some("Ctrl+N"),
     },
     CommandEntry {
         label: "Stash Changes",
-        action: "stash_push",
+        action: CommandAction::StashPush,
         keybinding: Some("Ctrl+Shift+S"),
     },
     CommandEntry {
         label: "Pop Stash",
-        action: "stash_pop",
+        action: CommandAction::StashPop,
         keybinding: Some("Ctrl+Shift+O"),
     },
     CommandEntry {
         label: "Undo Last Commit",
-        action: "soft_reset",
+        action: CommandAction::SoftReset,
         keybinding: None,
     },
     CommandEntry {
         label: "AI Settings",
-        action: "ai_settings",
+        action: CommandAction::AiSettings,
         keybinding: None,
     },
     CommandEntry {
         label: "Manage Accounts",
-        action: "accounts",
+        action: CommandAction::Accounts,
         keybinding: None,
     },
     CommandEntry {
         label: "Generate SSH Key",
-        action: "ssh_key",
+        action: CommandAction::SshKey,
         keybinding: None,
     },
 ];
@@ -198,22 +293,22 @@ const EDIT_MENU: &[CommandEntry] = &[
 const SELECTION_MENU: &[CommandEntry] = &[
     CommandEntry {
         label: "Select Previous Commit",
-        action: "select_prev",
+        action: CommandAction::SelectPrev,
         keybinding: Some("Up"),
     },
     CommandEntry {
         label: "Select Next Commit",
-        action: "select_next",
+        action: CommandAction::SelectNext,
         keybinding: Some("Down"),
     },
     CommandEntry {
         label: "View File at Commit",
-        action: "view_file",
+        action: CommandAction::ViewFile,
         keybinding: Some("Enter"),
     },
     CommandEntry {
         label: "Back to Diff",
-        action: "back_to_diff",
+        action: CommandAction::BackToDiff,
         keybinding: Some("Escape"),
     },
 ];
@@ -221,22 +316,22 @@ const SELECTION_MENU: &[CommandEntry] = &[
 const VIEW_MENU: &[CommandEntry] = &[
     CommandEntry {
         label: "Show History",
-        action: "show_history",
+        action: CommandAction::ShowHistory,
         keybinding: None,
     },
     CommandEntry {
         label: "Show Status Panel",
-        action: "show_status",
+        action: CommandAction::ShowStatus,
         keybinding: None,
     },
     CommandEntry {
         label: "Cycle Theme",
-        action: "toggle_theme",
+        action: CommandAction::ToggleTheme,
         keybinding: Some("Ctrl+Shift+T"),
     },
     CommandEntry {
         label: "Command Palette",
-        action: "command_palette",
+        action: CommandAction::CommandPalette,
         keybinding: Some("Ctrl+Shift+P"),
     },
 ];

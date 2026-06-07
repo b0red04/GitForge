@@ -2,13 +2,15 @@ use gpui::*;
 
 use crate::views::app::{
     GitForgeApp, AppDialog, MainViewMode,
-    OpenRepository, CloseDialog, SelectPrevCommit, SelectNextCommit, BackToDiff, ShowStatusPanel, RefreshRepository,
-    SoftReset, CreateBranch, StashPush, StashPop, FetchAll, PushCurrent,
-    PullCurrent, ToggleTheme, ShowCommandPalette, NewTab, CloseTab,
-    ReopenClosedTab, InitRepo, OpenRepoManagement, OpenInEditor,
-    OpenInTerminal, OpenInFileManager, Preferences, QuitApp,
+    OpenRepository, CloseDialog, SelectPrevCommit, SelectNextCommit, BackToDiff, ShowStatusPanel,
+    ShowHistory, RefreshRepository, SoftReset, CreateBranch, StashPush, StashPop, FetchAll,
+    PushCurrent, PullCurrent, ToggleTheme, ShowCommandPalette, NewTab, CloseTab,
+    ReopenClosedTab, InitRepo, OpenRepoManagement, OpenInEditor, OpenInTerminal,
+    OpenInFileManager, OpenInBrowser, Preferences, QuitApp, CloneRepo, CloneFromGithub,
+    CloneFromGitlab, AddRemote, CreateWorktree, OpenSshKey, ManageAccounts, OpenAiSettings,
+    ViewFileAtCommit,
 };
-use crate::views::commands::TitlebarMenu;
+use crate::views::commands::{CommandAction, TitlebarMenu};
 use crate::views::settings_window::SettingsSection;
 
 impl GitForgeApp {
@@ -53,217 +55,27 @@ impl GitForgeApp {
             cx.notify();
         }
     }
-    pub(crate) fn handle_toggle_theme(
-        &mut self,
-        _action: &ToggleTheme,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.cycle_theme(cx);
-    }
 
-    pub(crate) fn handle_show_command_palette(
+    pub fn execute_command_palette_action(
         &mut self,
-        _action: &ShowCommandPalette,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.hide_titlebar_menus(cx);
-        self.command_palette.show(cx);
-    }
-    pub fn execute_command_palette_action(&mut self, action: &str, cx: &mut Context<Self>) {
-        self.command_palette.hide(cx);
-        self.execute_app_command(action, cx);
-    }
-
-    pub fn execute_app_command(&mut self, action: &str, cx: &mut Context<Self>) {
-        self.hide_titlebar_menus(cx);
-        match action {
-            "open_repository" => {
-                self.loading = true;
-                cx.notify();
-                self.spawn_open_dialog(cx);
-            }
-            "refresh" => self.refresh_repository(cx),
-            "close_dialog" => self.cancel_dialog(cx),
-            "select_prev" => {
-                if self.graph_panel.select_prev() {
-                    self.on_graph_selection_changed(cx);
-                }
-            }
-            "select_next" => {
-                if self.graph_panel.select_next() {
-                    self.on_graph_selection_changed(cx);
-                }
-            }
-            "view_file" => {
-                if let Some(path) = self.diff_panel.selected_file_path() {
-                    self.view_file_at_commit(path, cx);
-                }
-            }
-            "back_to_diff" => self.back_to_diff_mode(cx),
-            "show_history" => {
-                self.view_mode = MainViewMode::CommitHistory;
-                cx.notify();
-            }
-            "command_palette" => self.command_palette.show(cx),
-            "create_branch" => self.open_create_branch_dialog(None, cx),
-            "stash_push" => self.open_stash_push_dialog(cx),
-            "stash_pop" => self.stash_pop(cx),
-            "fetch_all" => self.fetch_all(cx),
-            "pull" => self.open_pull_dialog(cx),
-            "push" => self.open_push_dialog(cx),
-            "toggle_theme" => self.cycle_theme(cx),
-            "clone" => self.open_clone_dialog(cx),
-            "clone_github" => self.open_clone_from_hosting_dialog("github".to_string(), cx),
-            "clone_gitlab" => self.open_clone_from_hosting_dialog("gitlab".to_string(), cx),
-            "add_remote" => self.open_add_remote_dialog(cx),
-            "ssh_key" => self.open_ssh_generate_key_dialog(cx),
-            "accounts" => self.open_settings_window(Some(SettingsSection::Accounts), cx),
-            "ai_settings" => self.open_settings_window(Some(SettingsSection::Ai), cx),
-            "open_browser" => self.open_repo_in_browser(cx),
-            "worktree" => self.open_create_worktree_dialog(cx),
-            "show_status" => {
-                self.view_mode = MainViewMode::Status;
-                self.load_status(cx);
-            }
-            "soft_reset" => self.soft_reset(cx),
-            "open_editor" => {
-                if let Some(path) = self.active_repo_state().map(|r| r.path.clone()) {
-                    self.open_in_editor(path, cx);
-                }
-            }
-            "open_terminal" => {
-                if let Some(path) = self.active_repo_state().map(|r| r.path.clone()) {
-                    self.open_in_terminal(path, cx);
-                }
-            }
-            "new_tab" => {
-                self.loading = true;
-                cx.notify();
-                self.spawn_open_dialog(cx);
-            }
-            "close_tab" => {
-                if let Some(tab_id) = self.active_repo_tab_id {
-                    self.close_repo_tab(tab_id, cx);
-                }
-            }
-            "reopen_closed_tab" => self.reopen_closed_tab(cx),
-            "init_repo" => self.spawn_init_repo_picker(cx),
-            "repo_management" => {
-                self.open_settings_window(Some(SettingsSection::Repositories), cx)
-            }
-            "open_file_manager" => {
-                if let Some(path) = self.active_repo_state().map(|r| r.path.clone()) {
-                    self.open_in_file_manager(path, cx);
-                }
-            }
-            "preferences" => self.open_settings_window(None, cx),
-            "quit" => {
-                self.quit_requested = true;
-                cx.notify();
-            }
-            _ => {}
-        }
-    }
-    pub(crate) fn handle_quit(
-        &mut self,
-        _action: &QuitApp,
+        action: CommandAction,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if let Some(handle) = self.settings_window.take() {
-            let _ = handle.update(cx, |_, w, _| w.remove_window());
-        }
-        window.remove_window();
+        self.command_palette.hide(cx);
+        window.dispatch_action(action.boxed_action(), cx);
     }
 
-    pub(crate) fn handle_new_tab(
+    pub fn execute_command_palette_selection(
         &mut self,
-        _action: &NewTab,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.execute_app_command("new_tab", cx);
-    }
-
-    pub(crate) fn handle_close_tab(
-        &mut self,
-        _action: &CloseTab,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.execute_app_command("close_tab", cx);
-    }
-
-    pub(crate) fn handle_reopen_closed_tab(
-        &mut self,
-        _action: &ReopenClosedTab,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.execute_app_command("reopen_closed_tab", cx);
-    }
-
-    pub(crate) fn handle_init_repo(
-        &mut self,
-        _action: &InitRepo,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.spawn_init_repo_picker(cx);
-    }
-
-    pub(crate) fn handle_open_repo_management(
-        &mut self,
-        _action: &OpenRepoManagement,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.open_settings_window(Some(SettingsSection::Repositories), cx);
-    }
-
-    pub(crate) fn handle_open_in_editor(
-        &mut self,
-        _action: &OpenInEditor,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if let Some(path) = self.active_repo_state().map(|r| r.path.clone()) {
-            self.open_in_editor(path, cx);
+        if let Some(action) = self.command_palette.selected_action() {
+            self.execute_command_palette_action(action, window, cx);
         }
     }
 
-    pub(crate) fn handle_open_in_terminal(
-        &mut self,
-        _action: &OpenInTerminal,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if let Some(path) = self.active_repo_state().map(|r| r.path.clone()) {
-            self.open_in_terminal(path, cx);
-        }
-    }
-
-    pub(crate) fn handle_open_in_file_manager(
-        &mut self,
-        _action: &OpenInFileManager,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if let Some(path) = self.active_repo_state().map(|r| r.path.clone()) {
-            self.open_in_file_manager(path, cx);
-        }
-    }
-
-    pub(crate) fn handle_preferences(
-        &mut self,
-        _action: &Preferences,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.open_settings_window(None, cx);
-    }
     pub(crate) fn spawn_open_dialog(&mut self, cx: &mut Context<Self>) {
         cx.spawn(async move |this, cx| {
             let path =
@@ -294,11 +106,6 @@ impl GitForgeApp {
         .detach();
     }
 
-    pub fn execute_command_palette_selection(&mut self, cx: &mut Context<Self>) {
-        if let Some(action) = self.command_palette.selected_action().map(String::from) {
-            self.execute_command_palette_action(&action, cx);
-        }
-    }
     pub(crate) fn handle_open_repository(
         &mut self,
         _action: &OpenRepository,
@@ -385,6 +192,17 @@ impl GitForgeApp {
         }
     }
 
+    pub(crate) fn handle_view_file(
+        &mut self,
+        _action: &ViewFileAtCommit,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(path) = self.diff_panel.selected_file_path() {
+            self.view_file_at_commit(path, cx);
+        }
+    }
+
     pub(crate) fn handle_show_status(
         &mut self,
         _action: &ShowStatusPanel,
@@ -393,6 +211,16 @@ impl GitForgeApp {
     ) {
         self.view_mode = MainViewMode::Status;
         self.load_status(cx);
+    }
+
+    pub(crate) fn handle_show_history(
+        &mut self,
+        _action: &ShowHistory,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.view_mode = MainViewMode::CommitHistory;
+        cx.notify();
     }
 
     pub(crate) fn handle_refresh(
@@ -477,5 +305,208 @@ impl GitForgeApp {
     ) {
         self.diff_panel.set_diff_mode();
         cx.notify();
+    }
+
+    pub(crate) fn handle_toggle_theme(
+        &mut self,
+        _action: &ToggleTheme,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.cycle_theme(cx);
+    }
+
+    pub(crate) fn handle_show_command_palette(
+        &mut self,
+        _action: &ShowCommandPalette,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.hide_titlebar_menus(cx);
+        self.command_palette.show(cx);
+    }
+
+    pub(crate) fn handle_new_tab(
+        &mut self,
+        _action: &NewTab,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.loading = true;
+        cx.notify();
+        self.spawn_open_dialog(cx);
+    }
+
+    pub(crate) fn handle_close_tab(
+        &mut self,
+        _action: &CloseTab,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(tab_id) = self.active_repo_tab_id {
+            self.close_repo_tab(tab_id, cx);
+        }
+    }
+
+    pub(crate) fn handle_reopen_closed_tab(
+        &mut self,
+        _action: &ReopenClosedTab,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.reopen_closed_tab(cx);
+    }
+
+    pub(crate) fn handle_init_repo(
+        &mut self,
+        _action: &InitRepo,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.spawn_init_repo_picker(cx);
+    }
+
+    pub(crate) fn handle_open_repo_management(
+        &mut self,
+        _action: &OpenRepoManagement,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_settings_window(Some(SettingsSection::Repositories), cx);
+    }
+
+    pub(crate) fn handle_open_in_editor(
+        &mut self,
+        _action: &OpenInEditor,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(path) = self.active_repo_state().map(|r| r.path.clone()) {
+            self.open_in_editor(path, cx);
+        }
+    }
+
+    pub(crate) fn handle_open_in_terminal(
+        &mut self,
+        _action: &OpenInTerminal,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(path) = self.active_repo_state().map(|r| r.path.clone()) {
+            self.open_in_terminal(path, cx);
+        }
+    }
+
+    pub(crate) fn handle_open_in_file_manager(
+        &mut self,
+        _action: &OpenInFileManager,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(path) = self.active_repo_state().map(|r| r.path.clone()) {
+            self.open_in_file_manager(path, cx);
+        }
+    }
+
+    pub(crate) fn handle_open_in_browser(
+        &mut self,
+        _action: &OpenInBrowser,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_repo_in_browser(cx);
+    }
+
+    pub(crate) fn handle_preferences(
+        &mut self,
+        _action: &Preferences,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_settings_window(None, cx);
+    }
+
+    pub(crate) fn handle_quit(
+        &mut self,
+        _action: &QuitApp,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(handle) = self.settings_window.take() {
+            let _ = handle.update(cx, |_, w, _| w.remove_window());
+        }
+        window.remove_window();
+    }
+
+    pub(crate) fn handle_clone(
+        &mut self,
+        _action: &CloneRepo,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_clone_dialog(cx);
+    }
+
+    pub(crate) fn handle_clone_github(
+        &mut self,
+        _action: &CloneFromGithub,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_clone_from_hosting_dialog("github".to_string(), cx);
+    }
+
+    pub(crate) fn handle_clone_gitlab(
+        &mut self,
+        _action: &CloneFromGitlab,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_clone_from_hosting_dialog("gitlab".to_string(), cx);
+    }
+
+    pub(crate) fn handle_add_remote(
+        &mut self,
+        _action: &AddRemote,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_add_remote_dialog(cx);
+    }
+
+    pub(crate) fn handle_create_worktree(
+        &mut self,
+        _action: &CreateWorktree,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_create_worktree_dialog(cx);
+    }
+
+    pub(crate) fn handle_open_ssh_key(
+        &mut self,
+        _action: &OpenSshKey,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_ssh_generate_key_dialog(cx);
+    }
+
+    pub(crate) fn handle_manage_accounts(
+        &mut self,
+        _action: &ManageAccounts,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_settings_window(Some(SettingsSection::Accounts), cx);
+    }
+
+    pub(crate) fn handle_open_ai_settings(
+        &mut self,
+        _action: &OpenAiSettings,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_settings_window(Some(SettingsSection::Ai), cx);
     }
 }
