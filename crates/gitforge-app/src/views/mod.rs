@@ -1,5 +1,6 @@
 pub mod app;
 pub mod command_palette;
+pub mod commit_editor;
 pub mod ops;
 pub mod commands;
 pub mod diff_panel;

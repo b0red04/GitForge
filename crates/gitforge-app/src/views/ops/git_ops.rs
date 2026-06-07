@@ -290,16 +290,10 @@ impl GitForgeApp {
     }
 
     pub fn edit_commit_message(&mut self, typed_char: Option<&str>, cx: &mut Context<Self>) {
-        let msg = self.repo_session.status_panel.commit_message().to_string();
-        let mut new_msg = msg;
         match typed_char {
-            Some(ch) => new_msg.push_str(ch),
-            None => {
-                new_msg.pop();
-            }
+            Some(ch) => self.repo_session.status_panel.commit_editor.type_char(ch),
+            None => self.repo_session.status_panel.commit_editor.backspace(),
         }
-        self.repo_session.status_panel.commit_message_mut().clear();
-        self.repo_session.status_panel.commit_message_mut().push_str(&new_msg);
         cx.notify();
     }
 

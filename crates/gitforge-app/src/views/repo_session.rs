@@ -248,8 +248,7 @@ impl RepoSession {
         let diff_code_content = self.diff_panel.code_view_content().map(String::from);
         let status_selection = self.status_panel.status_selection().cloned();
         let status_view_mode = self.status_panel.view_mode();
-        let commit_message = self.status_panel.commit_message().to_string();
-        let ai_alternatives = self.status_panel.ai_alternatives().to_vec();
+        let (commit_message, ai_alternatives) = self.status_panel.commit_editor.snapshot_data();
         let view_mode = self.view_mode.clone();
         let sidebar_branches_expanded = self.sidebar_state.branches_expanded;
         let sidebar_remotes_expanded = self.sidebar_state.remotes_expanded;
