@@ -32,7 +32,6 @@ pub struct StatusPanel {
     diff_for_selected: Option<FileDiff>,
     scroll_handle: UniformListScrollHandle,
     view_mode: StatusViewMode,
-    pub commit_editor: CommitEditor,
     diff_selection: DiffLineSelection,
 }
 
@@ -48,14 +47,13 @@ pub enum StatusViewMode {
 
 #[allow(dead_code)]
 impl StatusPanel {
-    pub fn new(cx: &mut App) -> Self {
+    pub fn new() -> Self {
         Self {
             status: None,
             selection: None,
             diff_for_selected: None,
             scroll_handle: UniformListScrollHandle::default(),
             view_mode: StatusViewMode::Status,
-            commit_editor: CommitEditor::new(cx),
             diff_selection: DiffLineSelection::new(),
         }
     }
@@ -117,24 +115,17 @@ impl StatusPanel {
         }
     }
 
-    pub fn take_commit_message(&mut self) -> String {
-        let msg = self.commit_editor.take_message();
-        self.view_mode = if self.view_mode == StatusViewMode::GraphStaging {
-            StatusViewMode::GraphStaging
-        } else {
-            StatusViewMode::Status
-        };
-        msg
+    pub fn reset_after_commit(&mut self) {
+        if self.view_mode != StatusViewMode::GraphStaging {
+            self.view_mode = StatusViewMode::Status;
+        }
     }
 
     pub fn restore_from_snapshot(
         &mut self,
-        commit_message: String,
-        ai_alternatives: Vec<String>,
         selection: Option<StatusSelection>,
         view_mode: StatusViewMode,
     ) {
-        self.commit_editor.restore_from_snapshot(commit_message, ai_alternatives);
         self.selection = selection;
         self.view_mode = view_mode;
     }
@@ -173,6 +164,7 @@ impl StatusPanel {
         entity: WeakEntity<super::app::GitForgeApp>,
         window: &mut Window,
         ai_generating: bool,
+        editor: &CommitEditor,
     ) -> Div {
         let surface = rgba_to_hsla(colors.surface);
         let border = rgba_to_hsla(colors.border);
@@ -203,7 +195,7 @@ impl StatusPanel {
                     StatusViewMode::Status | StatusViewMode::Commit | StatusViewMode::GraphStaging => {
                         let file_list = self.render_file_list(status, colors, entity.clone());
                         if self.view_mode == StatusViewMode::Commit {
-                            let editor = self.commit_editor.render(
+                            let editor_el = editor.render(
                                 colors,
                                 entity.clone(),
                                 window,
@@ -216,7 +208,7 @@ impl StatusPanel {
                                     .flex()
                                     .flex_row()
                                     .child(file_list)
-                                    .child(editor),
+                                    .child(editor_el),
                             );
                             return p;
                         }
@@ -267,6 +259,7 @@ impl StatusPanel {
         entity: WeakEntity<super::app::GitForgeApp>,
         window: &mut Window,
         ai_generating: bool,
+        editor: &CommitEditor,
     ) -> Div {
         let surface = rgba_to_hsla(colors.surface);
         let border = rgba_to_hsla(colors.border);
@@ -329,8 +322,8 @@ impl StatusPanel {
             false,
         );
 
-        let commit_editor =
-            self.commit_editor.render(colors, entity.clone(), window, ai_generating, true);
+        let editor_el =
+            editor.render(colors, entity.clone(), window, ai_generating, true);
 
         let can_commit = !status.staged.is_empty();
         let commit_label = if can_commit {
@@ -396,7 +389,7 @@ impl StatusPanel {
                     ),
             )
             .child(file_list)
-            .child(commit_editor.flex_shrink_0())
+            .child(editor_el.flex_shrink_0())
             .child(primary_action)
     }
 

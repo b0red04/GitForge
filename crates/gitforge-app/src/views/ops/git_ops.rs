@@ -291,14 +291,14 @@ impl GitForgeApp {
 
     pub fn edit_commit_message(&mut self, typed_char: Option<&str>, cx: &mut Context<Self>) {
         match typed_char {
-            Some(ch) => self.repo_session.status_panel.commit_editor.type_char(ch),
-            None => self.repo_session.status_panel.commit_editor.backspace(),
+            Some(ch) => self.repo_session.commit_editor.type_char(ch),
+            None => self.repo_session.commit_editor.backspace(),
         }
         cx.notify();
     }
 
     pub fn perform_commit(&mut self, amend: bool, cx: &mut Context<Self>) {
-        let message = self.repo_session.status_panel.take_commit_message();
+        let message = self.repo_session.take_commit_message();
         if message.trim().is_empty() {
             return;
         }

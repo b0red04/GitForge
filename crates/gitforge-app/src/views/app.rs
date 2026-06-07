@@ -252,6 +252,7 @@ impl Render for GitForgeApp {
                         entity.clone(),
                         window,
                         self.ai_generating,
+                        &self.repo_session.commit_editor,
                     )
                 } else {
                     self.repo_session.diff_panel.render(
@@ -265,7 +266,7 @@ impl Render for GitForgeApp {
             }
             MainViewMode::Status => {
                 self.repo_session.status_panel
-                    .render(&self.colors, entity.clone(), window, self.ai_generating)
+                    .render(&self.colors, entity.clone(), window, self.ai_generating, &self.repo_session.commit_editor)
             }
         };
 

@@ -7,6 +7,7 @@ use gitforge_graph::Graph;
 use parking_lot::Mutex;
 
 use super::app::MainViewMode;
+use super::commit_editor::CommitEditor;
 use super::diff_panel::{CommitDiffState, DiffPanel, DiffViewMode};
 use super::graph_panel::{GraphPanel, GraphSelection};
 use super::sidebar::SidebarState;
@@ -52,6 +53,7 @@ pub(crate) struct RepoSession {
     pub(crate) graph_panel: GraphPanel,
     pub(crate) diff_panel: DiffPanel,
     pub status_panel: StatusPanel,
+    pub commit_editor: CommitEditor,
     pub sidebar_state: SidebarState,
     pub view_mode: MainViewMode,
     pub remote_status: String,
@@ -68,7 +70,8 @@ impl RepoSession {
             next_repo_tab_id: 1,
             graph_panel: GraphPanel::new(),
             diff_panel: DiffPanel::new(),
-            status_panel: StatusPanel::new(cx),
+            status_panel: StatusPanel::new(),
+            commit_editor: CommitEditor::new(cx),
             sidebar_state: SidebarState::new(cx),
             view_mode: MainViewMode::CommitHistory,
             remote_status: String::new(),
@@ -225,6 +228,12 @@ impl RepoSession {
         }
     }
 
+    pub fn take_commit_message(&mut self) -> String {
+        let msg = self.commit_editor.take_message();
+        self.status_panel.reset_after_commit();
+        msg
+    }
+
     pub(crate) fn push_closed_tab(&mut self, path: PathBuf) {
         let normalized = Self::normalize_repo_path(&path);
         self.closed_repo_tabs.retain(|p| p != &normalized);
@@ -248,7 +257,7 @@ impl RepoSession {
         let diff_code_content = self.diff_panel.code_view_content().map(String::from);
         let status_selection = self.status_panel.status_selection().cloned();
         let status_view_mode = self.status_panel.view_mode();
-        let (commit_message, ai_alternatives) = self.status_panel.commit_editor.snapshot_data();
+        let (commit_message, ai_alternatives) = self.commit_editor.snapshot_data();
         let view_mode = self.view_mode.clone();
         let sidebar_branches_expanded = self.sidebar_state.branches_expanded;
         let sidebar_remotes_expanded = self.sidebar_state.remotes_expanded;
@@ -297,12 +306,10 @@ impl RepoSession {
         self.sidebar_state.worktrees_expanded = snap.sidebar_worktrees_expanded;
         self.sidebar_state.expanded_remotes = snap.sidebar_expanded_remotes;
 
-        self.status_panel.restore_from_snapshot(
-            snap.commit_message,
-            snap.ai_alternatives,
-            snap.status_selection,
-            snap.status_view_mode,
-        );
+        self.commit_editor
+            .restore_from_snapshot(snap.commit_message, snap.ai_alternatives);
+        self.status_panel
+            .restore_from_snapshot(snap.status_selection, snap.status_view_mode);
 
         self.diff_panel.restore_from_snapshot(
             snap.diff_state,

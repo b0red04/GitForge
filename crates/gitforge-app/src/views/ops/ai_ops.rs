@@ -105,9 +105,9 @@ impl GitForgeApp {
                         this.ai_generating = false;
                         if !messages.is_empty() {
                             if let Some(msg) = messages.get(default_idx) {
-                                this.repo_session.status_panel.commit_editor.set_message(msg);
+                                this.repo_session.commit_editor.set_message(msg);
                             }
-                            this.repo_session.status_panel.commit_editor.set_ai_alternatives(messages);
+                            this.repo_session.commit_editor.set_ai_alternatives(messages);
                         }
                         cx.notify();
                     })
@@ -128,7 +128,7 @@ impl GitForgeApp {
     }
 
     pub fn select_ai_alternative(&mut self, idx: usize, cx: &mut Context<Self>) {
-        self.repo_session.status_panel.commit_editor.accept_ai_suggestion(idx);
+        self.repo_session.commit_editor.accept_ai_suggestion(idx);
         cx.notify();
     }
 }
