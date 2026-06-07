@@ -4,10 +4,11 @@ pub fn truncate_diff(diff: &str, max_chars: usize) -> String {
     if max_chars == 0 || diff.len() <= max_chars {
         return diff.to_string();
     }
-    let omitted = diff.len() - max_chars;
+    let boundary = diff.floor_char_boundary(max_chars);
+    let omitted = diff.len() - boundary;
     format!(
         "{}\n\n[diff truncated — {omitted} chars omitted]\n",
-        &diff[..max_chars]
+        &diff[..boundary]
     )
 }
 
@@ -139,6 +140,14 @@ mod tests {
         let truncated = truncate_diff(&diff, 50);
         assert!(truncated.starts_with(&"a".repeat(50)));
         assert!(truncated.contains("50 chars omitted"));
+    }
+
+    #[test]
+    fn truncate_diff_multibyte_utf8() {
+        let diff = "修改内容：新增功能模块\n".repeat(20);
+        let truncated = truncate_diff(&diff, 30);
+        assert!(truncated.is_char_boundary(truncated.len()));
+        assert!(truncated.contains("diff truncated"));
     }
 
     #[test]
