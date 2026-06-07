@@ -6,8 +6,6 @@ use crate::reference::RefInfo;
 use crate::status::RepoStatus;
 use crate::worktree::WorktreeInfo;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use parking_lot::Mutex;
 
 #[derive(Clone)]
 pub struct RepoState {
@@ -20,28 +18,43 @@ pub struct RepoState {
     pub worktrees: Vec<WorktreeInfo>,
 }
 
+#[derive(Debug, Clone)]
+pub struct RepoLoadOptions {
+    pub commit_limit: usize,
+    pub log_options: CommitLogOptions,
+}
+
+impl Default for RepoLoadOptions {
+    fn default() -> Self {
+        Self {
+            commit_limit: 1000,
+            log_options: CommitLogOptions::default(),
+        }
+    }
+}
+
 impl RepoState {
     pub fn from_repository(repo: &Repository) -> GitResult<Self> {
-        Self::from_repository_with_options(repo, CommitLogOptions::default())
+        Self::from_repository_with_options(repo, RepoLoadOptions::default())
     }
 
-    pub fn from_repository_with_options(repo: &Repository, log_options: CommitLogOptions) -> GitResult<Self> {
-        tracing::info!("[DIAG] RepoState::from_repository starting for {:?}", repo.path());
+    pub fn from_repository_with_options(repo: &Repository, options: RepoLoadOptions) -> GitResult<Self> {
+        let start = std::time::Instant::now();
 
         let head_branch = repo.head_branch()?;
-        tracing::info!("[DIAG] head_branch: {:?}", head_branch);
-
         let head_commit = repo.head_commit()?.map(|c| c.short_id.clone());
-        tracing::info!("[DIAG] head_commit: {:?}", head_commit);
-
-        let commits = repo.commit_log_with_options(1000, log_options)?;
-        tracing::info!("[DIAG] commit_log returned {} commits", commits.len());
-
+        let commits = repo.commit_log_with_options(options.commit_limit, options.log_options)?;
         let references = repo.references()?;
-        tracing::info!("[DIAG] references returned {} refs", references.len());
-
         let status = repo.status()?;
         let worktrees = repo.worktree_list().unwrap_or_default();
+
+        let elapsed = start.elapsed();
+        tracing::info!(
+            "RepoState::from_repository: {} commits, {} refs in {:.1}ms",
+            commits.len(),
+            references.len(),
+            elapsed.as_secs_f64() * 1000.0,
+        );
 
         Ok(Self {
             path: repo.path().to_path_buf(),
@@ -55,32 +68,17 @@ impl RepoState {
     }
 
     pub fn discover(path: &Path) -> GitResult<Self> {
+        Self::discover_with_options(path, RepoLoadOptions::default())
+    }
+
+    pub fn discover_with_options(path: &Path, options: RepoLoadOptions) -> GitResult<Self> {
         let repo = Repository::discover(path)?;
-        Self::from_repository(&repo)
-    }
-}
-
-pub struct RepoLoader {
-    state: Arc<Mutex<Option<RepoState>>>,
-}
-
-impl RepoLoader {
-    pub fn new() -> Self {
-        Self {
-            state: Arc::new(Mutex::new(None)),
-        }
+        Self::from_repository_with_options(&repo, options)
     }
 
-    pub fn state(&self) -> Arc<Mutex<Option<RepoState>>> {
-        self.state.clone()
-    }
-
-    pub fn spawn_load(&self, path: PathBuf) -> tokio::task::JoinHandle<GitResult<()>> {
-        let state = self.state.clone();
-        tokio::task::spawn_blocking(move || {
-            let repo_state = RepoState::discover(&path)?;
-            *state.lock() = Some(repo_state);
-            Ok(())
-        })
+    pub fn discover_with_repo(path: &Path, options: RepoLoadOptions) -> GitResult<(Repository, Self)> {
+        let repo = Repository::discover(path)?;
+        let state = Self::from_repository_with_options(&repo, options)?;
+        Ok((repo, state))
     }
 }

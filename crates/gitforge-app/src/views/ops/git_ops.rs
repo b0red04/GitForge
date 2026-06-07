@@ -826,9 +826,7 @@ impl GitForgeApp {
             cx.notify();
             return;
         };
-        let log_options = gitforge_git::CommitLogOptions {
-            include_custom_refs: self.settings.show_checkpoint_refs,
-        };
+        let load_options = self.load_options();
 
         cx.spawn(async move |this, cx| {
             let result = tokio::task::spawn_blocking(move || {
@@ -838,7 +836,7 @@ impl GitForgeApp {
                         "No repository open".into(),
                     ));
                 };
-                RepoState::from_repository_with_options(repo, log_options)
+                RepoState::from_repository_with_options(repo, load_options)
             })
             .await;
 

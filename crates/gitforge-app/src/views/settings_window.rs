@@ -70,7 +70,7 @@ impl SettingsSection {
                 &["editor", "terminal", "diff", "merge", "tool"]
             }
             SettingsSection::Sidebar => &["branches", "remotes", "tags", "expand"],
-            SettingsSection::Graph => &["checkpoint", "refs", "graph"],
+            SettingsSection::Graph => &["checkpoint", "refs", "graph", "commit", "limit"],
             SettingsSection::Ai => {
                 &[
                     "provider",
@@ -109,6 +109,8 @@ pub struct SettingsDraft {
     pub sidebar_remotes_expanded: bool,
     pub sidebar_tags_expanded: bool,
     pub show_checkpoint_refs: bool,
+    pub commit_limit: usize,
+    pub commit_limit_text: String,
     pub ai_provider: String,
     pub ai_model: String,
     pub ai_conventional_commits: bool,
@@ -149,6 +151,8 @@ impl SettingsDraft {
             sidebar_remotes_expanded: settings.sidebar_remotes_expanded,
             sidebar_tags_expanded: settings.sidebar_tags_expanded,
             show_checkpoint_refs: settings.show_checkpoint_refs,
+            commit_limit: settings.commit_limit,
+            commit_limit_text: settings.commit_limit.to_string(),
             ai_provider: settings.ai.provider.clone(),
             ai_model: settings.ai.model.clone(),
             ai_conventional_commits: settings.ai.conventional_commits,
@@ -181,6 +185,9 @@ impl SettingsDraft {
         settings.sidebar_remotes_expanded = self.sidebar_remotes_expanded;
         settings.sidebar_tags_expanded = self.sidebar_tags_expanded;
         settings.show_checkpoint_refs = self.show_checkpoint_refs;
+        if let Ok(parsed) = self.commit_limit_text.parse::<usize>() {
+            settings.commit_limit = parsed.max(1);
+        }
         settings.ai.provider = self.ai_provider.clone();
         settings.ai.model = self.ai_model.clone();
         settings.ai.conventional_commits = self.ai_conventional_commits;
@@ -226,6 +233,19 @@ fn edit_ai_summary_max_chars_field(draft: &mut SettingsDraft, ch: Option<&str>) 
     }
     if let Ok(parsed) = draft.ai_summary_text.parse::<u32>() {
         draft.ai_summary_max_chars = parsed;
+    }
+}
+
+fn edit_commit_limit_field(draft: &mut SettingsDraft, ch: Option<&str>) {
+    if let Some(c) = ch {
+        if c.chars().all(|c| c.is_ascii_digit()) {
+            draft.commit_limit_text.push_str(c);
+        }
+    } else {
+        draft.commit_limit_text.pop();
+    }
+    if let Ok(parsed) = draft.commit_limit_text.parse::<usize>() {
+        draft.commit_limit = parsed.max(1);
     }
 }
 
@@ -327,6 +347,7 @@ enum SettingsTextField {
     AiApiKey,
     AiTemperature,
     AiSummaryMaxChars,
+    CommitLimit,
     Search,
 }
 
@@ -609,6 +630,10 @@ impl SettingsWindow {
                     }
                     SettingsTextField::AiSummaryMaxChars => {
                         edit_ai_summary_max_chars_field(draft, ch);
+                        return;
+                    }
+                    SettingsTextField::CommitLimit => {
+                        edit_commit_limit_field(draft, ch);
                         return;
                     }
                     SettingsTextField::AiApiKey | SettingsTextField::Search => {
@@ -1138,7 +1163,7 @@ fn render_content(
             render_sidebar_section(section_body, draft, colors, entity.clone())
         }
         SettingsSection::Graph => {
-            render_graph_section(section_body, draft, colors, entity.clone())
+            render_graph_section(section_body, draft, focused, input_focused, colors, entity.clone(), input_focus)
         }
         SettingsSection::Ai => render_ai_section(
             section_body,
@@ -1860,8 +1885,11 @@ fn render_sidebar_section(
 fn render_graph_section(
     body: Stateful<Div>,
     draft: &SettingsDraft,
+    focused: SettingsTextField,
+    input_focused: bool,
     colors: &AppColors,
     entity: WeakEntity<SettingsWindow>,
+    input_focus: &FocusHandle,
 ) -> Stateful<Div> {
     let border = rgba_to_hsla(colors.border);
     let text = rgba_to_hsla(colors.text);
@@ -1870,7 +1898,23 @@ fn render_graph_section(
     body.child(setting_row(
         "Show Checkpoint Refs",
         "Display checkpoint references in the commit graph.",
-        pill_toggle(draft.show_checkpoint_refs, entity, "checkpoints", colors),
+        pill_toggle(draft.show_checkpoint_refs, entity.clone(), "checkpoints", colors),
+        border,
+        text,
+        muted,
+    ))
+    .child(setting_row(
+        "Commit Limit",
+        "Maximum number of commits to load when opening a repository.",
+        text_field_control(
+            &draft.commit_limit_text,
+            SettingsTextField::CommitLimit,
+            focused == SettingsTextField::CommitLimit && input_focused,
+            "1000",
+            colors,
+            entity,
+            input_focus,
+        ),
         border,
         text,
         muted,

@@ -1,4 +1,4 @@
-use gitforge_git::{RepoState, Repository};
+use gitforge_git::{RepoState, Repository, RepoLoadOptions, CommitLogOptions};
 use gitforge_ui::{AppColors, Theme, rgba_to_hsla};
 use gpui::*;
 
@@ -228,6 +228,15 @@ impl GitForgeApp {
             .map(|tab| tab.path.to_string_lossy().to_string());
         self.settings.last_repo_path = self.settings.active_repo_path.clone();
         self.settings.save();
+    }
+
+    pub(crate) fn load_options(&self) -> RepoLoadOptions {
+        RepoLoadOptions {
+            commit_limit: self.settings.commit_limit,
+            log_options: CommitLogOptions {
+                include_custom_refs: self.settings.show_checkpoint_refs,
+            },
+        }
     }
 }
 

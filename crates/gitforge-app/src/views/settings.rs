@@ -19,6 +19,8 @@ pub struct AppSettings {
     pub ai: AiSettings,
     #[serde(default)]
     pub show_checkpoint_refs: bool,
+    #[serde(default = "default_commit_limit")]
+    pub commit_limit: usize,
     #[serde(default)]
     pub tools: ToolSettings,
     #[serde(default)]
@@ -77,6 +79,10 @@ impl AiSettings {
 
 fn default_zai_endpoint() -> String {
     "general".to_string()
+}
+
+fn default_commit_limit() -> usize {
+    1000
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -177,6 +183,7 @@ impl Default for AppSettings {
             window_height: 800.0,
             ai: AiSettings::default(),
             show_checkpoint_refs: false,
+            commit_limit: default_commit_limit(),
             tools: ToolSettings::default(),
             custom_commands: Vec::new(),
         }

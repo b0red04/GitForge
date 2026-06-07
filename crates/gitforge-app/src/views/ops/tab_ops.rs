@@ -1,5 +1,4 @@
-use gitforge_git::{GitError, RepoState, Repository};
-use gitforge_graph::Graph;
+use gitforge_git::{RepoState, Repository};use gitforge_graph::Graph;
 use gpui::*;
 
 use parking_lot::Mutex;
@@ -186,18 +185,12 @@ impl GitForgeApp {
         }
         cx.notify();
 
-        let log_options = gitforge_git::CommitLogOptions {
-            include_custom_refs: self.settings.show_checkpoint_refs,
-        };
+        let load_options = self.load_options();
 
         cx.spawn(async move |this, cx| {
-            let result = tokio::task::spawn_blocking(
-                move || -> Result<(Repository, RepoState), GitError> {
-                    let repo = Repository::discover(&path)?;
-                    let repo_state = RepoState::from_repository_with_options(&repo, log_options)?;
-                    Ok((repo, repo_state))
-                },
-            )
+            let result = tokio::task::spawn_blocking(move || {
+                RepoState::discover_with_repo(&path, load_options)
+            })
             .await;
 
             match result {

@@ -18,7 +18,7 @@ pub use diff::{FileChange, FileChangeKind};
 pub use status::{DiffStat, FileEntry, FileStatus, RepoStatus};
 pub use commit::CommitInfo;
 pub use reference::{RefInfo, RefKind};
-pub use loader::RepoLoader;
+pub use loader::RepoLoadOptions;
 pub use loader::RepoState;
 pub use blame::BlameLine;
 pub use ssh::{SshKey, SshKeyType, SshAgentStatus};
