@@ -12,7 +12,7 @@ impl GitForgeApp {
         let mut provider_config = self.settings.ai.provider_config();
         let model = provider_config.model_or_default(&provider_name);
         if model.is_empty() {
-            self.last_error = Some(format!(
+            self.repo_session.last_error = Some(format!(
                 "No model configured for provider \"{provider_name}\""
             ));
             cx.notify();
@@ -23,7 +23,7 @@ impl GitForgeApp {
             tokio::task::spawn_blocking(move || {
                 gitforge_ai::create_provider(&provider_name, &provider_config)
             });
-        let Some(open_repo) = self.require_active_repo_handle() else {
+        let Some(open_repo) = self.repo_session.require_active_repo_handle() else {
             cx.notify();
             return;
         };
@@ -80,7 +80,7 @@ impl GitForgeApp {
                     tracing::error!("Failed to create AI provider: {}", e);
                     this.update(cx, |this, cx| {
                         this.ai_generating = false;
-                        this.last_error = Some(format!("AI provider error: {e}"));
+                        this.repo_session.last_error = Some(format!("AI provider error: {e}"));
                         cx.notify();
                     })
                     .ok();
@@ -104,11 +104,11 @@ impl GitForgeApp {
                     this.update(cx, |this, cx| {
                         this.ai_generating = false;
                         if !messages.is_empty() {
-                            this.status_panel.commit_message_mut().clear();
+                            this.repo_session.status_panel.commit_message_mut().clear();
                             if let Some(msg) = messages.get(default_idx) {
-                                this.status_panel.commit_message_mut().push_str(msg);
+                                this.repo_session.status_panel.commit_message_mut().push_str(msg);
                             }
-                            this.status_panel.set_ai_alternatives(messages);
+                            this.repo_session.status_panel.set_ai_alternatives(messages);
                         }
                         cx.notify();
                     })
@@ -118,7 +118,7 @@ impl GitForgeApp {
                     tracing::error!("AI generation failed: {}", e);
                     this.update(cx, |this, cx| {
                         this.ai_generating = false;
-                        this.last_error = Some(format!("AI generation failed: {e}"));
+                        this.repo_session.last_error = Some(format!("AI generation failed: {e}"));
                         cx.notify();
                     })
                     .ok();
@@ -129,10 +129,10 @@ impl GitForgeApp {
     }
 
     pub fn select_ai_alternative(&mut self, idx: usize, cx: &mut Context<Self>) {
-        let alts = self.status_panel.ai_alternatives().to_vec();
+        let alts = self.repo_session.status_panel.ai_alternatives().to_vec();
         if let Some(msg) = alts.get(idx) {
-            self.status_panel.commit_message_mut().clear();
-            self.status_panel.commit_message_mut().push_str(msg);
+            self.repo_session.status_panel.commit_message_mut().clear();
+            self.repo_session.status_panel.commit_message_mut().push_str(msg);
         }
         cx.notify();
     }

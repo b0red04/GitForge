@@ -19,21 +19,21 @@ impl GitForgeApp {
                 Ok(Ok(_path)) => {
                     this.update(cx, |this, cx| {
                         this.load_ssh_state();
-                        this.remote_status = "SSH key generated successfully".to_string();
+                        this.repo_session.remote_status = "SSH key generated successfully".to_string();
                         cx.notify();
                     })
                     .ok();
                 }
                 Ok(Err(e)) => {
                     this.update(cx, |this, cx| {
-                        this.remote_status = format!("SSH key generation failed: {}", e);
+                        this.repo_session.remote_status = format!("SSH key generation failed: {}", e);
                         cx.notify();
                     })
                     .ok();
                 }
                 Err(e) => {
                     this.update(cx, |this, cx| {
-                        this.remote_status = format!("SSH key generation error: {}", e);
+                        this.repo_session.remote_status = format!("SSH key generation error: {}", e);
                         cx.notify();
                     })
                     .ok();
@@ -45,7 +45,7 @@ impl GitForgeApp {
 
     pub fn test_ssh_connection(&mut self, host: String, cx: &mut Context<Self>) {
         let host_display = host.clone();
-        self.remote_status = format!("Testing SSH connection to {}...", host);
+        self.repo_session.remote_status = format!("Testing SSH connection to {}...", host);
         cx.notify();
 
         cx.spawn(async move |this, cx| {
@@ -58,21 +58,21 @@ impl GitForgeApp {
                 Ok(Ok(msg)) => {
                     let display = host_display;
                     this.update(cx, |this, cx| {
-                        this.remote_status = format!("SSH test {}: {}", display, msg);
+                        this.repo_session.remote_status = format!("SSH test {}: {}", display, msg);
                         cx.notify();
                     })
                     .ok();
                 }
                 Ok(Err(e)) => {
                     this.update(cx, |this, cx| {
-                        this.remote_status = format!("SSH test failed: {}", e);
+                        this.repo_session.remote_status = format!("SSH test failed: {}", e);
                         cx.notify();
                     })
                     .ok();
                 }
                 Err(e) => {
                     this.update(cx, |this, cx| {
-                        this.remote_status = format!("SSH test error: {}", e);
+                        this.repo_session.remote_status = format!("SSH test error: {}", e);
                         cx.notify();
                     })
                     .ok();

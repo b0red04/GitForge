@@ -638,8 +638,8 @@ fn render_ref_item(
                 if action != ContextMenuAction::None {
                     if let Some(e) = ent_context.upgrade() {
                         e.update(cx, |this, cx| {
-                            this.sidebar_state.context_menu = action;
-                            this.sidebar_state.context_menu_pos = (x, y);
+                            this.repo_session.sidebar_state.context_menu = action;
+                            this.repo_session.sidebar_state.context_menu_pos = (x, y);
                             cx.notify();
                         });
                     }
@@ -961,7 +961,7 @@ fn render_context_menu_overlay(
         .on_click(move |_ev, _window, cx| {
             if let Some(e) = dismiss_ent.upgrade() {
                 e.update(cx, |this, cx| {
-                    this.sidebar_state.dismiss_context_menu();
+                    this.repo_session.sidebar_state.dismiss_context_menu();
                     cx.notify();
                 });
             }
@@ -1012,7 +1012,7 @@ fn render_context_menu_overlay(
                                 }
                                 _ => {}
                             }
-                            this.sidebar_state.dismiss_context_menu();
+                            this.repo_session.sidebar_state.dismiss_context_menu();
                             cx.notify();
                         });
                     }

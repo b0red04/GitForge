@@ -90,7 +90,7 @@ impl GitForgeApp {
 
             let Some(folder) = folder else {
                 this.update(cx, |this, cx| {
-                    this.loading = false;
+                    this.repo_session.loading = false;
                     cx.notify();
                 })
                 .ok();
@@ -113,7 +113,7 @@ impl GitForgeApp {
         cx: &mut Context<Self>,
     ) {
         tracing::info!("OpenRepository action fired");
-        self.loading = true;
+        self.repo_session.loading = true;
         cx.notify();
 
         cx.spawn(async move |this, cx| {
@@ -137,7 +137,7 @@ impl GitForgeApp {
 
             let Some(folder) = folder else {
                 this.update(cx, |this, cx| {
-                    this.loading = false;
+                    this.repo_session.loading = false;
                     cx.notify();
                 })
                 .ok();
@@ -176,7 +176,7 @@ impl GitForgeApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.graph_panel.select_prev() {
+        if self.repo_session.graph_panel.select_prev() {
             self.on_graph_selection_changed(cx);
         }
     }
@@ -187,7 +187,7 @@ impl GitForgeApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.graph_panel.select_next() {
+        if self.repo_session.graph_panel.select_next() {
             self.on_graph_selection_changed(cx);
         }
     }
@@ -198,7 +198,7 @@ impl GitForgeApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if let Some(path) = self.diff_panel.selected_file_path() {
+        if let Some(path) = self.repo_session.diff_panel.selected_file_path() {
             self.view_file_at_commit(path, cx);
         }
     }
@@ -209,7 +209,7 @@ impl GitForgeApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.view_mode = MainViewMode::Status;
+        self.repo_session.view_mode = MainViewMode::Status;
         self.load_status(cx);
     }
 
@@ -219,7 +219,7 @@ impl GitForgeApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.view_mode = MainViewMode::CommitHistory;
+        self.repo_session.view_mode = MainViewMode::CommitHistory;
         cx.notify();
     }
 
@@ -303,7 +303,7 @@ impl GitForgeApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.diff_panel.set_diff_mode();
+        self.repo_session.diff_panel.set_diff_mode();
         cx.notify();
     }
 
@@ -332,7 +332,7 @@ impl GitForgeApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.loading = true;
+        self.repo_session.loading = true;
         cx.notify();
         self.spawn_open_dialog(cx);
     }
@@ -343,7 +343,7 @@ impl GitForgeApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if let Some(tab_id) = self.active_repo_tab_id {
+        if let Some(tab_id) = self.repo_session.active_repo_tab_id {
             self.close_repo_tab(tab_id, cx);
         }
     }
@@ -381,7 +381,7 @@ impl GitForgeApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if let Some(path) = self.active_repo_state().map(|r| r.path.clone()) {
+        if let Some(path) = self.repo_session.active_repo_state().map(|r| r.path.clone()) {
             self.open_in_editor(path, cx);
         }
     }
@@ -392,7 +392,7 @@ impl GitForgeApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if let Some(path) = self.active_repo_state().map(|r| r.path.clone()) {
+        if let Some(path) = self.repo_session.active_repo_state().map(|r| r.path.clone()) {
             self.open_in_terminal(path, cx);
         }
     }
@@ -403,7 +403,7 @@ impl GitForgeApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if let Some(path) = self.active_repo_state().map(|r| r.path.clone()) {
+        if let Some(path) = self.repo_session.active_repo_state().map(|r| r.path.clone()) {
             self.open_in_file_manager(path, cx);
         }
     }

@@ -30,32 +30,32 @@ impl GitForgeApp {
             commit_count as f64 / elapsed.as_secs_f64().max(0.001) / 1000.0,
         );
 
-        self.graph_panel.set_data(
+        self.repo_session.graph_panel.set_data(
             repo_state_data.commits.clone(),
             repo_state_data.references.clone(),
             built_graph,
             has_uncommitted,
         );
-        let in_history = self.view_mode == MainViewMode::CommitHistory;
+        let in_history = self.repo_session.view_mode == MainViewMode::CommitHistory;
         let preserve_staging =
-            in_history && self.status_panel.is_graph_staging();
-        self.status_panel
+            in_history && self.repo_session.status_panel.is_graph_staging();
+        self.repo_session.status_panel
             .set_status(repo_state_data.status.clone(), preserve_staging);
-        self.diff_panel.clear();
+        self.repo_session.diff_panel.clear();
 
         if has_uncommitted {
-            self.graph_panel.select_uncommitted();
+            self.repo_session.graph_panel.select_uncommitted();
             if in_history {
-                self.status_panel.enter_graph_staging();
+                self.repo_session.status_panel.enter_graph_staging();
             }
         } else {
-            self.graph_panel.clear_selection();
+            self.repo_session.graph_panel.clear_selection();
         }
     }
 
     pub(crate) fn apply_repo_state(&mut self, repo_state_data: RepoState) {
         self.apply_repo_state_to_panels(&repo_state_data);
-        if let Some(tab) = self.active_tab_mut() {
+        if let Some(tab) = self.repo_session.active_tab_mut() {
             tab.path = repo_state_data.path.clone();
             tab.repo_state = Some(repo_state_data.clone());
             tab.loading = false;
@@ -64,55 +64,55 @@ impl GitForgeApp {
     }
 
     pub fn select_uncommitted(&mut self, cx: &mut Context<Self>) {
-        self.view_mode = MainViewMode::CommitHistory;
-        self.graph_panel.select_uncommitted();
-        self.diff_panel.clear();
-        self.status_panel.enter_graph_staging();
+        self.repo_session.view_mode = MainViewMode::CommitHistory;
+        self.repo_session.graph_panel.select_uncommitted();
+        self.repo_session.diff_panel.clear();
+        self.repo_session.status_panel.enter_graph_staging();
         cx.notify();
     }
 
     pub fn select_commit(&mut self, idx: usize, cx: &mut Context<Self>) {
-        self.view_mode = MainViewMode::CommitHistory;
-        self.graph_panel.select_commit(idx);
-        self.status_panel.exit_graph_staging();
+        self.repo_session.view_mode = MainViewMode::CommitHistory;
+        self.repo_session.graph_panel.select_commit(idx);
+        self.repo_session.status_panel.exit_graph_staging();
         self.load_diff_for_selected(cx);
     }
 
     pub(crate) fn on_graph_selection_changed(&mut self, cx: &mut Context<Self>) {
         use crate::views::graph_panel::GraphSelection;
 
-        match self.graph_panel.selection() {
+        match self.repo_session.graph_panel.selection() {
             GraphSelection::Uncommitted => {
-                self.view_mode = MainViewMode::CommitHistory;
-                self.diff_panel.clear();
-                self.status_panel.enter_graph_staging();
+                self.repo_session.view_mode = MainViewMode::CommitHistory;
+                self.repo_session.diff_panel.clear();
+                self.repo_session.status_panel.enter_graph_staging();
                 cx.notify();
             }
             GraphSelection::Commit(_) => {
-                self.status_panel.exit_graph_staging();
+                self.repo_session.status_panel.exit_graph_staging();
                 self.load_diff_for_selected(cx);
             }
             GraphSelection::None => {
-                self.diff_panel.clear();
+                self.repo_session.diff_panel.clear();
                 cx.notify();
             }
         }
     }
 
     pub fn select_diff_file(&mut self, file_idx: usize, cx: &mut Context<Self>) {
-        self.diff_panel.select_file(file_idx);
+        self.repo_session.diff_panel.select_file(file_idx);
         cx.notify();
     }
 
     pub fn view_file_at_commit(&mut self, file_path: String, cx: &mut Context<Self>) {
-        let Some(idx) = self.graph_panel.selected_idx() else {
+        let Some(idx) = self.repo_session.graph_panel.selected_idx() else {
             return;
         };
-        let Some(commit_id) = self.graph_panel.commit_id_at(idx).map(String::from) else {
+        let Some(commit_id) = self.repo_session.graph_panel.commit_id_at(idx).map(String::from) else {
             return;
         };
 
-        let Some(open_repo) = self.require_active_repo_handle() else {
+        let Some(open_repo) = self.repo_session.require_active_repo_handle() else {
             cx.notify();
             return;
         };
@@ -137,7 +137,7 @@ impl GitForgeApp {
                     let content = String::from_utf8_lossy(&data).to_string();
                     let fp = path_for_result;
                     this.update(cx, |this, cx| {
-                        this.diff_panel.set_code_view(content, fp);
+                        this.repo_session.diff_panel.set_code_view(content, fp);
                         cx.notify();
                     })
                     .ok();
@@ -157,66 +157,66 @@ impl GitForgeApp {
     }
 
     pub fn back_to_diff_mode(&mut self, cx: &mut Context<Self>) {
-        self.diff_panel.set_diff_mode();
+        self.repo_session.diff_panel.set_diff_mode();
         cx.notify();
     }
     pub fn toggle_sidebar_branches(&mut self, cx: &mut Context<Self>) {
-        self.sidebar_state.branches_expanded = !self.sidebar_state.branches_expanded;
+        self.repo_session.sidebar_state.branches_expanded = !self.repo_session.sidebar_state.branches_expanded;
         self.save_settings();
         cx.notify();
     }
 
     pub fn toggle_sidebar_remotes(&mut self, cx: &mut Context<Self>) {
-        self.sidebar_state.remotes_expanded = !self.sidebar_state.remotes_expanded;
+        self.repo_session.sidebar_state.remotes_expanded = !self.repo_session.sidebar_state.remotes_expanded;
         self.save_settings();
         cx.notify();
     }
 
     pub fn toggle_sidebar_tags(&mut self, cx: &mut Context<Self>) {
-        self.sidebar_state.tags_expanded = !self.sidebar_state.tags_expanded;
+        self.repo_session.sidebar_state.tags_expanded = !self.repo_session.sidebar_state.tags_expanded;
         self.save_settings();
         cx.notify();
     }
 
     pub fn toggle_sidebar_remote(&mut self, remote: String, cx: &mut Context<Self>) {
-        if self.sidebar_state.expanded_remotes.contains(&remote) {
-            self.sidebar_state.expanded_remotes.remove(&remote);
+        if self.repo_session.sidebar_state.expanded_remotes.contains(&remote) {
+            self.repo_session.sidebar_state.expanded_remotes.remove(&remote);
         } else {
-            self.sidebar_state.expanded_remotes.insert(remote);
+            self.repo_session.sidebar_state.expanded_remotes.insert(remote);
         }
         cx.notify();
     }
 
     pub fn select_diff_line(&mut self, line_idx: usize, extend: bool, cx: &mut Context<Self>) {
-        self.diff_panel.select_line(line_idx, extend);
+        self.repo_session.diff_panel.select_line(line_idx, extend);
         cx.notify();
     }
 
     pub fn update_sidebar_filter(&mut self, typed_char: Option<&str>, cx: &mut Context<Self>) {
         match typed_char {
             Some(ch) => {
-                self.sidebar_state.search_filter.push_str(ch);
+                self.repo_session.sidebar_state.search_filter.push_str(ch);
             }
             None => {
-                self.sidebar_state.search_filter.pop();
+                self.repo_session.sidebar_state.search_filter.pop();
             }
         }
         cx.notify();
     }
 
     pub fn clear_sidebar_filter(&mut self, cx: &mut Context<Self>) {
-        self.sidebar_state.search_filter.clear();
+        self.repo_session.sidebar_state.search_filter.clear();
         cx.notify();
     }
 
     pub fn navigate_to_ref(&mut self, commit_id: String, cx: &mut Context<Self>) {
-        if let Some(idx) = self.graph_panel.find_commit_idx(&commit_id) {
+        if let Some(idx) = self.repo_session.graph_panel.find_commit_idx(&commit_id) {
             self.select_commit(idx, cx);
         }
     }
 
     pub fn set_branch_filter(&mut self, branch: Option<String>, cx: &mut Context<Self>) {
-        self.graph_panel.set_branch_filter(branch);
+        self.repo_session.graph_panel.set_branch_filter(branch);
         cx.notify();
     }
 
@@ -232,9 +232,9 @@ impl GitForgeApp {
         path: String,
         cx: &mut Context<Self>,
     ) {
-        self.status_panel.select_file(section, idx);
+        self.repo_session.status_panel.select_file(section, idx);
 
-        let Some(open_repo) = self.require_active_repo_handle() else {
+        let Some(open_repo) = self.repo_session.require_active_repo_handle() else {
             cx.notify();
             return;
         };
@@ -262,7 +262,7 @@ impl GitForgeApp {
                     let file_diffs = gitforge_diff::parser::parse_unified_diff(&diff_text);
                     this.update(cx, |this, cx| {
                         if let Some(diff) = file_diffs.into_iter().next() {
-                            this.status_panel.set_diff(diff);
+                            this.repo_session.status_panel.set_diff(diff);
                         }
                         cx.notify();
                     })
@@ -280,17 +280,17 @@ impl GitForgeApp {
     }
 
     pub fn show_commit_dialog(&mut self, cx: &mut Context<Self>) {
-        self.status_panel.show_commit();
+        self.repo_session.status_panel.show_commit();
         cx.notify();
     }
 
     pub fn cancel_commit_dialog(&mut self, cx: &mut Context<Self>) {
-        self.status_panel.cancel_commit();
+        self.repo_session.status_panel.cancel_commit();
         cx.notify();
     }
 
     pub fn edit_commit_message(&mut self, typed_char: Option<&str>, cx: &mut Context<Self>) {
-        let msg = self.status_panel.commit_message().to_string();
+        let msg = self.repo_session.status_panel.commit_message().to_string();
         let mut new_msg = msg;
         match typed_char {
             Some(ch) => new_msg.push_str(ch),
@@ -298,18 +298,18 @@ impl GitForgeApp {
                 new_msg.pop();
             }
         }
-        self.status_panel.commit_message_mut().clear();
-        self.status_panel.commit_message_mut().push_str(&new_msg);
+        self.repo_session.status_panel.commit_message_mut().clear();
+        self.repo_session.status_panel.commit_message_mut().push_str(&new_msg);
         cx.notify();
     }
 
     pub fn perform_commit(&mut self, amend: bool, cx: &mut Context<Self>) {
-        let message = self.status_panel.take_commit_message();
+        let message = self.repo_session.status_panel.take_commit_message();
         if message.trim().is_empty() {
             return;
         }
 
-        let Some(open_repo) = self.require_active_repo_handle() else {
+        let Some(open_repo) = self.repo_session.require_active_repo_handle() else {
             cx.notify();
             return;
         };
@@ -349,7 +349,7 @@ impl GitForgeApp {
         .detach();
     }
     pub fn load_status(&mut self, cx: &mut Context<Self>) {
-        let Some(open_repo) = self.require_active_repo_handle() else {
+        let Some(open_repo) = self.repo_session.require_active_repo_handle() else {
             cx.notify();
             return;
         };
@@ -369,7 +369,7 @@ impl GitForgeApp {
             match result {
                 Ok(Ok(status)) => {
                     this.update(cx, |this, cx| {
-                        this.status_panel.set_status(status, false);
+                        this.repo_session.status_panel.set_status(status, false);
                         cx.notify();
                     })
                     .ok();
@@ -422,10 +422,10 @@ impl GitForgeApp {
     }
 
     pub fn stage_selected_lines(&mut self, cx: &mut Context<Self>) {
-        let Some(diff) = self.status_panel.current_diff().cloned() else {
+        let Some(diff) = self.repo_session.status_panel.current_diff().cloned() else {
             return;
         };
-        let indices = self.status_panel.diff_selected_indices();
+        let indices = self.repo_session.status_panel.diff_selected_indices();
         if indices.is_empty() {
             return;
         }
@@ -450,10 +450,10 @@ impl GitForgeApp {
     }
 
     pub fn unstage_selected_lines(&mut self, cx: &mut Context<Self>) {
-        let Some(diff) = self.status_panel.current_diff().cloned() else {
+        let Some(diff) = self.repo_session.status_panel.current_diff().cloned() else {
             return;
         };
-        let indices = self.status_panel.diff_selected_indices();
+        let indices = self.repo_session.status_panel.diff_selected_indices();
         if indices.is_empty() {
             return;
         }
@@ -483,7 +483,7 @@ impl GitForgeApp {
         extend: bool,
         cx: &mut Context<Self>,
     ) {
-        self.status_panel.select_diff_line(line_idx, extend);
+        self.repo_session.status_panel.select_diff_line(line_idx, extend);
         cx.notify();
     }
 
@@ -495,7 +495,7 @@ impl GitForgeApp {
         F: FnOnce(&gitforge_git::Repository) -> Result<R, gitforge_git::GitError> + Send + 'static,
         R: Send + 'static,
     {
-        let Some(open_repo) = self.require_active_repo_handle() else {
+        let Some(open_repo) = self.repo_session.require_active_repo_handle() else {
             cx.notify();
             return;
         };
@@ -535,11 +535,11 @@ impl GitForgeApp {
         F: FnOnce(&gitforge_git::Repository) -> Result<R, gitforge_git::GitError> + Send + 'static,
         R: Send + 'static,
     {
-        let Some(open_repo) = self.require_active_repo_handle() else {
+        let Some(open_repo) = self.repo_session.require_active_repo_handle() else {
             cx.notify();
             return;
         };
-        self.remote_status = status.to_string();
+        self.repo_session.remote_status = status.to_string();
         cx.notify();
         let label_owned = label.to_string();
         cx.spawn(async move |this, cx| {
@@ -556,7 +556,7 @@ impl GitForgeApp {
             match result {
                 Ok(Ok(_)) => {
                     this.update(cx, |this, cx| {
-                        this.remote_status.clear();
+                        this.repo_session.remote_status.clear();
                         this.refresh_repository(cx);
                     })
                     .ok();
@@ -564,7 +564,7 @@ impl GitForgeApp {
                 Ok(Err(e)) => {
                     tracing::error!("{} failed: {}", label_owned, e);
                     this.update(cx, |this, cx| {
-                        this.remote_status = format!("{} failed: {}", label_owned, e);
+                        this.repo_session.remote_status = format!("{} failed: {}", label_owned, e);
                         cx.notify();
                     })
                     .ok();
@@ -572,7 +572,7 @@ impl GitForgeApp {
                 Err(e) => {
                     tracing::error!("{} error: {}", label_owned, e);
                     this.update(cx, |this, cx| {
-                        this.remote_status = format!("{} error: {}", label_owned, e);
+                        this.repo_session.remote_status = format!("{} error: {}", label_owned, e);
                         cx.notify();
                     })
                     .ok();
@@ -704,7 +704,7 @@ impl GitForgeApp {
     }
 
     pub fn clone_repository(&mut self, url: String, path: String, cx: &mut Context<Self>) {
-        self.remote_status = format!("Cloning {}...", url);
+        self.repo_session.remote_status = format!("Cloning {}...", url);
         cx.notify();
 
         cx.spawn(async move |this, cx| {
@@ -717,7 +717,7 @@ impl GitForgeApp {
             match result {
                 Ok(Ok(_output)) => {
                     this.update(cx, |this, cx| {
-                        this.remote_status.clear();
+                        this.repo_session.remote_status.clear();
                         this.open_repo_from_path(std::path::PathBuf::from(path), cx);
                     })
                     .ok();
@@ -725,7 +725,7 @@ impl GitForgeApp {
                 Ok(Err(e)) => {
                     tracing::error!("Clone failed: {}", e);
                     this.update(cx, |this, cx| {
-                        this.remote_status = format!("Clone failed: {}", e);
+                        this.repo_session.remote_status = format!("Clone failed: {}", e);
                         cx.notify();
                     })
                     .ok();
@@ -733,7 +733,7 @@ impl GitForgeApp {
                 Err(e) => {
                     tracing::error!("Clone task panicked: {}", e);
                     this.update(cx, |this, cx| {
-                        this.remote_status = format!("Clone error: {}", e);
+                        this.repo_session.remote_status = format!("Clone error: {}", e);
                         cx.notify();
                     })
                     .ok();
@@ -763,7 +763,7 @@ impl GitForgeApp {
         });
     }
     pub fn view_blame(&mut self, file_path: String, cx: &mut Context<Self>) {
-        let Some(open_repo) = self.require_active_repo_handle() else {
+        let Some(open_repo) = self.repo_session.require_active_repo_handle() else {
             cx.notify();
             return;
         };
@@ -785,7 +785,7 @@ impl GitForgeApp {
             match result {
                 Ok(Ok(blame_lines)) => {
                     this.update(cx, |this, cx| {
-                        this.diff_panel.set_blame(blame_lines, path_for_result);
+                        this.repo_session.diff_panel.set_blame(blame_lines, path_for_result);
                         cx.notify();
                     })
                     .ok();
@@ -799,7 +799,7 @@ impl GitForgeApp {
 
     pub(crate) fn refresh_repository(&mut self, cx: &mut Context<Self>) {
         self.save_settings();
-        let Some(open_repo) = self.require_active_repo_handle() else {
+        let Some(open_repo) = self.repo_session.require_active_repo_handle() else {
             cx.notify();
             return;
         };
@@ -837,14 +837,14 @@ impl GitForgeApp {
     }
 
     pub(crate) fn load_diff_for_selected(&mut self, cx: &mut Context<Self>) {
-        let Some(idx) = self.graph_panel.selected_idx() else {
+        let Some(idx) = self.repo_session.graph_panel.selected_idx() else {
             return;
         };
-        let Some(commit_id) = self.graph_panel.commit_id_at(idx).map(String::from) else {
+        let Some(commit_id) = self.repo_session.graph_panel.commit_id_at(idx).map(String::from) else {
             return;
         };
 
-        let Some(open_repo) = self.require_active_repo_handle() else {
+        let Some(open_repo) = self.repo_session.require_active_repo_handle() else {
             cx.notify();
             return;
         };
@@ -867,7 +867,7 @@ impl GitForgeApp {
                     let file_diffs = gitforge_diff::parser::parse_unified_diff(&diff_text);
 
                     this.update(cx, |this, cx| {
-                        this.diff_panel.set_diff(CommitDiffState {
+                        this.repo_session.diff_panel.set_diff(CommitDiffState {
                             commit_id: id_for_state,
                             file_diffs,
                             selected_file_idx: None,

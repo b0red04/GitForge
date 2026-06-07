@@ -6,6 +6,7 @@ pub mod diff_panel;
 pub mod diff_view;
 pub mod graph_panel;
 pub mod layout;
+pub mod repo_session;
 pub mod repo_tabs;
 pub mod settings;
 pub mod settings_window;

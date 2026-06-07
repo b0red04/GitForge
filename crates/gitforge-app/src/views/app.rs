@@ -1,19 +1,14 @@
-use gitforge_git::{RepoState, Repository, RepoLoadOptions, CommitLogOptions};
+use gitforge_git::{RepoLoadOptions, CommitLogOptions};
 use gitforge_ui::{AppColors, Theme, rgba_to_hsla};
 use gpui::*;
 
-use parking_lot::Mutex;
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use super::command_palette::CommandPalette;
 use super::commands::TitlebarMenu;
-use super::diff_panel::DiffPanel;
-use super::graph_panel::GraphPanel;
+use super::repo_session::RepoSession;
 use super::settings::AppSettings;
 use super::settings_window::SettingsWindow;
-use super::sidebar::SidebarState;
-use super::status_panel::StatusPanel;
 
 actions!(
     gitforge,
@@ -113,34 +108,13 @@ pub enum AppDialog {
     },
 }
 
-pub(crate) const MAX_CLOSED_TABS: usize = 20;
-
-pub(crate) struct OpenRepoTab {
-    pub(crate) id: u64,
-    pub(crate) path: PathBuf,
-    pub(crate) repo: Arc<Mutex<Option<Repository>>>,
-    pub(crate) repo_state: Option<RepoState>,
-    pub(crate) loading: bool,
-    pub(crate) last_error: Option<String>,
-}
-
 pub struct GitForgeApp {
     pub(crate) colors: AppColors,
-    pub(crate) open_repo_tabs: Vec<OpenRepoTab>,
-    pub(crate) active_repo_tab_id: Option<u64>,
-    pub(crate) next_repo_tab_id: u64,
-    pub(crate) graph_panel: GraphPanel,
-    pub(crate) diff_panel: DiffPanel,
-    pub status_panel: StatusPanel,
-    pub sidebar_state: SidebarState,
-    pub view_mode: MainViewMode,
+    pub(crate) repo_session: RepoSession,
     pub(crate) active_dialog: AppDialog,
     pub(crate) dialog_input: String,
     pub(crate) dialog_input_2: String,
     pub(crate) dialog_input_focus: FocusHandle,
-    pub remote_status: String,
-    pub(crate) loading: bool,
-    pub(crate) focus_handle: FocusHandle,
     pub(crate) settings: AppSettings,
     pub(crate) ssh_keys: Vec<gitforge_git::SshKey>,
     pub(crate) ssh_agent_status: Option<gitforge_git::SshAgentStatus>,
@@ -148,12 +122,11 @@ pub struct GitForgeApp {
     pub(crate) hosting_repos: Vec<gitforge_hosting::RemoteRepo>,
     pub(crate) hosting_repos_loading: bool,
     pub(crate) ai_generating: bool,
-    pub(crate) last_error: Option<String>,
+    pub(crate) focus_handle: FocusHandle,
     pub(crate) toolbar_more_open: bool,
     pub(crate) titlebar_menus_visible: bool,
     pub(crate) active_titlebar_menu: Option<TitlebarMenu>,
     pub command_palette: CommandPalette,
-    pub(crate) closed_repo_tabs: Vec<PathBuf>,
     pub(crate) settings_window: Option<WindowHandle<SettingsWindow>>,
     pub(crate) quit_requested: bool,
 }
@@ -170,24 +143,17 @@ impl GitForgeApp {
         let settings = AppSettings::load();
         let theme = Theme::load_by_name(&settings.theme).unwrap_or_else(|_| Theme::default_dark());
         let colors = AppColors::from_theme(&theme);
-        let sidebar_state = SidebarState::new(cx);
+        let mut repo_session = RepoSession::new(cx);
+        repo_session.sidebar_state.branches_expanded = settings.sidebar_branches_expanded;
+        repo_session.sidebar_state.remotes_expanded = settings.sidebar_remotes_expanded;
+        repo_session.sidebar_state.tags_expanded = settings.sidebar_tags_expanded;
         let mut app = Self {
             colors,
-            open_repo_tabs: Vec::new(),
-            active_repo_tab_id: None,
-            next_repo_tab_id: 1,
-            graph_panel: GraphPanel::new(),
-            diff_panel: DiffPanel::new(),
-            status_panel: StatusPanel::new(cx),
-            sidebar_state,
-            view_mode: MainViewMode::CommitHistory,
+            repo_session,
             active_dialog: AppDialog::None,
             dialog_input: String::new(),
             dialog_input_2: String::new(),
             dialog_input_focus: cx.focus_handle(),
-            remote_status: String::new(),
-            loading: false,
-            focus_handle: cx.focus_handle(),
             settings,
             ssh_keys: Vec::new(),
             ssh_agent_status: None,
@@ -195,18 +161,14 @@ impl GitForgeApp {
             hosting_repos: Vec::new(),
             hosting_repos_loading: false,
             ai_generating: false,
-            last_error: None,
+            focus_handle: cx.focus_handle(),
             toolbar_more_open: false,
             titlebar_menus_visible: false,
             active_titlebar_menu: None,
             command_palette: CommandPalette::new(cx),
-            closed_repo_tabs: Vec::new(),
             settings_window: None,
             quit_requested: false,
         };
-        app.sidebar_state.branches_expanded = app.settings.sidebar_branches_expanded;
-        app.sidebar_state.remotes_expanded = app.settings.sidebar_remotes_expanded;
-        app.sidebar_state.tags_expanded = app.settings.sidebar_tags_expanded;
         app.load_ssh_state();
         app.load_hosting_accounts();
         app
@@ -215,15 +177,17 @@ impl GitForgeApp {
         self.open_or_activate_repo_tab(path, cx);
     }
     pub(crate) fn save_settings(&mut self) {
-        self.settings.sidebar_branches_expanded = self.sidebar_state.branches_expanded;
-        self.settings.sidebar_remotes_expanded = self.sidebar_state.remotes_expanded;
-        self.settings.sidebar_tags_expanded = self.sidebar_state.tags_expanded;
+        self.settings.sidebar_branches_expanded = self.repo_session.sidebar_state.branches_expanded;
+        self.settings.sidebar_remotes_expanded = self.repo_session.sidebar_state.remotes_expanded;
+        self.settings.sidebar_tags_expanded = self.repo_session.sidebar_state.tags_expanded;
         self.settings.open_repo_paths = self
+            .repo_session
             .open_repo_tabs
             .iter()
             .map(|tab| tab.path.to_string_lossy().to_string())
             .collect();
         self.settings.active_repo_path = self
+            .repo_session
             .active_tab()
             .map(|tab| tab.path.to_string_lossy().to_string());
         self.settings.last_repo_path = self.settings.active_repo_path.clone();
@@ -253,13 +217,13 @@ impl Render for GitForgeApp {
         let bg = rgba_to_hsla(self.colors.background);
         let text = rgba_to_hsla(self.colors.text);
         let entity = cx.entity().downgrade();
-        let active_repo_state = self.active_repo_state();
+        let active_repo_state = self.repo_session.active_repo_state();
 
         let sidebar = super::sidebar::render_sidebar(
             active_repo_state,
             &self.colors,
-            self.loading,
-            &self.sidebar_state,
+            self.repo_session.loading,
+            &self.repo_session.sidebar_state,
             entity.clone(),
             window,
             &self.hosting_accounts,
@@ -268,21 +232,21 @@ impl Render for GitForgeApp {
         let toolbar = super::toolbar::render_toolbar(
             active_repo_state,
             &self.colors,
-            self.view_mode == MainViewMode::Status,
+            self.repo_session.view_mode == MainViewMode::Status,
             self.toolbar_more_open,
             entity.clone(),
         );
 
-        let graph_area = super::layout::grow_center(div()).child(self.graph_panel.render(
+        let graph_area = super::layout::grow_center(div()).child(self.repo_session.graph_panel.render(
             &self.colors,
             self.settings.show_checkpoint_refs,
             entity.clone(),
         ));
 
-        let right_content = match self.view_mode {
+        let right_content = match self.repo_session.view_mode {
             MainViewMode::CommitHistory => {
-                if self.graph_panel.is_uncommitted_selected() {
-                    self.status_panel.render_graph_staging(
+                if self.repo_session.graph_panel.is_uncommitted_selected() {
+                    self.repo_session.status_panel.render_graph_staging(
                         active_repo_state,
                         &self.colors,
                         entity.clone(),
@@ -290,17 +254,17 @@ impl Render for GitForgeApp {
                         self.ai_generating,
                     )
                 } else {
-                    self.diff_panel.render(
+                    self.repo_session.diff_panel.render(
                         active_repo_state,
-                        self.graph_panel.selected_commit_idx(),
+                        self.repo_session.graph_panel.selected_commit_idx(),
                         &self.colors,
                         entity.clone(),
-                        self.loading,
+                        self.repo_session.loading,
                     )
                 }
             }
             MainViewMode::Status => {
-                self.status_panel
+                self.repo_session.status_panel
                     .render(&self.colors, entity.clone(), window, self.ai_generating)
             }
         };
@@ -308,9 +272,9 @@ impl Render for GitForgeApp {
         let right_panel = super::layout::grow_right(div()).child(right_content);
 
         let status_bar =
-            super::toolbar::render_status_bar(&self.remote_status, &self.colors, window);
+            super::toolbar::render_status_bar(&self.repo_session.remote_status, &self.colors, window);
 
-        let error_banner = self.last_error.as_ref().map(|err| {
+        let error_banner = self.repo_session.last_error.as_ref().map(|err| {
             let _error_color = rgba_to_hsla(self.colors.error);
             div()
                 .w_full()
@@ -343,11 +307,11 @@ impl Render for GitForgeApp {
             .child(titlebar)
             .child(titlebar_divider);
 
-        let repo_tab_views = self.repo_tab_views();
+        let repo_tab_views = self.repo_session.repo_tab_views();
         if !repo_tab_views.is_empty() {
             inner = inner.child(super::repo_tabs::render_repo_tab_bar(
                 &repo_tab_views,
-                self.active_repo_tab_id,
+                self.repo_session.active_repo_tab_id,
                 &self.colors,
                 entity.clone(),
             ));
@@ -464,4 +428,3 @@ impl Render for GitForgeApp {
             ))
     }
 }
-

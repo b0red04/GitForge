@@ -79,7 +79,7 @@ pub fn render_toolbar(
                     move |_ev, _window, cx| {
                         if let Some(e) = ent_history.upgrade() {
                             e.update(cx, |this, cx| {
-                                this.view_mode = super::app::MainViewMode::CommitHistory;
+                                this.repo_session.view_mode = super::app::MainViewMode::CommitHistory;
                                 this.close_toolbar_more(cx);
                                 cx.notify();
                             });
@@ -98,7 +98,7 @@ pub fn render_toolbar(
                     move |_ev, _window, cx| {
                         if let Some(e) = ent_status.upgrade() {
                             e.update(cx, |this, cx| {
-                                this.view_mode = super::app::MainViewMode::Status;
+                                this.repo_session.view_mode = super::app::MainViewMode::Status;
                                 this.close_toolbar_more(cx);
                                 this.load_status(cx);
                             });

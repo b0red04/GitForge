@@ -126,6 +126,38 @@ impl DiffPanel {
         self.highlight.clear_cache();
     }
 
+    pub fn diff_state(&self) -> Option<&CommitDiffState> {
+        self.diff_state.as_ref()
+    }
+
+    pub fn view_mode(&self) -> DiffViewMode {
+        self.view_mode.clone()
+    }
+
+    pub fn code_view_file(&self) -> Option<&str> {
+        self.code_view_file.as_deref()
+    }
+
+    pub fn code_view_content(&self) -> Option<&str> {
+        self.code_view_content.as_deref()
+    }
+
+    pub fn restore_from_snapshot(
+        &mut self,
+        diff_state: Option<CommitDiffState>,
+        view_mode: DiffViewMode,
+        code_file: Option<String>,
+        code_content: Option<String>,
+    ) {
+        if let Some(_ds) = &diff_state {
+            self.highlight.clear_cache();
+        }
+        self.diff_state = diff_state;
+        self.view_mode = view_mode;
+        self.code_view_file = code_file;
+        self.code_view_content = code_content;
+    }
+
     pub fn select_line(&mut self, line_idx: usize, extend: bool) {
         self.selection.select(line_idx, extend);
     }

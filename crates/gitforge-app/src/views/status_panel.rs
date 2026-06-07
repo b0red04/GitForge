@@ -168,6 +168,27 @@ impl StatusPanel {
         self.selection.as_ref().map(|s| s.section)
     }
 
+    pub fn status_selection(&self) -> Option<&StatusSelection> {
+        self.selection.as_ref()
+    }
+
+    pub fn view_mode(&self) -> StatusViewMode {
+        self.view_mode.clone()
+    }
+
+    pub fn restore_from_snapshot(
+        &mut self,
+        commit_message: String,
+        ai_alternatives: Vec<String>,
+        selection: Option<StatusSelection>,
+        view_mode: StatusViewMode,
+    ) {
+        self.commit_message = commit_message;
+        self.ai_message_alternatives = ai_alternatives;
+        self.selection = selection;
+        self.view_mode = view_mode;
+    }
+
     pub fn render(
         &self,
         colors: &AppColors,

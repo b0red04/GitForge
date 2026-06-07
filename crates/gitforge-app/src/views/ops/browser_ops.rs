@@ -9,7 +9,7 @@ impl GitForgeApp {
     }
 
     pub fn open_repo_in_browser(&mut self, _cx: &mut Context<Self>) {
-        let Some(rs) = self.active_repo_state() else {
+        let Some(rs) = self.repo_session.active_repo_state() else {
             return;
         };
 
@@ -71,7 +71,7 @@ impl GitForgeApp {
     }
 
     fn get_remote_url(&self, remote_name: &str) -> Option<String> {
-        let open_repo = self.active_repo_handle()?;
+        let open_repo = self.repo_session.active_repo_handle()?;
         let repo_lock = open_repo.lock();
         let repo = repo_lock.as_ref()?;
         let remotes = repo.remote_list().ok()?;

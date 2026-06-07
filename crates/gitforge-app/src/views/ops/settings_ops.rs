@@ -170,9 +170,9 @@ impl GitForgeApp {
         let prev_checkpoint = self.settings.show_checkpoint_refs;
         let prev_commit_limit = self.settings.commit_limit;
         draft.apply_to(&mut self.settings);
-        self.sidebar_state.branches_expanded = draft.sidebar_branches_expanded;
-        self.sidebar_state.remotes_expanded = draft.sidebar_remotes_expanded;
-        self.sidebar_state.tags_expanded = draft.sidebar_tags_expanded;
+        self.repo_session.sidebar_state.branches_expanded = draft.sidebar_branches_expanded;
+        self.repo_session.sidebar_state.remotes_expanded = draft.sidebar_remotes_expanded;
+        self.repo_session.sidebar_state.tags_expanded = draft.sidebar_tags_expanded;
         self.set_theme(&draft.theme, cx);
         self.save_settings();
         if draft.show_checkpoint_refs != prev_checkpoint || draft.commit_limit != prev_commit_limit {

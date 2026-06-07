@@ -41,7 +41,7 @@ impl GitForgeApp {
     }
 
     pub fn add_hosting_account(&mut self, provider: String, token: String, cx: &mut Context<Self>) {
-        self.remote_status = format!("Authenticating with {}...", provider);
+        self.repo_session.remote_status = format!("Authenticating with {}...", provider);
         cx.notify();
 
         let provider_name = provider.clone();
@@ -49,7 +49,7 @@ impl GitForgeApp {
         cx.spawn(async move |this, cx| {
             let Some(p) = gitforge_hosting::get_provider(&provider_name) else {
                 this.update(cx, |this, cx| {
-                    this.remote_status = format!("Unknown provider: {}", provider_name);
+                    this.repo_session.remote_status = format!("Unknown provider: {}", provider_name);
                     cx.notify();
                 })
                 .ok();
@@ -63,7 +63,7 @@ impl GitForgeApp {
                     this.update(cx, |this, cx| {
                         this.hosting_accounts.push(account);
                         this.save_hosting_accounts();
-                        this.remote_status = "Account authenticated successfully".to_string();
+                        this.repo_session.remote_status = "Account authenticated successfully".to_string();
                         this.notify_settings_window(cx);
                         cx.notify();
                     })
@@ -71,7 +71,7 @@ impl GitForgeApp {
                 }
                 Err(e) => {
                     this.update(cx, |this, cx| {
-                        this.remote_status = format!("Authentication failed: {}", e);
+                        this.repo_session.remote_status = format!("Authentication failed: {}", e);
                         cx.notify();
                     })
                     .ok();
@@ -116,7 +116,7 @@ impl GitForgeApp {
             let Some(account) = account else {
                 this.update(cx, |this, cx| {
                     this.hosting_repos_loading = false;
-                    this.remote_status =
+                    this.repo_session.remote_status =
                         format!("No {} account configured. Add one first.", provider_name);
                     cx.notify();
                 })
@@ -128,7 +128,7 @@ impl GitForgeApp {
             let Some(p) = gitforge_hosting::get_provider(&provider_name) else {
                 this.update(cx, |this, cx| {
                     this.hosting_repos_loading = false;
-                    this.remote_status = "Unknown provider".to_string();
+                    this.repo_session.remote_status = "Unknown provider".to_string();
                     cx.notify();
                 })
                 .ok();
@@ -149,7 +149,7 @@ impl GitForgeApp {
                 Err(e) => {
                     this.update(cx, |this, cx| {
                         this.hosting_repos_loading = false;
-                        this.remote_status = format!("Failed to list repos: {}", e);
+                        this.repo_session.remote_status = format!("Failed to list repos: {}", e);
                         cx.notify();
                     })
                     .ok();
@@ -166,7 +166,7 @@ impl GitForgeApp {
         cx: &mut Context<Self>,
     ) {
         self.active_dialog = super::super::app::AppDialog::None;
-        self.remote_status = format!("Cloning {}...", repo_name);
+        self.repo_session.remote_status = format!("Cloning {}...", repo_name);
         cx.notify();
 
         cx.spawn(async move |this, cx| {
@@ -186,21 +186,21 @@ impl GitForgeApp {
                 Ok(Ok(_)) => {
                     let p = std::path::PathBuf::from(path_display);
                     this.update(cx, |this, cx| {
-                        this.remote_status.clear();
+                        this.repo_session.remote_status.clear();
                         this.open_repo_from_path(p, cx);
                     })
                     .ok();
                 }
                 Ok(Err(e)) => {
                     this.update(cx, |this, cx| {
-                        this.remote_status = format!("Clone failed: {}", e);
+                        this.repo_session.remote_status = format!("Clone failed: {}", e);
                         cx.notify();
                     })
                     .ok();
                 }
                 Err(e) => {
                     this.update(cx, |this, cx| {
-                        this.remote_status = format!("Clone error: {}", e);
+                        this.repo_session.remote_status = format!("Clone error: {}", e);
                         cx.notify();
                     })
                     .ok();
@@ -227,7 +227,7 @@ impl GitForgeApp {
             let Some(account) = account else {
                 this.update(cx, |this, cx| {
                     this.hosting_repos_loading = false;
-                    this.remote_status = format!("No {} account configured.", provider_name);
+                    this.repo_session.remote_status = format!("No {} account configured.", provider_name);
                     cx.notify();
                 })
                 .ok();
@@ -258,7 +258,7 @@ impl GitForgeApp {
                 Err(e) => {
                     this.update(cx, |this, cx| {
                         this.hosting_repos_loading = false;
-                        this.remote_status = format!("Search failed: {}", e);
+                        this.repo_session.remote_status = format!("Search failed: {}", e);
                         cx.notify();
                     })
                     .ok();
@@ -276,7 +276,7 @@ impl GitForgeApp {
         cx: &mut Context<Self>,
     ) {
         self.active_dialog = super::super::app::AppDialog::None;
-        self.remote_status = format!("Forking {}/{}...", owner, repo);
+        self.repo_session.remote_status = format!("Forking {}/{}...", owner, repo);
         cx.notify();
 
         let account = self.find_hosting_account(&provider);
@@ -284,7 +284,7 @@ impl GitForgeApp {
         cx.spawn(async move |this, cx| {
             let Some(account) = account else {
                 this.update(cx, |this, cx| {
-                    this.remote_status = "No account configured for fork".to_string();
+                    this.repo_session.remote_status = "No account configured for fork".to_string();
                     cx.notify();
                 })
                 .ok();
@@ -294,7 +294,7 @@ impl GitForgeApp {
             let provider_name = account.provider.clone();
             let Some(p) = gitforge_hosting::get_provider(&provider_name) else {
                 this.update(cx, |this, cx| {
-                    this.remote_status = "Unknown provider for fork".to_string();
+                    this.repo_session.remote_status = "Unknown provider for fork".to_string();
                     cx.notify();
                 })
                 .ok();
@@ -306,14 +306,14 @@ impl GitForgeApp {
             match result {
                 Ok(forked) => {
                     this.update(cx, |this, cx| {
-                        this.remote_status = format!("Forked to {}", forked.full_name);
+                        this.repo_session.remote_status = format!("Forked to {}", forked.full_name);
                         cx.notify();
                     })
                     .ok();
                 }
                 Err(e) => {
                     this.update(cx, |this, cx| {
-                        this.remote_status = format!("Fork failed: {}", e);
+                        this.repo_session.remote_status = format!("Fork failed: {}", e);
                         cx.notify();
                     })
                     .ok();

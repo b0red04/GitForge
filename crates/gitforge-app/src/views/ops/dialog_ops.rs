@@ -205,7 +205,7 @@ impl GitForgeApp {
     }
 
     pub fn toggle_sidebar_worktrees(&mut self, cx: &mut Context<Self>) {
-        self.sidebar_state.worktrees_expanded = !self.sidebar_state.worktrees_expanded;
+        self.repo_session.sidebar_state.worktrees_expanded = !self.repo_session.sidebar_state.worktrees_expanded;
         cx.notify();
     }
 
@@ -258,21 +258,21 @@ impl GitForgeApp {
             match result {
                 Ok(Ok(())) => {
                     this.update(cx, |this, cx| {
-                        this.remote_status = "Credential stored in keyring".to_string();
+                        this.repo_session.remote_status = "Credential stored in keyring".to_string();
                         cx.notify();
                     })
                     .ok();
                 }
                 Ok(Err(e)) => {
                     this.update(cx, |this, cx| {
-                        this.remote_status = format!("Failed to store credential: {}", e);
+                        this.repo_session.remote_status = format!("Failed to store credential: {}", e);
                         cx.notify();
                     })
                     .ok();
                 }
                 Err(e) => {
                     this.update(cx, |this, cx| {
-                        this.remote_status = format!("Credential storage error: {}", e);
+                        this.repo_session.remote_status = format!("Credential storage error: {}", e);
                         cx.notify();
                     })
                     .ok();
@@ -346,14 +346,14 @@ impl GitForgeApp {
                 }
                 Ok(Err(e)) => {
                     this.update(cx, |this, cx| {
-                        this.last_error = Some(format!("Failed to init repository: {}", e));
+                        this.repo_session.last_error = Some(format!("Failed to init repository: {}", e));
                         cx.notify();
                     })
                     .ok();
                 }
                 Err(e) => {
                     this.update(cx, |this, cx| {
-                        this.last_error = Some(format!("Init task panicked: {}", e));
+                        this.repo_session.last_error = Some(format!("Init task panicked: {}", e));
                         cx.notify();
                     })
                     .ok();

@@ -1,11 +1,12 @@
-use gitforge_git::{RepoState, Repository};use gitforge_graph::Graph;
+use gitforge_git::{RepoState, Repository};
 use gpui::*;
 
 use parking_lot::Mutex;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::views::app::{GitForgeApp, OpenRepoTab, MAX_CLOSED_TABS};
+use crate::views::app::GitForgeApp;
+use crate::views::repo_session::OpenRepoTab;
 use crate::views::repo_tabs::RepoTabView;
 use crate::views::settings_window::SettingsRepoData;
 
@@ -13,93 +14,47 @@ use crate::views::settings_window::SettingsRepoData;
 impl GitForgeApp {
 
     pub(crate) fn active_tab(&self) -> Option<&OpenRepoTab> {
-        let active_id = self.active_repo_tab_id?;
-        self.open_repo_tabs.iter().find(|tab| tab.id == active_id)
+        self.repo_session.active_tab()
     }
 
     pub(crate) fn active_tab_mut(&mut self) -> Option<&mut OpenRepoTab> {
-        let active_id = self.active_repo_tab_id?;
-        self.open_repo_tabs
-            .iter_mut()
-            .find(|tab| tab.id == active_id)
+        self.repo_session.active_tab_mut()
     }
 
     pub(crate) fn active_repo_state(&self) -> Option<&RepoState> {
-        self.active_tab().and_then(|tab| tab.repo_state.as_ref())
+        self.repo_session.active_repo_state()
     }
 
     pub(crate) fn active_repo_handle(&self) -> Option<Arc<Mutex<Option<Repository>>>> {
-        self.active_tab().map(|tab| tab.repo.clone())
+        self.repo_session.active_repo_handle()
     }
 
     pub(crate) fn require_active_repo_handle(&mut self) -> Option<Arc<Mutex<Option<Repository>>>> {
-        let handle = self.active_repo_handle();
-        if handle.is_none() {
-            self.last_error = Some("No repository open".into());
-        }
-        handle
+        self.repo_session.require_active_repo_handle()
     }
 
     pub(crate) fn repo_tab_views(&self) -> Vec<RepoTabView> {
-        self.open_repo_tabs
-            .iter()
-            .map(|tab| RepoTabView {
-                id: tab.id,
-                name: tab
-                    .path
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .unwrap_or("repository")
-                    .to_string(),
-                loading: tab.loading,
-                has_error: tab.last_error.is_some(),
-            })
-            .collect()
+        self.repo_session.repo_tab_views()
     }
 
     pub(crate) fn normalize_repo_path(path: &Path) -> PathBuf {
-        std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+        crate::views::repo_session::RepoSession::normalize_repo_path(path)
     }
 
     pub(crate) fn find_tab_by_path(&self, path: &Path) -> Option<u64> {
-        let normalized = Self::normalize_repo_path(path);
-        self.open_repo_tabs
-            .iter()
-            .find(|tab| Self::normalize_repo_path(&tab.path) == normalized)
-            .map(|tab| tab.id)
+        self.repo_session.find_tab_by_path(path)
     }
 
     pub(crate) fn clear_repo_panels(&mut self) {
-        self.graph_panel
-            .set_data(Vec::new(), Vec::new(), Graph::new(), false);
-        self.diff_panel.clear();
-        self.status_panel.clear();
+        self.repo_session.clear_repo_panels();
     }
 
     pub(crate) fn clear_active_repo_view(&mut self) {
-        self.clear_repo_panels();
-        self.last_error = None;
-        self.loading = false;
+        self.repo_session.clear_active_repo_view();
     }
 
     pub(crate) fn apply_active_repo_tab_to_view(&mut self) {
-        let Some((repo_state, loading, last_error)) = self
-            .active_tab()
-            .map(|tab| (tab.repo_state.clone(), tab.loading, tab.last_error.clone()))
-        else {
-            self.clear_active_repo_view();
-            return;
-        };
-
-        if let Some(repo_state) = repo_state {
-            self.loading = false;
-            self.last_error = None;
-            self.apply_repo_state_to_panels(&repo_state);
-        } else {
-            self.clear_repo_panels();
-            self.loading = loading;
-            self.last_error = last_error;
-        }
+        self.repo_session.apply_active_repo_tab_to_view();
     }
 
     pub fn restore_open_repo_tabs(&mut self, cx: &mut Context<Self>) {
@@ -113,25 +68,26 @@ impl GitForgeApp {
 
         for path in paths {
             let path_buf = PathBuf::from(path);
-            let id = self.next_repo_tab_id;
-            self.next_repo_tab_id += 1;
+            let id = self.repo_session.next_repo_tab_id;
+            self.repo_session.next_repo_tab_id += 1;
             let repo = Arc::new(Mutex::new(None));
-            self.open_repo_tabs.push(OpenRepoTab {
+            self.repo_session.open_repo_tabs.push(OpenRepoTab {
                 id,
                 path: Self::normalize_repo_path(&path_buf),
                 repo,
                 repo_state: None,
                 loading: true,
                 last_error: None,
+                panel_snapshot: None,
             });
             restore_ids.push(id);
         }
 
-        self.active_repo_tab_id = active_path
+        self.repo_session.active_repo_tab_id = active_path
             .as_deref()
-            .and_then(|path| self.find_tab_by_path(Path::new(path)))
+            .and_then(|path| self.repo_session.find_tab_by_path(Path::new(path)))
             .or_else(|| restore_ids.first().copied());
-        self.apply_active_repo_tab_to_view();
+        self.repo_session.apply_active_repo_tab_to_view();
 
         for tab_id in restore_ids {
             self.start_loading_repo_tab(tab_id, cx);
@@ -140,9 +96,10 @@ impl GitForgeApp {
 
     pub(crate) fn open_or_activate_repo_tab(&mut self, path: PathBuf, cx: &mut Context<Self>) {
         let normalized = Self::normalize_repo_path(&path);
-        if let Some(tab_id) = self.find_tab_by_path(&normalized) {
+        if let Some(tab_id) = self.repo_session.find_tab_by_path(&normalized) {
             self.activate_repo_tab(tab_id, cx);
             let should_retry = self
+                .repo_session
                 .open_repo_tabs
                 .iter()
                 .find(|tab| tab.id == tab_id)
@@ -153,35 +110,36 @@ impl GitForgeApp {
             return;
         }
 
-        let id = self.next_repo_tab_id;
-        self.next_repo_tab_id += 1;
+        let id = self.repo_session.next_repo_tab_id;
+        self.repo_session.next_repo_tab_id += 1;
         let repo = Arc::new(Mutex::new(None));
-        self.open_repo_tabs.push(OpenRepoTab {
+        self.repo_session.open_repo_tabs.push(OpenRepoTab {
             id,
             path: normalized,
             repo,
             repo_state: None,
             loading: true,
             last_error: None,
+            panel_snapshot: None,
         });
-        self.active_repo_tab_id = Some(id);
-        self.apply_active_repo_tab_to_view();
+        self.repo_session.active_repo_tab_id = Some(id);
+        self.repo_session.apply_active_repo_tab_to_view();
         self.save_settings();
         cx.notify();
         self.start_loading_repo_tab(id, cx);
     }
 
     pub(crate) fn start_loading_repo_tab(&mut self, tab_id: u64, cx: &mut Context<Self>) {
-        let Some(tab) = self.open_repo_tabs.iter_mut().find(|tab| tab.id == tab_id) else {
+        let Some(tab) = self.repo_session.open_repo_tabs.iter_mut().find(|tab| tab.id == tab_id) else {
             return;
         };
         let path = tab.path.clone();
         let repo_handle = tab.repo.clone();
         tab.loading = true;
         tab.last_error = None;
-        if self.active_repo_tab_id == Some(tab_id) {
-            self.loading = true;
-            self.last_error = None;
+        if self.repo_session.active_repo_tab_id == Some(tab_id) {
+            self.repo_session.loading = true;
+            self.repo_session.last_error = None;
         }
         cx.notify();
 
@@ -224,10 +182,10 @@ impl GitForgeApp {
         result: Result<RepoState, String>,
         cx: &mut Context<Self>,
     ) {
-        let is_active = self.active_repo_tab_id == Some(tab_id);
+        let is_active = self.repo_session.active_repo_tab_id == Some(tab_id);
         match result {
             Ok(repo_state) => {
-                if let Some(tab) = self.open_repo_tabs.iter_mut().find(|tab| tab.id == tab_id) {
+                if let Some(tab) = self.repo_session.open_repo_tabs.iter_mut().find(|tab| tab.id == tab_id) {
                     tab.path = repo_state.path.clone();
                     tab.repo_state = Some(repo_state.clone());
                     tab.loading = false;
@@ -237,13 +195,13 @@ impl GitForgeApp {
                 }
 
                 if is_active {
-                    self.apply_active_repo_tab_to_view();
+                    self.repo_session.apply_active_repo_tab_to_view();
                 }
                 self.record_recent_repo(&repo_state.path);
                 self.save_settings();
             }
             Err(error) => {
-                if let Some(tab) = self.open_repo_tabs.iter_mut().find(|tab| tab.id == tab_id) {
+                if let Some(tab) = self.repo_session.open_repo_tabs.iter_mut().find(|tab| tab.id == tab_id) {
                     tab.loading = false;
                     tab.last_error = Some(format!("Failed to load repository: {}", error));
                 } else {
@@ -251,7 +209,7 @@ impl GitForgeApp {
                 }
 
                 if is_active {
-                    self.apply_active_repo_tab_to_view();
+                    self.repo_session.apply_active_repo_tab_to_view();
                 }
             }
         }
@@ -259,34 +217,42 @@ impl GitForgeApp {
     }
 
     pub fn activate_repo_tab(&mut self, tab_id: u64, cx: &mut Context<Self>) {
-        if self.active_repo_tab_id == Some(tab_id) {
+        if self.repo_session.active_repo_tab_id == Some(tab_id) {
             return;
         }
-        self.active_repo_tab_id = Some(tab_id);
-        self.apply_active_repo_tab_to_view();
+        self.repo_session.save_snapshot_to_active_tab();
+        self.repo_session.active_repo_tab_id = Some(tab_id);
+        self.repo_session.apply_active_repo_tab_to_view();
+        self.repo_session.restore_snapshot_from_tab();
 
         self.save_settings();
         cx.notify();
     }
 
     pub fn close_repo_tab(&mut self, tab_id: u64, cx: &mut Context<Self>) {
-        let Some(index) = self.open_repo_tabs.iter().position(|tab| tab.id == tab_id) else {
+        let Some(index) = self.repo_session.open_repo_tabs.iter().position(|tab| tab.id == tab_id) else {
             return;
         };
-        let closed_path = self.open_repo_tabs[index].path.clone();
-        let was_active = self.active_repo_tab_id == Some(tab_id);
-        self.open_repo_tabs.remove(index);
-        self.push_closed_tab(closed_path);
+        let closed_path = self.repo_session.open_repo_tabs[index].path.clone();
+        let was_active = self.repo_session.active_repo_tab_id == Some(tab_id);
 
         if was_active {
-            self.active_repo_tab_id = if self.open_repo_tabs.is_empty() {
+            self.repo_session.save_snapshot_to_active_tab();
+        }
+
+        self.repo_session.open_repo_tabs.remove(index);
+        self.repo_session.push_closed_tab(closed_path);
+
+        if was_active {
+            self.repo_session.active_repo_tab_id = if self.repo_session.open_repo_tabs.is_empty() {
                 None
             } else if index > 0 {
-                Some(self.open_repo_tabs[index - 1].id)
+                Some(self.repo_session.open_repo_tabs[index - 1].id)
             } else {
-                Some(self.open_repo_tabs[0].id)
+                Some(self.repo_session.open_repo_tabs[0].id)
             };
-            self.apply_active_repo_tab_to_view();
+            self.repo_session.apply_active_repo_tab_to_view();
+            self.repo_session.restore_snapshot_from_tab();
         }
 
         self.save_settings();
@@ -294,12 +260,7 @@ impl GitForgeApp {
     }
 
     pub(crate) fn push_closed_tab(&mut self, path: PathBuf) {
-        let normalized = Self::normalize_repo_path(&path);
-        self.closed_repo_tabs.retain(|p| p != &normalized);
-        self.closed_repo_tabs.push(normalized);
-        while self.closed_repo_tabs.len() > MAX_CLOSED_TABS {
-            self.closed_repo_tabs.remove(0);
-        }
+        self.repo_session.push_closed_tab(path);
     }
 
     pub(crate) fn record_recent_repo(&mut self, path: &Path) {
@@ -313,7 +274,7 @@ impl GitForgeApp {
         }
     }
     pub(crate) fn reopen_closed_tab(&mut self, cx: &mut Context<Self>) {
-        let Some(path) = self.closed_repo_tabs.pop() else {
+        let Some(path) = self.repo_session.closed_repo_tabs.pop() else {
             return;
         };
         self.open_or_activate_repo_tab(path, cx);
@@ -332,7 +293,7 @@ impl GitForgeApp {
     }
 
     pub fn reopen_closed_repo_from_settings(&mut self, path: PathBuf, cx: &mut Context<Self>) {
-        self.closed_repo_tabs.retain(|p| p != &path);
+        self.repo_session.closed_repo_tabs.retain(|p| p != &path);
         self.open_or_activate_repo_tab(path, cx);
         self.notify_settings_window(cx);
     }
@@ -345,12 +306,13 @@ impl GitForgeApp {
     pub fn settings_repo_data(&self) -> SettingsRepoData {
         SettingsRepoData {
             open_tabs: self
+                .repo_session
                 .open_repo_tabs
                 .iter()
                 .map(|tab| (tab.id, tab.path.clone()))
                 .collect(),
             recent_paths: self.settings.recent_repo_paths.clone(),
-            closed_paths: self.closed_repo_tabs.clone(),
+            closed_paths: self.repo_session.closed_repo_tabs.clone(),
         }
     }
 }
