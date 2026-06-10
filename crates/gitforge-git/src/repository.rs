@@ -76,6 +76,17 @@ impl Repository {
         Ok(output)
     }
 
+    pub(crate) fn run_git_raw(&self, args: &[&str]) -> GitResult<std::process::Output> {
+        let label = args[0];
+        Command::new("git")
+            .args(args)
+            .current_dir(&self.path)
+            .output()
+            .map_err(|e| {
+                GitError::OperationFailed(format!("Failed to run git {}: {}", label, e))
+            })
+    }
+
     pub(crate) fn run_git_with_combined_error(&self, args: &[&str]) -> GitResult<String> {
         let label = args[0];
         let output = Command::new("git")

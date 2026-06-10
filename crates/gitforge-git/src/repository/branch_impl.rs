@@ -83,25 +83,38 @@ impl Repository {
     }
 
     pub fn branch_conflicts_with_base(&self, base: &str, branch: &str) -> GitResult<bool> {
-        match self.run_git(&["merge-tree", "--write-tree", base, branch]) {
-            Ok(_) => Ok(false),
+        let output = match self.run_git_raw(&["merge-tree", "--write-tree", base, branch]) {
+            Ok(o) => o,
             Err(err) => {
-                let message = err.to_string();
-                if message.contains("usage: git merge-tree")
-                    || message.contains("unknown option")
-                    || message.contains("not a git command")
+                tracing::warn!(
+                    "Failed to execute git merge-tree, assuming no conflict: {}",
+                    err
+                );
+                return Ok(false);
+            }
+        };
+
+        match output.status.code() {
+            Some(0) => Ok(false),
+            Some(1) => Ok(true),
+            Some(code) => {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                if stderr.contains("usage: git merge-tree")
+                    || stderr.contains("unknown option")
+                    || stderr.contains("not a git command")
                 {
-                    tracing::warn!(
-                        "git merge-tree is unavailable for conflict detection: {}",
-                        message
-                    );
+                    tracing::warn!("git merge-tree is unavailable for conflict detection");
                     return Ok(false);
                 }
-
                 tracing::warn!(
-                    "Unexpected git merge-tree error, assuming no conflict: {}",
-                    message
+                    "Unexpected git merge-tree exit code {}, assuming no conflict: {}",
+                    code,
+                    stderr
                 );
+                Ok(false)
+            }
+            None => {
+                tracing::warn!("git merge-tree terminated by signal, assuming no conflict");
                 Ok(false)
             }
         }
