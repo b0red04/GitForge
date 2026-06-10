@@ -1,7 +1,7 @@
-use crate::error::{GitError, GitResult};
-use crate::repository::Repository;
 use crate::diff::{FileChange, FileChangeKind};
 use crate::diff_stat::parse_numstat;
+use crate::error::{GitError, GitResult};
+use crate::repository::Repository;
 use crate::status::DiffStat;
 use std::collections::HashMap;
 use std::path::Path;
@@ -23,15 +23,31 @@ fn map_change(change: gix::object::tree::diff::ChangeDetached) -> FileChange {
             old_id: Some(id.to_hex().to_string()),
             new_id: None,
         },
-        gix::object::tree::diff::ChangeDetached::Modification { location, previous_id, id, .. } => FileChange {
+        gix::object::tree::diff::ChangeDetached::Modification {
+            location,
+            previous_id,
+            id,
+            ..
+        } => FileChange {
             kind: FileChangeKind::Modified,
             path: location.to_string(),
             old_path: None,
             old_id: Some(previous_id.to_hex().to_string()),
             new_id: Some(id.to_hex().to_string()),
         },
-        gix::object::tree::diff::ChangeDetached::Rewrite { source_location, source_id, location, id, copy, .. } => FileChange {
-            kind: if copy { FileChangeKind::Copied } else { FileChangeKind::Renamed },
+        gix::object::tree::diff::ChangeDetached::Rewrite {
+            source_location,
+            source_id,
+            location,
+            id,
+            copy,
+            ..
+        } => FileChange {
+            kind: if copy {
+                FileChangeKind::Copied
+            } else {
+                FileChangeKind::Renamed
+            },
             path: location.to_string(),
             old_path: Some(source_location.to_string()),
             old_id: Some(source_id.to_hex().to_string()),
@@ -41,11 +57,17 @@ fn map_change(change: gix::object::tree::diff::ChangeDetached) -> FileChange {
 }
 
 impl Repository {
-    pub fn diff_between_commits(&self, old_commit_id: &str, new_commit_id: &str) -> GitResult<Vec<FileChange>> {
+    pub fn diff_between_commits(
+        &self,
+        old_commit_id: &str,
+        new_commit_id: &str,
+    ) -> GitResult<Vec<FileChange>> {
         let old_tree = self.find_commit_tree(old_commit_id)?;
         let new_tree = self.find_commit_tree(new_commit_id)?;
 
-        let changes = self.repo.diff_tree_to_tree(Some(&old_tree), Some(&new_tree), None)
+        let changes = self
+            .repo
+            .diff_tree_to_tree(Some(&old_tree), Some(&new_tree), None)
             .map_err(|e| GitError::OperationFailed(e.to_string()))?;
 
         Ok(changes.into_iter().map(map_change).collect())
@@ -55,23 +77,29 @@ impl Repository {
         let tree = self.find_commit_tree(commit_id)?;
 
         let id = self.parse_object_id(commit_id, "commit ID")?;
-        let commit = self.repo.find_commit(id)
+        let commit = self
+            .repo
+            .find_commit(id)
             .map_err(|e| GitError::OperationFailed(e.to_string()))?;
 
-        let parent_ids: Vec<gix::ObjectId> = commit.parent_ids()
-            .map(|p| p.detach())
-            .collect();
+        let parent_ids: Vec<gix::ObjectId> = commit.parent_ids().map(|p| p.detach()).collect();
 
         let old_tree = match parent_ids.first() {
             Some(pid) => {
-                let parent = self.repo.find_commit(*pid)
+                let parent = self
+                    .repo
+                    .find_commit(*pid)
                     .map_err(|e| GitError::OperationFailed(e.to_string()))?;
-                parent.tree().map_err(|e| GitError::OperationFailed(e.to_string()))?
+                parent
+                    .tree()
+                    .map_err(|e| GitError::OperationFailed(e.to_string()))?
             }
             None => self.repo.empty_tree(),
         };
 
-        let changes = self.repo.diff_tree_to_tree(Some(&old_tree), Some(&tree), None)
+        let changes = self
+            .repo
+            .diff_tree_to_tree(Some(&old_tree), Some(&tree), None)
             .map_err(|e| GitError::OperationFailed(e.to_string()))?;
 
         Ok(changes.into_iter().map(map_change).collect())
@@ -83,7 +111,9 @@ impl Repository {
             .args(["diff-tree", "-p", "--no-color", commit_id])
             .current_dir(&self.path)
             .output()
-            .map_err(|e| GitError::OperationFailed(format!("Failed to run git diff-tree: {}", e)))?;
+            .map_err(|e| {
+                GitError::OperationFailed(format!("Failed to run git diff-tree: {}", e))
+            })?;
 
         if !output.status.success() {
             return Err(GitError::OperationFailed(

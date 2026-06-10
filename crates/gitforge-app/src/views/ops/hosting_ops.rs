@@ -3,7 +3,10 @@ use gpui::Context;
 use crate::views::app::GitForgeApp;
 
 impl GitForgeApp {
-    pub(crate) fn find_hosting_account(&self, provider: &str) -> Option<gitforge_hosting::HostingAccount> {
+    pub(crate) fn find_hosting_account(
+        &self,
+        provider: &str,
+    ) -> Option<gitforge_hosting::HostingAccount> {
         self.hosting_accounts
             .iter()
             .find(|a| a.provider == provider)
@@ -49,7 +52,8 @@ impl GitForgeApp {
         cx.spawn(async move |this, cx| {
             let Some(p) = gitforge_hosting::get_provider(&provider_name) else {
                 this.update(cx, |this, cx| {
-                    this.repo_session.remote_status = format!("Unknown provider: {}", provider_name);
+                    this.repo_session.remote_status =
+                        format!("Unknown provider: {}", provider_name);
                     cx.notify();
                 })
                 .ok();
@@ -63,7 +67,8 @@ impl GitForgeApp {
                     this.update(cx, |this, cx| {
                         this.hosting_accounts.push(account);
                         this.save_hosting_accounts();
-                        this.repo_session.remote_status = "Account authenticated successfully".to_string();
+                        this.repo_session.remote_status =
+                            "Account authenticated successfully".to_string();
                         this.notify_settings_window(cx);
                         cx.notify();
                     })
@@ -227,7 +232,8 @@ impl GitForgeApp {
             let Some(account) = account else {
                 this.update(cx, |this, cx| {
                     this.hosting_repos_loading = false;
-                    this.repo_session.remote_status = format!("No {} account configured.", provider_name);
+                    this.repo_session.remote_status =
+                        format!("No {} account configured.", provider_name);
                     cx.notify();
                 })
                 .ok();

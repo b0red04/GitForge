@@ -1,20 +1,18 @@
 use gpui::*;
 
 use crate::views::app::{
-    GitForgeApp, AppDialog, MainViewMode,
-    OpenRepository, CloseDialog, SelectPrevCommit, SelectNextCommit, BackToDiff, ShowStatusPanel,
-    ShowHistory, RefreshRepository, SoftReset, CreateBranch, StashPush, StashPop, FetchAll,
-    PushCurrent, PullCurrent, ToggleTheme, ShowCommandPalette, NewTab, CloseTab,
-    ReopenClosedTab, InitRepo, OpenRepoManagement, OpenInEditor, OpenInTerminal,
-    OpenInFileManager, OpenInBrowser, Preferences, QuitApp, CloneRepo, CloneFromGithub,
-    CloneFromGitlab, AddRemote, CreateWorktree, OpenSshKey, ManageAccounts, OpenAiSettings,
+    AddRemote, AppDialog, BackToDiff, CloneFromGithub, CloneFromGitlab, CloneRepo, CloseDialog,
+    CloseTab, CreateBranch, CreateWorktree, FetchAll, GitForgeApp, InitRepo, MainViewMode,
+    ManageAccounts, NewTab, OpenAiSettings, OpenInBrowser, OpenInEditor, OpenInFileManager,
+    OpenInTerminal, OpenRepoManagement, OpenRepository, OpenSshKey, Preferences, PullCurrent,
+    PushCurrent, QuitApp, RefreshRepository, ReopenClosedTab, SelectNextCommit, SelectPrevCommit,
+    ShowCommandPalette, ShowHistory, ShowStatusPanel, SoftReset, StashPop, StashPush, ToggleTheme,
     ViewFileAtCommit,
 };
 use crate::views::commands::{CommandAction, TitlebarMenu};
 use crate::views::settings_window::SettingsSection;
 
 impl GitForgeApp {
-
     pub fn toggle_toolbar_more(&mut self, cx: &mut Context<Self>) {
         self.toolbar_more_open = !self.toolbar_more_open;
         cx.notify();
@@ -381,7 +379,11 @@ impl GitForgeApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if let Some(path) = self.repo_session.active_repo_state().map(|r| r.path.clone()) {
+        if let Some(path) = self
+            .repo_session
+            .active_repo_state()
+            .map(|r| r.path.clone())
+        {
             self.open_in_editor(path, cx);
         }
     }
@@ -392,7 +394,11 @@ impl GitForgeApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if let Some(path) = self.repo_session.active_repo_state().map(|r| r.path.clone()) {
+        if let Some(path) = self
+            .repo_session
+            .active_repo_state()
+            .map(|r| r.path.clone())
+        {
             self.open_in_terminal(path, cx);
         }
     }
@@ -403,7 +409,11 @@ impl GitForgeApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if let Some(path) = self.repo_session.active_repo_state().map(|r| r.path.clone()) {
+        if let Some(path) = self
+            .repo_session
+            .active_repo_state()
+            .map(|r| r.path.clone())
+        {
             self.open_in_file_manager(path, cx);
         }
     }

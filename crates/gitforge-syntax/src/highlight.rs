@@ -158,45 +158,75 @@ impl SyntaxHighlighter {
 
     fn scope_for_kind(kind: &str) -> HighlightScope {
         match kind {
-            "function" | "function_item" | "function_declaration" | "method_declaration"
-            | "arrow_function" | "generator_function_declaration" => HighlightScope::Function,
+            "function"
+            | "function_item"
+            | "function_declaration"
+            | "method_declaration"
+            | "arrow_function"
+            | "generator_function_declaration" => HighlightScope::Function,
 
-            "string" | "string_literal" | "string_content" | "template_string"
-            | "raw_string_literal" | "interpreted_string_literal" => HighlightScope::String,
+            "string"
+            | "string_literal"
+            | "string_content"
+            | "template_string"
+            | "raw_string_literal"
+            | "interpreted_string_literal" => HighlightScope::String,
 
-            "integer_literal" | "float_literal" | "number_literal" | "number"
-            | "decimal_integer_literal" | "decimal_literal" => HighlightScope::Number,
+            "integer_literal"
+            | "float_literal"
+            | "number_literal"
+            | "number"
+            | "decimal_integer_literal"
+            | "decimal_literal" => HighlightScope::Number,
 
             "line_comment" | "block_comment" | "comment" => HighlightScope::Comment,
 
-            "type_identifier" | "primitive_type" | "struct_item" | "enum_item"
-            | "trait_item" | "impl_item" | "type_item" | "class_declaration"
-            | "interface_declaration" | "enum_declaration" | "struct_declaration"
-            | "type_declaration" | "generic_type" | "array_type" | "optional_type"
-            | "union_type" | "intersection_type" | "parenthesized_type" => HighlightScope::Type,
+            "type_identifier"
+            | "primitive_type"
+            | "struct_item"
+            | "enum_item"
+            | "trait_item"
+            | "impl_item"
+            | "type_item"
+            | "class_declaration"
+            | "interface_declaration"
+            | "enum_declaration"
+            | "struct_declaration"
+            | "type_declaration"
+            | "generic_type"
+            | "array_type"
+            | "optional_type"
+            | "union_type"
+            | "intersection_type"
+            | "parenthesized_type" => HighlightScope::Type,
 
-            "identifier" | "value_identifier" | "property_identifier"
-            | "shorthand_property_identifier" | "field_identifier" => HighlightScope::Variable,
+            "identifier"
+            | "value_identifier"
+            | "property_identifier"
+            | "shorthand_property_identifier"
+            | "field_identifier" => HighlightScope::Variable,
 
-            "keyword" | "if" | "else" | "for" | "while" | "loop" | "match" | "return"
-            | "let" | "const" | "var" | "fn" | "func" | "def" | "class" | "struct"
-            | "enum" | "impl" | "trait" | "pub" | "mut" | "use" | "import" | "export"
-            | "from" | "async" | "await" | "try" | "catch" | "throw" | "new" | "delete"
-            | "break" | "continue" | "goto" | "switch" | "case" | "default"
-            | "true" | "false" | "None" | "null" | "nil" | "self" | "Self"
-            | "where" | "mod" | "crate" | "super" | "as" | "in" | "ref"
-            | "static" | "type" | "unsafe" | "extern" | "yield" | "with"
-            | "raise" | "pass" | "lambda" | "global" | "nonlocal" | "assert"
-            | "package" | "interface" | "extends" | "implements" | "abstract"
-            | "final" | "private" | "protected" | "public" | "synchronized"
-            | "volatile" | "transient" | "native" | "throws"
-            | "select" | "chan" | "defer" | "go" | "range" | "map"
-            | "make" | "append" | "cap" | "copy" | "len" | "close" | "panic"
-            | "recover" => HighlightScope::Keyword,
+            "keyword" | "if" | "else" | "for" | "while" | "loop" | "match" | "return" | "let"
+            | "const" | "var" | "fn" | "func" | "def" | "class" | "struct" | "enum" | "impl"
+            | "trait" | "pub" | "mut" | "use" | "import" | "export" | "from" | "async"
+            | "await" | "try" | "catch" | "throw" | "new" | "delete" | "break" | "continue"
+            | "goto" | "switch" | "case" | "default" | "true" | "false" | "None" | "null"
+            | "nil" | "self" | "Self" | "where" | "mod" | "crate" | "super" | "as" | "in"
+            | "ref" | "static" | "type" | "unsafe" | "extern" | "yield" | "with" | "raise"
+            | "pass" | "lambda" | "global" | "nonlocal" | "assert" | "package" | "interface"
+            | "extends" | "implements" | "abstract" | "final" | "private" | "protected"
+            | "public" | "synchronized" | "volatile" | "transient" | "native" | "throws"
+            | "select" | "chan" | "defer" | "go" | "range" | "map" | "make" | "append" | "cap"
+            | "copy" | "len" | "close" | "panic" | "recover" => HighlightScope::Keyword,
 
-            "property" | "field_expression" | "member_expression"
-            | "subscript_expression" | "attribute_item" | "meta_item"
-            | "outer_attribute_item" | "inner_attribute_item" => HighlightScope::Property,
+            "property"
+            | "field_expression"
+            | "member_expression"
+            | "subscript_expression"
+            | "attribute_item"
+            | "meta_item"
+            | "outer_attribute_item"
+            | "inner_attribute_item" => HighlightScope::Property,
 
             _ => HighlightScope::Default,
         }

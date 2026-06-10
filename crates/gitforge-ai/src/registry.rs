@@ -2,12 +2,12 @@ use anyhow::{Result, bail};
 use std::str::FromStr;
 
 use crate::config::{ProviderConfig, ZaiEndpoint};
+use crate::get_api_key;
 use crate::provider::AiProvider;
 use crate::providers::{
     AnthropicProvider, OllamaProvider, list_ollama_models, list_openai_compatible_models,
     openai_provider, zai_models_base_url, zai_provider,
 };
-use crate::get_api_key;
 
 #[derive(Debug, Clone, Copy)]
 pub struct ProviderDescriptor {
@@ -94,7 +94,8 @@ pub async fn list_models_for_provider(
 ) -> Result<Vec<String>> {
     match provider {
         "openai" => {
-            let api_key = api_key.ok_or_else(|| anyhow::anyhow!("OpenAI API key not configured"))?;
+            let api_key =
+                api_key.ok_or_else(|| anyhow::anyhow!("OpenAI API key not configured"))?;
             list_openai_compatible_models(crate::providers::openai::OPENAI_BASE_URL, &api_key).await
         }
         "zai" => {

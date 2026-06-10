@@ -1,8 +1,8 @@
+use crate::commit::CommitInfo;
 use crate::error::GitResult;
+use crate::reference::RefInfo;
 use crate::repository::Repository;
 use crate::repository::log_impl::CommitLogOptions;
-use crate::commit::CommitInfo;
-use crate::reference::RefInfo;
 use crate::status::RepoStatus;
 use crate::worktree::WorktreeInfo;
 use std::path::{Path, PathBuf};
@@ -38,7 +38,10 @@ impl RepoState {
         Self::from_repository_with_options(repo, RepoLoadOptions::default())
     }
 
-    pub fn from_repository_with_options(repo: &Repository, options: RepoLoadOptions) -> GitResult<Self> {
+    pub fn from_repository_with_options(
+        repo: &Repository,
+        options: RepoLoadOptions,
+    ) -> GitResult<Self> {
         let start = std::time::Instant::now();
 
         let head_branch = repo.head_branch()?;
@@ -76,7 +79,10 @@ impl RepoState {
         Self::from_repository_with_options(&repo, options)
     }
 
-    pub fn discover_with_repo(path: &Path, options: RepoLoadOptions) -> GitResult<(Repository, Self)> {
+    pub fn discover_with_repo(
+        path: &Path,
+        options: RepoLoadOptions,
+    ) -> GitResult<(Repository, Self)> {
         let repo = Repository::discover(path)?;
         let state = Self::from_repository_with_options(&repo, options)?;
         Ok((repo, state))

@@ -100,8 +100,14 @@ impl AppColors {
             diff_hunk_header: parse_hex(&c.diff_hunk_header),
 
             graph_lanes: [
-                &c.graph_lane_1, &c.graph_lane_2, &c.graph_lane_3, &c.graph_lane_4,
-                &c.graph_lane_5, &c.graph_lane_6, &c.graph_lane_7, &c.graph_lane_8,
+                &c.graph_lane_1,
+                &c.graph_lane_2,
+                &c.graph_lane_3,
+                &c.graph_lane_4,
+                &c.graph_lane_5,
+                &c.graph_lane_6,
+                &c.graph_lane_7,
+                &c.graph_lane_8,
             ]
             .iter()
             .map(|s| parse_hex(s))

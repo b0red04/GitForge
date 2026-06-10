@@ -79,9 +79,8 @@ pub fn get_api_key(provider: &str) -> Result<String> {
         return Ok(key);
     }
 
-    get_from_keyring(provider).map_err(|_| {
-        anyhow::anyhow!("API key not configured for provider \"{provider}\"")
-    })
+    get_from_keyring(provider)
+        .map_err(|_| anyhow::anyhow!("API key not configured for provider \"{provider}\""))
 }
 
 pub fn has_api_key(provider: &str) -> bool {

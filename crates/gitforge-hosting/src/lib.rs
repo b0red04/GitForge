@@ -1,15 +1,15 @@
-pub mod provider;
+pub mod codeberg;
 pub mod github;
 pub mod gitlab;
-pub mod codeberg;
 pub mod models;
+pub mod provider;
 pub mod urls;
 
-pub use provider::HostingProvider;
-pub use models::{HostingAccount, RemoteRepo};
+pub use codeberg::CodebergProvider;
 pub use github::GitHubProvider;
 pub use gitlab::GitLabProvider;
-pub use codeberg::CodebergProvider;
+pub use models::{HostingAccount, RemoteRepo};
+pub use provider::HostingProvider;
 
 pub fn get_provider(name: &str) -> Option<Box<dyn HostingProvider>> {
     match name {
@@ -20,6 +20,9 @@ pub fn get_provider(name: &str) -> Option<Box<dyn HostingProvider>> {
     }
 }
 
-pub fn find_account<'a>(accounts: &'a [HostingAccount], provider: &str) -> Option<&'a HostingAccount> {
+pub fn find_account<'a>(
+    accounts: &'a [HostingAccount],
+    provider: &str,
+) -> Option<&'a HostingAccount> {
     accounts.iter().find(|a| a.provider == provider)
 }

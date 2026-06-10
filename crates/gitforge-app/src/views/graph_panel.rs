@@ -4,14 +4,35 @@ use gitforge_ui::{AppColors, rgba_to_hsla};
 use gpui::*;
 use std::ops::Range;
 
-use super::layout::{self, HASH_COL, REF_COL_MIN, ROW_HEIGHT, TIME_COL};
+use super::layout::{self, HASH_COL, ROW_HEIGHT, TIME_COL};
 
-const GRAPH_COL_WIDTH: f32 = layout::GRAPH_LANE_WIDTH;
 const LEFT_PADDING: f32 = 12.0;
 const LANE_WIDTH: f32 = 16.0;
 const COMMIT_CIRCLE_RADIUS: f32 = 3.5;
 const COMMIT_CIRCLE_STROKE_WIDTH: f32 = 1.5;
 const LINE_WIDTH: f32 = 1.5;
+const GRAPH_COL_MIN: f32 = 80.0;
+const GRAPH_COL_MAX: f32 = 320.0;
+const HASH_COL_MIN: f32 = 48.0;
+const HASH_COL_MAX: f32 = 140.0;
+const TIME_COL_MIN: f32 = 70.0;
+const TIME_COL_MAX: f32 = 160.0;
+const VISIBLE_REF_PILLS: usize = 4;
+const RESIZE_HANDLE_WIDTH: f32 = 6.0;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HistoryColumn {
+    Graph,
+    Sha,
+    Time,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct HistoryColumnResize {
+    column: HistoryColumn,
+    start_x: f32,
+    start_width: f32,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GraphSelection {
@@ -31,6 +52,10 @@ pub struct GraphPanel {
     filtered_indices: Vec<usize>,
     use_filtered: bool,
     commit_index: std::collections::HashMap<String, usize>,
+    graph_col_width: f32,
+    hash_col_width: f32,
+    time_col_width: f32,
+    active_resize: Option<HistoryColumnResize>,
 }
 
 impl GraphPanel {
@@ -46,6 +71,10 @@ impl GraphPanel {
             filtered_indices: Vec::new(),
             use_filtered: false,
             commit_index: std::collections::HashMap::new(),
+            graph_col_width: layout::GRAPH_LANE_WIDTH,
+            hash_col_width: HASH_COL,
+            time_col_width: TIME_COL,
+            active_resize: None,
         }
     }
 
@@ -212,6 +241,48 @@ impl GraphPanel {
         self.commits.iter().position(|c| c.id == commit_id)
     }
 
+    fn start_column_resize(&mut self, column: HistoryColumn, start_x: f32) {
+        let start_width = match column {
+            HistoryColumn::Graph => self.graph_col_width,
+            HistoryColumn::Sha => self.hash_col_width,
+            HistoryColumn::Time => self.time_col_width,
+        };
+        self.active_resize = Some(HistoryColumnResize {
+            column,
+            start_x,
+            start_width,
+        });
+    }
+
+    fn update_column_resize(&mut self, current_x: f32) -> bool {
+        let Some(active_resize) = self.active_resize else {
+            return false;
+        };
+
+        let delta = current_x - active_resize.start_x;
+        let (target, min, max) = match active_resize.column {
+            HistoryColumn::Graph => (&mut self.graph_col_width, GRAPH_COL_MIN, GRAPH_COL_MAX),
+            HistoryColumn::Sha => (&mut self.hash_col_width, HASH_COL_MIN, HASH_COL_MAX),
+            HistoryColumn::Time => (&mut self.time_col_width, TIME_COL_MIN, TIME_COL_MAX),
+        };
+        let signed_delta = match active_resize.column {
+            HistoryColumn::Time => -delta,
+            HistoryColumn::Graph | HistoryColumn::Sha => delta,
+        };
+        let next_width = (active_resize.start_width + signed_delta).clamp(min, max);
+
+        if (*target - next_width).abs() < f32::EPSILON {
+            return false;
+        }
+
+        *target = next_width;
+        true
+    }
+
+    fn finish_column_resize(&mut self) -> bool {
+        self.active_resize.take().is_some()
+    }
+
     pub fn render(
         &self,
         colors: &AppColors,
@@ -264,7 +335,18 @@ impl GraphPanel {
                     .child(filter_label.to_string()),
             );
 
-        let column_headers = render_column_headers(border, muted);
+        let graph_col_width = self.graph_col_width;
+        let hash_col_width = self.hash_col_width;
+        let time_col_width = self.time_col_width;
+        let resize_events = render_resize_event_listener(entity.clone());
+        let column_headers = render_column_headers(
+            border,
+            muted,
+            entity.clone(),
+            graph_col_width,
+            hash_col_width,
+            time_col_width,
+        );
 
         if self.commits.is_empty() {
             return history_panel_shell(bg, border)
@@ -277,7 +359,8 @@ impl GraphPanel {
                         .items_center()
                         .justify_center()
                         .child(div().text_color(accent).child("No commits to display")),
-                );
+                )
+                .child(resize_events);
         }
 
         let total_items = self.commits.len() + if self.has_uncommitted { 1 } else { 0 };
@@ -289,6 +372,7 @@ impl GraphPanel {
         let cl = colors.clone();
         let cl_canvas = cl.clone();
         let scroll_handle = self.scroll_handle.clone();
+        let list_entity = entity.clone();
 
         let list = uniform_list(
             "commit-list",
@@ -305,7 +389,7 @@ impl GraphPanel {
                         } else {
                             rgba_to_hsla(cl_for_row.background)
                         };
-                        let wip_entity = entity.clone();
+                        let wip_entity = list_entity.clone();
                         let row = div()
                             .id("uncommitted-row")
                             .px_0()
@@ -330,8 +414,10 @@ impl GraphPanel {
                                     });
                                 }
                             })
-                            .child(empty_refs_column())
-                            .child(graph_spacer())
+                            .child(graph_spacer(graph_col_width))
+                            .child(resize_spacer())
+                            .child(div().w(px(hash_col_width)).flex_shrink_0())
+                            .child(resize_spacer())
                             .child(
                                 div()
                                     .flex_1()
@@ -341,7 +427,8 @@ impl GraphPanel {
                                     .text_color(rgba_to_hsla(cl_for_row.warning))
                                     .child("Uncommitted Changes"),
                             )
-                            .child(div().w(px(TIME_COL)).flex_shrink_0());
+                            .child(resize_spacer())
+                            .child(div().w(px(time_col_width)).flex_shrink_0());
 
                         rows.push(row.into_any_element());
                         continue;
@@ -363,11 +450,11 @@ impl GraphPanel {
                         })
                         .collect();
 
-                    let summary: String = commit.summary.chars().take(60).collect();
+                    let summary = commit.summary.clone();
                     let short_id = commit.short_id.clone();
 
-                    let click_entity = entity.clone();
-                    let refs_col = render_refs_column(&refs_for_commit, &cl);
+                    let click_entity = list_entity.clone();
+                    let ref_pills = render_ref_pills(&refs_for_commit, &cl);
                     let time_label = format_relative_time(&commit.author_date);
 
                     let row = div()
@@ -394,11 +481,11 @@ impl GraphPanel {
                                 });
                             }
                         })
-                        .child(refs_col)
-                        .child(graph_spacer())
+                        .child(graph_spacer(graph_col_width))
+                        .child(resize_spacer())
                         .child(
                             div()
-                                .w(px(HASH_COL))
+                                .w(px(hash_col_width))
                                 .flex_shrink_0()
                                 .pl_2()
                                 .text_xs()
@@ -406,20 +493,33 @@ impl GraphPanel {
                                 .text_color(rgba_to_hsla(cl.accent))
                                 .child(short_id),
                         )
+                        .child(resize_spacer())
                         .child(
                             div()
                                 .flex_1()
+                                .min_w(px(0.0))
                                 .text_sm()
                                 .pl_1()
                                 .pr_2()
                                 .text_color(rgba_to_hsla(cl.text))
+                                .flex()
+                                .flex_row()
+                                .items_center()
+                                .gap_1()
                                 .overflow_hidden()
-                                .text_ellipsis()
-                                .child(summary),
+                                .child(ref_pills)
+                                .child(
+                                    div()
+                                        .min_w(px(0.0))
+                                        .overflow_hidden()
+                                        .text_ellipsis()
+                                        .child(summary),
+                                ),
                         )
+                        .child(resize_spacer())
                         .child(
                             div()
-                                .w(px(TIME_COL))
+                                .w(px(time_col_width))
                                 .flex_shrink_0()
                                 .pr_2()
                                 .text_xs()
@@ -452,7 +552,7 @@ impl GraphPanel {
                 );
             },
         )
-        .w(px(GRAPH_COL_WIDTH))
+        .w(px(graph_col_width))
         .h_full();
 
         history_panel_shell(bg, border)
@@ -468,22 +568,24 @@ impl GraphPanel {
                     .child(
                         div()
                             .absolute()
-                            .left(px(REF_COL_MIN))
+                            .left(px(0.0))
                             .top(px(0.0))
-                            .w(px(GRAPH_COL_WIDTH))
+                            .w(px(graph_col_width))
                             .h_full()
                             .overflow_hidden()
                             .child(graph_canvas),
                     ),
             )
+            .child(resize_events)
     }
 }
 
-fn graph_spacer() -> Div {
-    div()
-        .w(px(GRAPH_COL_WIDTH))
-        .h(px(ROW_HEIGHT))
-        .flex_shrink_0()
+fn graph_spacer(width: f32) -> Div {
+    div().w(px(width)).h(px(ROW_HEIGHT)).flex_shrink_0()
+}
+
+fn resize_spacer() -> Div {
+    div().w(px(RESIZE_HANDLE_WIDTH)).flex_shrink_0()
 }
 
 fn lane_center_x(bounds: Bounds<Pixels>, lane: f32) -> Pixels {
@@ -779,11 +881,63 @@ fn history_panel_shell(bg: Hsla, border: Hsla) -> Div {
         .bg(bg)
         .border_r_1()
         .border_color(border)
+        .relative()
         .flex()
         .flex_col()
 }
 
-fn render_column_headers(border: Hsla, muted: Hsla) -> Div {
+fn render_resize_event_listener(entity: WeakEntity<super::app::GitForgeApp>) -> impl IntoElement {
+    canvas(
+        |_bounds, _window, _cx| {},
+        move |_bounds, _: (), window: &mut Window, _cx: &mut App| {
+            window.on_mouse_event({
+                let entity = entity.clone();
+                move |ev: &MouseMoveEvent, _, _, cx| {
+                    if !ev.dragging() {
+                        return;
+                    }
+
+                    if let Some(e) = entity.upgrade() {
+                        e.update(cx, |this, cx| {
+                            let current_x = ev.position.x / px(1.0);
+                            if this
+                                .repo_session
+                                .graph_panel
+                                .update_column_resize(current_x)
+                            {
+                                cx.notify();
+                            }
+                        });
+                    }
+                }
+            });
+
+            window.on_mouse_event({
+                let entity = entity.clone();
+                move |_ev: &MouseUpEvent, _, _, cx| {
+                    if let Some(e) = entity.upgrade() {
+                        e.update(cx, |this, cx| {
+                            if this.repo_session.graph_panel.finish_column_resize() {
+                                cx.notify();
+                            }
+                        });
+                    }
+                }
+            });
+        },
+    )
+    .absolute()
+    .size_full()
+}
+
+fn render_column_headers(
+    border: Hsla,
+    muted: Hsla,
+    entity: WeakEntity<super::app::GitForgeApp>,
+    graph_col_width: f32,
+    hash_col_width: f32,
+    time_col_width: f32,
+) -> Div {
     div()
         .px_2()
         .py_1()
@@ -794,19 +948,35 @@ fn render_column_headers(border: Hsla, muted: Hsla) -> Div {
         .items_center()
         .text_xs()
         .text_color(muted)
-        .child(div().w(px(REF_COL_MIN)).flex_shrink_0().child("REFS"))
         .child(
             div()
-                .w(px(GRAPH_COL_WIDTH))
+                .w(px(graph_col_width))
                 .flex_shrink_0()
                 .text_align(TextAlign::Center)
                 .child("GRAPH"),
         )
-        .child(div().w(px(HASH_COL)).flex_shrink_0().pl_2().child("SHA"))
-        .child(div().flex_1().pl_1().child("MESSAGE"))
+        .child(render_resize_handle(
+            HistoryColumn::Graph,
+            entity.clone(),
+            border,
+        ))
         .child(
             div()
-                .w(px(TIME_COL))
+                .w(px(hash_col_width))
+                .flex_shrink_0()
+                .pl_2()
+                .child("SHA"),
+        )
+        .child(render_resize_handle(
+            HistoryColumn::Sha,
+            entity.clone(),
+            border,
+        ))
+        .child(div().flex_1().pl_1().child("DESCRIPTION"))
+        .child(render_resize_handle(HistoryColumn::Time, entity, border))
+        .child(
+            div()
+                .w(px(time_col_width))
                 .flex_shrink_0()
                 .pr_2()
                 .text_align(TextAlign::Right)
@@ -814,52 +984,116 @@ fn render_column_headers(border: Hsla, muted: Hsla) -> Div {
         )
 }
 
-fn empty_refs_column() -> Div {
-    div().w(px(REF_COL_MIN)).flex_shrink_0()
+fn render_resize_handle(
+    column: HistoryColumn,
+    entity: WeakEntity<super::app::GitForgeApp>,
+    border: Hsla,
+) -> impl IntoElement {
+    div()
+        .id(ElementId::Name(format!("history-resize-{column:?}").into()))
+        .w(px(RESIZE_HANDLE_WIDTH))
+        .h(px(ROW_HEIGHT - 8.0))
+        .flex_shrink_0()
+        .cursor(CursorStyle::ResizeColumn)
+        .rounded(px(2.0))
+        .hover(move |div| div.bg(border))
+        .on_mouse_down(MouseButton::Left, move |ev, _window, cx| {
+            if let Some(e) = entity.upgrade() {
+                e.update(cx, |this, cx| {
+                    this.repo_session
+                        .graph_panel
+                        .start_column_resize(column, ev.position.x / px(1.0));
+                    cx.notify();
+                });
+            }
+            cx.stop_propagation();
+        })
 }
 
-fn render_refs_column(refs: &[&RefInfo], cl: &AppColors) -> Div {
-    let mut col = div()
-        .w(px(REF_COL_MIN))
-        .min_w(px(REF_COL_MIN))
-        .flex_shrink_0()
+fn render_ref_pills(refs: &[&RefInfo], cl: &AppColors) -> Div {
+    let mut row = div()
         .flex()
         .flex_row()
         .items_center()
         .gap_1()
-        .px_1()
         .overflow_hidden();
 
-    for rf in refs.iter().take(3) {
-        let pill_color = match rf.kind {
-            RefKind::Branch => rgba_to_hsla(cl.ref_branch),
-            RefKind::RemoteBranch => rgba_to_hsla(cl.ref_remote),
-            RefKind::Tag => rgba_to_hsla(cl.ref_tag),
-            _ => rgba_to_hsla(cl.text_muted),
-        };
-        let label = if rf.is_head {
-            "HEAD".to_string()
-        } else {
-            let name = &rf.name;
-            if name.len() > 12 {
-                format!("{}…", &name[..11])
-            } else {
-                name.clone()
-            }
-        };
-        col = col.child(
+    for rf in refs.iter().take(VISIBLE_REF_PILLS) {
+        row = row.child(render_ref_pill(rf, cl));
+    }
+
+    let hidden_count = refs.len().saturating_sub(VISIBLE_REF_PILLS);
+    if hidden_count > 0 {
+        let bg = cl.surface_high;
+        row = row.child(
             div()
-                .px_1()
-                .rounded(px(2.0))
-                .bg(pill_color)
+                .px_2()
+                .border_1()
+                .border_color(rgba_to_hsla(cl.border))
+                .rounded(px(3.0))
+                .bg(rgba_to_hsla(bg))
                 .text_xs()
-                .text_color(rgba_to_hsla(cl.text))
+                .text_color(contrast_text_for(bg))
                 .flex_shrink_0()
-                .child(label),
+                .child(format!("+{hidden_count}")),
         );
     }
 
-    col
+    row
+}
+
+fn render_ref_pill(rf: &RefInfo, cl: &AppColors) -> Div {
+    let pill_color = ref_pill_color(rf, cl);
+    div()
+        .px_2()
+        .border_1()
+        .border_color(rgba_to_hsla(cl.border))
+        .rounded(px(3.0))
+        .bg(rgba_to_hsla(pill_color))
+        .text_xs()
+        .text_color(contrast_text_for(pill_color))
+        .flex_shrink_0()
+        .child(ref_pill_label(rf))
+}
+
+fn ref_pill_color(rf: &RefInfo, cl: &AppColors) -> Rgba {
+    if rf.is_head {
+        return cl.ref_head;
+    }
+
+    match rf.kind {
+        RefKind::Branch => cl.ref_branch,
+        RefKind::RemoteBranch => cl.ref_remote,
+        RefKind::Tag => cl.ref_tag,
+        _ => cl.surface_high,
+    }
+}
+
+fn ref_pill_label(rf: &RefInfo) -> String {
+    if rf.is_head {
+        return "HEAD".to_string();
+    }
+
+    truncate_chars(&rf.name, 20)
+}
+
+fn truncate_chars(value: &str, max_chars: usize) -> String {
+    let mut chars = value.chars();
+    let prefix: String = chars.by_ref().take(max_chars).collect();
+    if chars.next().is_some() {
+        format!("{prefix}...")
+    } else {
+        prefix
+    }
+}
+
+fn contrast_text_for(bg: Rgba) -> Hsla {
+    let luminance = 0.2126 * bg.r + 0.7152 * bg.g + 0.0722 * bg.b;
+    if luminance > 0.5 {
+        hsla(0.0, 0.0, 0.08, 1.0)
+    } else {
+        hsla(0.0, 0.0, 0.96, 1.0)
+    }
 }
 
 fn format_relative_time(dt: &chrono::DateTime<chrono::Utc>) -> String {

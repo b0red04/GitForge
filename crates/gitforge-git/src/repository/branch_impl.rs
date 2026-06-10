@@ -38,7 +38,12 @@ impl Repository {
     }
 
     /// Spawns a `git` subprocess.
-    pub fn create_tag(&self, name: &str, message: Option<&str>, target: Option<&str>) -> GitResult<()> {
+    pub fn create_tag(
+        &self,
+        name: &str,
+        message: Option<&str>,
+        target: Option<&str>,
+    ) -> GitResult<()> {
         let mut args = vec!["tag"];
         if let Some(msg) = message {
             args.extend(["-a", name, "-m", msg]);

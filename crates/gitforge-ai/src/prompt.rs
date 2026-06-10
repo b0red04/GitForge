@@ -70,9 +70,7 @@ pub fn build_multi_commit_message_prompt(
 
 fn tone_instruction_for_single(tone: &str, summary_max_chars: u32) -> String {
     if summary_max_chars > 0 {
-        return format!(
-            "Keep the summary line under {summary_max_chars} characters."
-        );
+        return format!("Keep the summary line under {summary_max_chars} characters.");
     }
     match tone {
         "concise" => {
@@ -98,8 +96,11 @@ fn tone_instruction_for_multi(tone: &str, variation: &str, summary_max_chars: u3
     }
     match tone {
         "concise" => "At least one option should be very short (under 50 characters).".to_string(),
-        "detailed" => "At least one option should include a summary line and a detailed body.".to_string(),
-        _ => "Options should vary between concise summaries and moderately detailed messages.".to_string(),
+        "detailed" => {
+            "At least one option should include a summary line and a detailed body.".to_string()
+        }
+        _ => "Options should vary between concise summaries and moderately detailed messages."
+            .to_string(),
     }
 }
 

@@ -21,7 +21,12 @@ impl Repository {
     }
 
     /// Spawns a `git` subprocess.
-    pub fn submodule_update(&self, path: Option<&Path>, init: bool, recursive: bool) -> GitResult<()> {
+    pub fn submodule_update(
+        &self,
+        path: Option<&Path>,
+        init: bool,
+        recursive: bool,
+    ) -> GitResult<()> {
         let mut args = vec!["submodule", "update"];
         if init {
             args.push("--init");

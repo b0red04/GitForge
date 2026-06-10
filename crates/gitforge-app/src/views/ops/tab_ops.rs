@@ -12,7 +12,6 @@ use crate::views::settings_window::SettingsRepoData;
 
 #[allow(dead_code)]
 impl GitForgeApp {
-
     pub(crate) fn active_tab(&self) -> Option<&OpenRepoTab> {
         self.repo_session.active_tab()
     }
@@ -130,7 +129,12 @@ impl GitForgeApp {
     }
 
     pub(crate) fn start_loading_repo_tab(&mut self, tab_id: u64, cx: &mut Context<Self>) {
-        let Some(tab) = self.repo_session.open_repo_tabs.iter_mut().find(|tab| tab.id == tab_id) else {
+        let Some(tab) = self
+            .repo_session
+            .open_repo_tabs
+            .iter_mut()
+            .find(|tab| tab.id == tab_id)
+        else {
             return;
         };
         let path = tab.path.clone();
@@ -185,7 +189,12 @@ impl GitForgeApp {
         let is_active = self.repo_session.active_repo_tab_id == Some(tab_id);
         match result {
             Ok(repo_state) => {
-                if let Some(tab) = self.repo_session.open_repo_tabs.iter_mut().find(|tab| tab.id == tab_id) {
+                if let Some(tab) = self
+                    .repo_session
+                    .open_repo_tabs
+                    .iter_mut()
+                    .find(|tab| tab.id == tab_id)
+                {
                     tab.path = repo_state.path.clone();
                     tab.repo_state = Some(repo_state.clone());
                     tab.loading = false;
@@ -201,7 +210,12 @@ impl GitForgeApp {
                 self.save_settings();
             }
             Err(error) => {
-                if let Some(tab) = self.repo_session.open_repo_tabs.iter_mut().find(|tab| tab.id == tab_id) {
+                if let Some(tab) = self
+                    .repo_session
+                    .open_repo_tabs
+                    .iter_mut()
+                    .find(|tab| tab.id == tab_id)
+                {
                     tab.loading = false;
                     tab.last_error = Some(format!("Failed to load repository: {}", error));
                 } else {
@@ -230,7 +244,12 @@ impl GitForgeApp {
     }
 
     pub fn close_repo_tab(&mut self, tab_id: u64, cx: &mut Context<Self>) {
-        let Some(index) = self.repo_session.open_repo_tabs.iter().position(|tab| tab.id == tab_id) else {
+        let Some(index) = self
+            .repo_session
+            .open_repo_tabs
+            .iter()
+            .position(|tab| tab.id == tab_id)
+        else {
             return;
         };
         let closed_path = self.repo_session.open_repo_tabs[index].path.clone();
@@ -265,9 +284,7 @@ impl GitForgeApp {
 
     pub(crate) fn record_recent_repo(&mut self, path: &Path) {
         let path_str = path.to_string_lossy().to_string();
-        self.settings
-            .recent_repo_paths
-            .retain(|p| p != &path_str);
+        self.settings.recent_repo_paths.retain(|p| p != &path_str);
         self.settings.recent_repo_paths.insert(0, path_str);
         while self.settings.recent_repo_paths.len() > 20 {
             self.settings.recent_repo_paths.pop();

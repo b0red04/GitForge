@@ -66,31 +66,27 @@ impl SettingsSection {
                 "one",
                 "matrix",
             ],
-            SettingsSection::ExternalTools => {
-                &["editor", "terminal", "diff", "merge", "tool"]
-            }
+            SettingsSection::ExternalTools => &["editor", "terminal", "diff", "merge", "tool"],
             SettingsSection::Sidebar => &["branches", "remotes", "tags", "expand"],
             SettingsSection::Graph => &["checkpoint", "refs", "graph", "commit", "limit"],
-            SettingsSection::Ai => {
-                &[
-                    "provider",
-                    "model",
-                    "ollama",
-                    "openai",
-                    "anthropic",
-                    "zai",
-                    "glm",
-                    "coding",
-                    "api",
-                    "tone",
-                    "options",
-                    "variation",
-                    "temperature",
-                    "diff",
-                    "preset",
-                    "commit",
-                ]
-            }
+            SettingsSection::Ai => &[
+                "provider",
+                "model",
+                "ollama",
+                "openai",
+                "anthropic",
+                "zai",
+                "glm",
+                "coding",
+                "api",
+                "tone",
+                "options",
+                "variation",
+                "temperature",
+                "diff",
+                "preset",
+                "commit",
+            ],
             SettingsSection::Repositories => &["recent", "tabs", "repo", "open", "closed"],
             SettingsSection::Accounts => &["github", "gitlab", "codeberg", "hosting", "pat"],
         };
@@ -288,7 +284,11 @@ fn commit_preset_control(
     let text = rgba_to_hsla(colors.text);
     let surface = rgba_to_hsla(colors.surface);
 
-    let presets = [("Quick", "quick"), ("Standard", "standard"), ("Detailed", "detailed")];
+    let presets = [
+        ("Quick", "quick"),
+        ("Standard", "standard"),
+        ("Detailed", "detailed"),
+    ];
     let mut row = div().flex().gap_1();
     for (label, id) in presets {
         let ent = entity.clone();
@@ -938,12 +938,18 @@ fn render_sidebar(
         let bg = if is_active { surface_high } else { surface };
         nav = nav.child(
             div()
-                .id(ElementId::Name(format!("settings-nav-{}", section.label()).into()))
+                .id(ElementId::Name(
+                    format!("settings-nav-{}", section.label()).into(),
+                ))
                 .px_3()
                 .py_2()
                 .bg(bg)
                 .border_l_2()
-                .border_color(if is_active { accent } else { gpui::transparent_black() })
+                .border_color(if is_active {
+                    accent
+                } else {
+                    gpui::transparent_black()
+                })
                 .cursor_pointer()
                 .hover(|s| s.bg(hover))
                 .flex()
@@ -976,62 +982,58 @@ fn render_sidebar(
         .border_r_1()
         .border_color(border)
         .child(
-            div()
-                .p_3()
-                .border_b_1()
-                .border_color(border)
-                .child(
-                    div()
-                        .id("settings-search")
-                        .track_focus(&fh)
-                        .px_2()
-                        .py_1()
-                        .border_1()
-                        .border_color(border)
-                        .rounded(px(4.0))
-                        .bg(surface_high)
-                        .cursor_pointer()
-                        .on_click({
-                            let fh2 = fh.clone();
-                            move |_ev, window, _cx| {
-                                window.focus(&fh2);
-                            }
-                        })
-                        .on_key_down({
-                            let ent = ent_search.clone();
-                            move |ev: &KeyDownEvent, _window, cx| {
-                                if let Some(e) = ent.upgrade() {
-                                    e.update(cx, |this, cx| {
-                                        this.focused_field = SettingsTextField::Search;
-                                        match ev.keystroke.key.as_str() {
-                                            "backspace" => this.edit_search(None, cx),
-                                            _ => {
-                                                if let Some(ch) = ev.keystroke.key_char.clone() {
-                                                    if !ev.keystroke.modifiers.platform {
-                                                        this.edit_search(Some(&ch), cx);
-                                                    }
+            div().p_3().border_b_1().border_color(border).child(
+                div()
+                    .id("settings-search")
+                    .track_focus(&fh)
+                    .px_2()
+                    .py_1()
+                    .border_1()
+                    .border_color(border)
+                    .rounded(px(4.0))
+                    .bg(surface_high)
+                    .cursor_pointer()
+                    .on_click({
+                        let fh2 = fh.clone();
+                        move |_ev, window, _cx| {
+                            window.focus(&fh2);
+                        }
+                    })
+                    .on_key_down({
+                        let ent = ent_search.clone();
+                        move |ev: &KeyDownEvent, _window, cx| {
+                            if let Some(e) = ent.upgrade() {
+                                e.update(cx, |this, cx| {
+                                    this.focused_field = SettingsTextField::Search;
+                                    match ev.keystroke.key.as_str() {
+                                        "backspace" => this.edit_search(None, cx),
+                                        _ => {
+                                            if let Some(ch) = ev.keystroke.key_char.clone() {
+                                                if !ev.keystroke.modifiers.platform {
+                                                    this.edit_search(Some(&ch), cx);
                                                 }
                                             }
                                         }
-                                    });
-                                }
+                                    }
+                                });
                             }
-                        })
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(if search.is_empty() && !search_focused {
-                                    muted
-                                } else {
-                                    text
-                                })
-                                .child(if search.is_empty() && !search_focused {
-                                    "Search settings...".to_string()
-                                } else {
-                                    search_display
-                                }),
-                        ),
-                ),
+                        }
+                    })
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(if search.is_empty() && !search_focused {
+                                muted
+                            } else {
+                                text
+                            })
+                            .child(if search.is_empty() && !search_focused {
+                                "Search settings...".to_string()
+                            } else {
+                                search_display
+                            }),
+                    ),
+            ),
         )
         .child(
             div()
@@ -1095,12 +1097,7 @@ fn render_content(
                         .child("User"),
                 )
                 .child(div().text_sm().text_color(muted).child("·"))
-                .child(
-                    div()
-                        .text_sm()
-                        .text_color(accent)
-                        .child("Settings"),
-                ),
+                .child(div().text_sm().text_color(accent).child("Settings")),
         )
         .child(
             div()
@@ -1144,12 +1141,9 @@ fn render_content(
 
     let section_body = div().id("settings-section-body").flex().flex_col();
     let section_body = match section {
-        SettingsSection::General => render_general_section(
-            section_body,
-            draft,
-            colors,
-            entity.clone(),
-        ),
+        SettingsSection::General => {
+            render_general_section(section_body, draft, colors, entity.clone())
+        }
         SettingsSection::ExternalTools => render_tools_section(
             section_body,
             draft,
@@ -1162,9 +1156,15 @@ fn render_content(
         SettingsSection::Sidebar => {
             render_sidebar_section(section_body, draft, colors, entity.clone())
         }
-        SettingsSection::Graph => {
-            render_graph_section(section_body, draft, focused, input_focused, colors, entity.clone(), input_focus)
-        }
+        SettingsSection::Graph => render_graph_section(
+            section_body,
+            draft,
+            focused,
+            input_focused,
+            colors,
+            entity.clone(),
+            input_focus,
+        ),
         SettingsSection::Ai => render_ai_section(
             section_body,
             draft,
@@ -1409,7 +1409,9 @@ fn dropdown_control(
         let key = setting_key;
         buttons.push(
             div()
-                .id(ElementId::Name(format!("settings-dd-{}-{}", key, opt).into()))
+                .id(ElementId::Name(
+                    format!("settings-dd-{}-{}", key, opt).into(),
+                ))
                 .px_2()
                 .py_1()
                 .border_1()
@@ -1683,7 +1685,9 @@ fn theme_picker_control(
             let display = entry.display_name.clone();
             pills.push(
                 div()
-                    .id(ElementId::Name(format!("settings-theme-{}", entry.name).into()))
+                    .id(ElementId::Name(
+                        format!("settings-theme-{}", entry.name).into(),
+                    ))
                     .px_2()
                     .py_1()
                     .border_1()
@@ -1701,10 +1705,7 @@ fn theme_picker_control(
                     .on_click(move |_ev, _window, cx| {
                         if let Some(e) = ent.upgrade() {
                             e.update(cx, |this, cx| {
-                                this.patch_draft(
-                                    |draft| draft.theme = theme_id.clone(),
-                                    cx,
-                                );
+                                this.patch_draft(|draft| draft.theme = theme_id.clone(), cx);
                             });
                         }
                     }),
@@ -1847,39 +1848,39 @@ fn render_sidebar_section(
     let muted = rgba_to_hsla(colors.text_muted);
 
     body = body.child(setting_row(
-                "Expand Branches",
-                "Expand the branches section in the sidebar by default.",
-                pill_toggle(
-                    draft.sidebar_branches_expanded,
-                    entity.clone(),
-                    "branches",
-                    colors,
-                ),
-                border,
-                text,
-                muted,
-            ));
+        "Expand Branches",
+        "Expand the branches section in the sidebar by default.",
+        pill_toggle(
+            draft.sidebar_branches_expanded,
+            entity.clone(),
+            "branches",
+            colors,
+        ),
+        border,
+        text,
+        muted,
+    ));
     body = body.child(setting_row(
-                "Expand Remotes",
-                "Expand the remotes section in the sidebar by default.",
-                pill_toggle(
-                    draft.sidebar_remotes_expanded,
-                    entity.clone(),
-                    "remotes",
-                    colors,
-                ),
-                border,
-                text,
-                muted,
-            ));
+        "Expand Remotes",
+        "Expand the remotes section in the sidebar by default.",
+        pill_toggle(
+            draft.sidebar_remotes_expanded,
+            entity.clone(),
+            "remotes",
+            colors,
+        ),
+        border,
+        text,
+        muted,
+    ));
     body.child(setting_row(
-                "Expand Tags",
-                "Expand the tags section in the sidebar by default.",
-                pill_toggle(draft.sidebar_tags_expanded, entity.clone(), "tags", colors),
-                border,
-                text,
-                muted,
-            ))
+        "Expand Tags",
+        "Expand the tags section in the sidebar by default.",
+        pill_toggle(draft.sidebar_tags_expanded, entity.clone(), "tags", colors),
+        border,
+        text,
+        muted,
+    ))
 }
 
 fn render_graph_section(
@@ -1898,7 +1899,12 @@ fn render_graph_section(
     body.child(setting_row(
         "Show Checkpoint Refs",
         "Display checkpoint references in the commit graph.",
-        pill_toggle(draft.show_checkpoint_refs, entity.clone(), "checkpoints", colors),
+        pill_toggle(
+            draft.show_checkpoint_refs,
+            entity.clone(),
+            "checkpoints",
+            colors,
+        ),
         border,
         text,
         muted,
@@ -2098,25 +2104,25 @@ fn render_ai_section(
             );
         }
 
-        if provider_supports_model_list(current) && !ai_ui.models_loading && ai_ui.available_models.is_empty() {
+        if provider_supports_model_list(current)
+            && !ai_ui.models_loading
+            && ai_ui.available_models.is_empty()
+        {
             let ent_refresh = entity.clone();
             body = body.child(
-                div()
-                    .px_6()
-                    .pb_2()
-                    .child(
-                        div()
-                            .id("settings-ai-refresh-models")
-                            .text_xs()
-                            .text_color(accent)
-                            .cursor_pointer()
-                            .on_click(move |_ev, _window, cx| {
-                                if let Some(e) = ent_refresh.upgrade() {
-                                    e.update(cx, |this, cx| this.fetch_models(cx));
-                                }
-                            })
-                            .child("Refresh model list"),
-                    ),
+                div().px_6().pb_2().child(
+                    div()
+                        .id("settings-ai-refresh-models")
+                        .text_xs()
+                        .text_color(accent)
+                        .cursor_pointer()
+                        .on_click(move |_ev, _window, cx| {
+                            if let Some(e) = ent_refresh.upgrade() {
+                                e.update(cx, |this, cx| this.fetch_models(cx));
+                            }
+                        })
+                        .child("Refresh model list"),
+                ),
             );
         }
     }
@@ -2392,7 +2398,10 @@ fn render_repositories_section(
             let full = path.to_string_lossy().to_string();
             body = body.child(
                 div()
-                    .id(ElementId::NamedInteger("settings-open-tab".into(), i as u64))
+                    .id(ElementId::NamedInteger(
+                        "settings-open-tab".into(),
+                        i as u64,
+                    ))
                     .px_2()
                     .py_1()
                     .rounded(px(4.0))
@@ -2463,7 +2472,10 @@ fn render_repositories_section(
                     )
                     .child(
                         div()
-                            .id(ElementId::NamedInteger("settings-recent-open".into(), i as u64))
+                            .id(ElementId::NamedInteger(
+                                "settings-recent-open".into(),
+                                i as u64,
+                            ))
                             .px_2()
                             .py_0()
                             .border_1()
@@ -2478,16 +2490,14 @@ fn render_repositories_section(
                                     });
                                 }
                             })
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(accent)
-                                    .child("Open"),
-                            ),
+                            .child(div().text_xs().text_color(accent).child("Open")),
                     )
                     .child(
                         div()
-                            .id(ElementId::NamedInteger("settings-recent-rm".into(), i as u64))
+                            .id(ElementId::NamedInteger(
+                                "settings-recent-rm".into(),
+                                i as u64,
+                            ))
                             .px_2()
                             .py_0()
                             .border_1()
@@ -2502,12 +2512,7 @@ fn render_repositories_section(
                                     });
                                 }
                             })
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(muted)
-                                    .child("Remove"),
-                            ),
+                            .child(div().text_xs().text_color(muted).child("Remove")),
                     ),
             );
         }
@@ -2557,7 +2562,10 @@ fn render_repositories_section(
                     )
                     .child(
                         div()
-                            .id(ElementId::NamedInteger("settings-closed-reopen".into(), i as u64))
+                            .id(ElementId::NamedInteger(
+                                "settings-closed-reopen".into(),
+                                i as u64,
+                            ))
                             .px_2()
                             .py_0()
                             .border_1()
@@ -2572,12 +2580,7 @@ fn render_repositories_section(
                                     });
                                 }
                             })
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(accent)
-                                    .child("Reopen"),
-                            ),
+                            .child(div().text_xs().text_color(accent).child("Reopen")),
                     ),
             );
         }
@@ -2701,12 +2704,7 @@ fn render_accounts_section(
                                     });
                                 }
                             })
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(warning)
-                                    .child("Remove"),
-                            ),
+                            .child(div().text_xs().text_color(warning).child("Remove")),
                     ),
             );
         }

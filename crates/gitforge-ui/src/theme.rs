@@ -112,14 +112,30 @@ fn default_ui_size() -> f32 {
 fn default_mono_size() -> f32 {
     13.0
 }
-fn default_syntax_keyword() -> String { "#ff7b72".into() }
-fn default_syntax_function() -> String { "#d2a8ff".into() }
-fn default_syntax_string() -> String { "#a5d6ff".into() }
-fn default_syntax_number() -> String { "#79c0ff".into() }
-fn default_syntax_comment() -> String { "#8b949e".into() }
-fn default_syntax_type() -> String { "#ffa657".into() }
-fn default_syntax_variable() -> String { "#e6edf3".into() }
-fn default_syntax_property() -> String { "#79c0ff".into() }
+fn default_syntax_keyword() -> String {
+    "#ff7b72".into()
+}
+fn default_syntax_function() -> String {
+    "#d2a8ff".into()
+}
+fn default_syntax_string() -> String {
+    "#a5d6ff".into()
+}
+fn default_syntax_number() -> String {
+    "#79c0ff".into()
+}
+fn default_syntax_comment() -> String {
+    "#8b949e".into()
+}
+fn default_syntax_type() -> String {
+    "#ffa657".into()
+}
+fn default_syntax_variable() -> String {
+    "#e6edf3".into()
+}
+fn default_syntax_property() -> String {
+    "#79c0ff".into()
+}
 
 impl Theme {
     pub fn load_from_file(path: &Path) -> anyhow::Result<Self> {

@@ -79,7 +79,8 @@ pub fn render_toolbar(
                     move |_ev, _window, cx| {
                         if let Some(e) = ent_history.upgrade() {
                             e.update(cx, |this, cx| {
-                                this.repo_session.view_mode = super::app::MainViewMode::CommitHistory;
+                                this.repo_session.view_mode =
+                                    super::app::MainViewMode::CommitHistory;
                                 this.close_toolbar_more(cx);
                                 cx.notify();
                             });
@@ -370,10 +371,7 @@ fn render_more_menu(
                 if let Some(e) = ent.upgrade() {
                     e.update(cx, |this, cx| {
                         this.close_toolbar_more(cx);
-                        this.open_settings_window(
-                            Some(crate::views::SettingsSection::Ai),
-                            cx,
-                        );
+                        this.open_settings_window(Some(crate::views::SettingsSection::Ai), cx);
                     });
                 }
             },

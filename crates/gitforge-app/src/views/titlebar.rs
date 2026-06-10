@@ -362,13 +362,7 @@ pub fn render_titlebar_menu_dropdown(
                                     }
                                     window.dispatch_action(action.boxed_action(), cx);
                                 })
-                                .child(
-                                    div()
-                                        .flex_1()
-                                        .text_sm()
-                                        .text_color(text_color)
-                                        .child(label),
-                                )
+                                .child(div().flex_1().text_sm().text_color(text_color).child(label))
                                 .child(div().text_xs().text_color(muted).child(keybinding)),
                         );
                     }

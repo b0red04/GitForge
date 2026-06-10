@@ -10,9 +10,9 @@ use super::app::MainViewMode;
 use super::commit_editor::CommitEditor;
 use super::diff_panel::{CommitDiffState, DiffPanel, DiffViewMode};
 use super::graph_panel::{GraphPanel, GraphSelection};
+use super::repo_tabs::RepoTabView;
 use super::sidebar::SidebarState;
 use super::status_panel::{StatusPanel, StatusSelection, StatusViewMode};
-use super::repo_tabs::RepoTabView;
 
 pub(crate) const MAX_CLOSED_TABS: usize = 20;
 
@@ -181,8 +181,7 @@ impl RepoSession {
             has_uncommitted,
         );
         let in_history = self.view_mode == MainViewMode::CommitHistory;
-        let preserve_staging =
-            in_history && self.status_panel.is_graph_staging();
+        let preserve_staging = in_history && self.status_panel.is_graph_staging();
         self.status_panel
             .set_status(repo_state_data.status.clone(), preserve_staging);
         self.diff_panel.clear();
@@ -245,9 +244,7 @@ impl RepoSession {
 
     pub(crate) fn save_snapshot_to_active_tab(&mut self) {
         let selected_commit_id = match self.graph_panel.selection() {
-            GraphSelection::Commit(idx) => {
-                self.graph_panel.commit_id_at(idx).map(String::from)
-            }
+            GraphSelection::Commit(idx) => self.graph_panel.commit_id_at(idx).map(String::from),
             _ => None,
         };
         let graph_was_uncommitted = self.graph_panel.is_uncommitted_selected();
@@ -293,9 +290,7 @@ impl RepoSession {
     }
 
     pub(crate) fn restore_snapshot_from_tab(&mut self) {
-        let snapshot = self
-            .active_tab()
-            .and_then(|tab| tab.panel_snapshot.clone());
+        let snapshot = self.active_tab().and_then(|tab| tab.panel_snapshot.clone());
 
         let Some(snap) = snapshot else { return };
 

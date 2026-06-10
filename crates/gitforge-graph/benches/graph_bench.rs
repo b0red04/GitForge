@@ -1,4 +1,4 @@
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 use gitforge_graph::{CommitEntry, Graph};
 
 fn generate_linear_commits(count: usize) -> Vec<CommitEntry> {
@@ -41,22 +41,14 @@ fn bench_graph_build(c: &mut Criterion) {
 
     for size in [100, 1_000, 10_000, 50_000] {
         let linear = generate_linear_commits(size);
-        group.bench_with_input(
-            BenchmarkId::new("linear", size),
-            &linear,
-            |b, commits| {
-                b.iter(|| Graph::build(black_box(commits)));
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("linear", size), &linear, |b, commits| {
+            b.iter(|| Graph::build(black_box(commits)));
+        });
 
         let branchy = generate_branchy_commits(size);
-        group.bench_with_input(
-            BenchmarkId::new("branchy", size),
-            &branchy,
-            |b, commits| {
-                b.iter(|| Graph::build(black_box(commits)));
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("branchy", size), &branchy, |b, commits| {
+            b.iter(|| Graph::build(black_box(commits)));
+        });
     }
 
     group.finish();

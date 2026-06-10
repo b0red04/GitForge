@@ -19,10 +19,9 @@ impl GitForgeApp {
             return;
         }
         provider_config.model = model.clone();
-        let provider_setup =
-            tokio::task::spawn_blocking(move || {
-                gitforge_ai::create_provider(&provider_name, &provider_config)
-            });
+        let provider_setup = tokio::task::spawn_blocking(move || {
+            gitforge_ai::create_provider(&provider_name, &provider_config)
+        });
         let Some(open_repo) = self.repo_session.require_active_repo_handle() else {
             cx.notify();
             return;
@@ -97,17 +96,24 @@ impl GitForgeApp {
                 }
             };
 
-            match provider.generate_commit_messages(&diff, &commit_config).await {
+            match provider
+                .generate_commit_messages(&diff, &commit_config)
+                .await
+            {
                 Ok(messages) => {
-                    let default_idx =
-                        gitforge_ai::pick_default_message(&messages, &commit_config.default_alternative);
+                    let default_idx = gitforge_ai::pick_default_message(
+                        &messages,
+                        &commit_config.default_alternative,
+                    );
                     this.update(cx, |this, cx| {
                         this.ai_generating = false;
                         if !messages.is_empty() {
                             if let Some(msg) = messages.get(default_idx) {
                                 this.repo_session.commit_editor.set_message(msg);
                             }
-                            this.repo_session.commit_editor.set_ai_alternatives(messages);
+                            this.repo_session
+                                .commit_editor
+                                .set_ai_alternatives(messages);
                         }
                         cx.notify();
                     })

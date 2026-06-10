@@ -153,7 +153,12 @@ pub fn render_diff_empty_state(colors: &AppColors) -> Div {
         .items_center()
         .justify_center()
         .bg(surface)
-        .child(div().text_sm().text_color(muted).child("Select a file to view diff"))
+        .child(
+            div()
+                .text_sm()
+                .text_color(muted)
+                .child("Select a file to view diff"),
+        )
 }
 
 pub fn render_diff_lines(
@@ -274,17 +279,22 @@ pub fn render_diff_lines(
 
                 let cb = on_click.clone();
                 let row = div()
-                    .id(ElementId::Name(format!("{}-{line_i}", line_id_prefix).into()))
+                    .id(ElementId::Name(
+                        format!("{}-{line_i}", line_id_prefix).into(),
+                    ))
                     .h(px(DIFF_LINE_HEIGHT))
                     .flex()
                     .flex_row()
                     .items_center()
                     .bg(line_bg)
                     .cursor_pointer()
-                    .on_mouse_down(MouseButton::Left, move |ev: &MouseDownEvent, _window, cx| {
-                        let extend = ev.modifiers.shift;
-                        cb(line_i, extend, cx);
-                    })
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        move |ev: &MouseDownEvent, _window, cx| {
+                            let extend = ev.modifiers.shift;
+                            cb(line_i, extend, cx);
+                        },
+                    )
                     .child(
                         div()
                             .w(px(DIFF_LINE_NUM_WIDTH))

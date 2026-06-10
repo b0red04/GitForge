@@ -19,21 +19,24 @@ impl GitForgeApp {
                 Ok(Ok(_path)) => {
                     this.update(cx, |this, cx| {
                         this.load_ssh_state();
-                        this.repo_session.remote_status = "SSH key generated successfully".to_string();
+                        this.repo_session.remote_status =
+                            "SSH key generated successfully".to_string();
                         cx.notify();
                     })
                     .ok();
                 }
                 Ok(Err(e)) => {
                     this.update(cx, |this, cx| {
-                        this.repo_session.remote_status = format!("SSH key generation failed: {}", e);
+                        this.repo_session.remote_status =
+                            format!("SSH key generation failed: {}", e);
                         cx.notify();
                     })
                     .ok();
                 }
                 Err(e) => {
                     this.update(cx, |this, cx| {
-                        this.repo_session.remote_status = format!("SSH key generation error: {}", e);
+                        this.repo_session.remote_status =
+                            format!("SSH key generation error: {}", e);
                         cx.notify();
                     })
                     .ok();

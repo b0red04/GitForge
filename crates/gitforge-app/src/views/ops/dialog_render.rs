@@ -1,7 +1,7 @@
 use gitforge_ui::{AppColors, rgba_to_hsla};
 use gpui::*;
 
-use crate::views::app::{GitForgeApp, AppDialog};
+use crate::views::app::{AppDialog, GitForgeApp};
 
 pub(crate) fn render_dialog_overlay(
     dialog: &AppDialog,
@@ -438,7 +438,6 @@ fn render_hosting_repos_overlay(
         .child(content)
 }
 
-
 fn render_fork_confirm_overlay(
     owner: &str,
     repo: &str,
@@ -547,7 +546,6 @@ fn render_fork_confirm_overlay(
                 ),
         )
 }
-
 
 fn render_create_worktree_overlay(
     input_value: &str,
@@ -906,4 +904,3 @@ fn render_remove_worktree_overlay(
         .justify_center()
         .child(dialog_box)
 }
-

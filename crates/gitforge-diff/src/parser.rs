@@ -1,16 +1,36 @@
-use crate::types::{DiffLine, DiffLineType, DiffHunk, FileDiff};
+use crate::types::{DiffHunk, DiffLine, DiffLineType, FileDiff};
 
-fn flush_hunk(file: &mut FileDiff, start: Option<usize>, end: usize, old_start: u32, new_start: u32) {
+fn flush_hunk(
+    file: &mut FileDiff,
+    start: Option<usize>,
+    end: usize,
+    old_start: u32,
+    new_start: u32,
+) {
     if let Some(s) = start {
         let range = s..end;
-        let old_count = range.clone().filter_map(|i| {
-            let t = file.lines[i].line_type;
-            if t == DiffLineType::Removed || t == DiffLineType::Context { Some(1) } else { None }
-        }).sum::<u32>();
-        let new_count = range.clone().filter_map(|i| {
-            let t = file.lines[i].line_type;
-            if t == DiffLineType::Added || t == DiffLineType::Context { Some(1) } else { None }
-        }).sum::<u32>();
+        let old_count = range
+            .clone()
+            .filter_map(|i| {
+                let t = file.lines[i].line_type;
+                if t == DiffLineType::Removed || t == DiffLineType::Context {
+                    Some(1)
+                } else {
+                    None
+                }
+            })
+            .sum::<u32>();
+        let new_count = range
+            .clone()
+            .filter_map(|i| {
+                let t = file.lines[i].line_type;
+                if t == DiffLineType::Added || t == DiffLineType::Context {
+                    Some(1)
+                } else {
+                    None
+                }
+            })
+            .sum::<u32>();
         file.hunks.push(DiffHunk {
             old_start,
             old_count,
@@ -116,7 +136,11 @@ pub fn parse_unified_diff(raw: &str) -> Vec<FileDiff> {
                 content: line[1..].to_string(),
             });
         } else {
-            let content = if line.is_empty() { String::new() } else { line.to_string() };
+            let content = if line.is_empty() {
+                String::new()
+            } else {
+                line.to_string()
+            };
             file.lines.push(DiffLine {
                 line_type: DiffLineType::Context,
                 old_line: Some(old_line),
@@ -148,7 +172,8 @@ fn parse_hunk_header(line: &str) -> Option<(u32, u32)> {
 use std::sync::OnceLock;
 static HUNK_REGEX: OnceLock<regex_lite::Regex> = OnceLock::new();
 fn hunk_regex() -> &'static regex_lite::Regex {
-    HUNK_REGEX.get_or_init(|| regex_lite::Regex::new(r"@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@").unwrap())
+    HUNK_REGEX
+        .get_or_init(|| regex_lite::Regex::new(r"@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@").unwrap())
 }
 
 #[cfg(test)]
@@ -183,7 +208,10 @@ diff --git a/foo.rs b/foo.rs
         assert!(!f.is_binary);
 
         let types: Vec<_> = f.lines.iter().map(|l| l.line_type).collect();
-        assert_eq!(types, vec![HunkHeader, Context, Removed, Added, Added, Context]);
+        assert_eq!(
+            types,
+            vec![HunkHeader, Context, Removed, Added, Added, Context]
+        );
     }
 
     #[test]
@@ -240,7 +268,9 @@ diff --git a/big.rs b/big.rs
 ";
         let files = parse_unified_diff(raw);
         assert_eq!(files.len(), 1);
-        let hunks: Vec<_> = files[0].lines.iter()
+        let hunks: Vec<_> = files[0]
+            .lines
+            .iter()
             .filter(|l| l.line_type == HunkHeader)
             .collect();
         assert_eq!(hunks.len(), 2);
@@ -298,7 +328,10 @@ diff --git a/f.txt b/f.txt
 ";
         let files = parse_unified_diff(raw);
         let types: Vec<_> = files[0].lines.iter().map(|l| l.line_type).collect();
-        assert_eq!(types, vec![HunkHeader, Removed, NoNewlineAtEof, Added, NoNewlineAtEof]);
+        assert_eq!(
+            types,
+            vec![HunkHeader, Removed, NoNewlineAtEof, Added, NoNewlineAtEof]
+        );
     }
 
     #[test]
@@ -445,13 +478,17 @@ diff --git a/a.rs b/a.rs
         let f = &files[0];
 
         let h0_lines: Vec<_> = f.lines[f.hunks[0].line_range.clone()]
-            .iter().map(|l| l.content.clone()).collect();
+            .iter()
+            .map(|l| l.content.clone())
+            .collect();
         assert!(h0_lines[0].starts_with("@@"));
         assert!(h0_lines.iter().any(|c| c.contains('x')));
         assert!(h0_lines.iter().any(|c| c == "z"));
 
         let h1_lines: Vec<_> = f.lines[f.hunks[1].line_range.clone()]
-            .iter().map(|l| l.content.clone()).collect();
+            .iter()
+            .map(|l| l.content.clone())
+            .collect();
         assert!(h1_lines.iter().any(|c| c.contains('p')));
         assert!(h1_lines.iter().any(|c| c == "r"));
     }

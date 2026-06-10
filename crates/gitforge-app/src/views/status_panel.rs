@@ -1,9 +1,9 @@
 use gitforge_diff::FileDiff;
 use gitforge_git::{DiffStat, FileEntry, FileStatus, RepoState, RepoStatus};
-use std::path::Path;
 use gitforge_ui::{AppColors, rgba_to_hsla};
 use gpui::*;
 use std::ops::Range;
+use std::path::Path;
 use std::rc::Rc;
 
 use super::commit_editor::CommitEditor;
@@ -192,16 +192,13 @@ impl StatusPanel {
                     || self.view_mode == StatusViewMode::GraphStaging =>
             {
                 match self.view_mode {
-                    StatusViewMode::Status | StatusViewMode::Commit | StatusViewMode::GraphStaging => {
+                    StatusViewMode::Status
+                    | StatusViewMode::Commit
+                    | StatusViewMode::GraphStaging => {
                         let file_list = self.render_file_list(status, colors, entity.clone());
                         if self.view_mode == StatusViewMode::Commit {
-                            let editor_el = editor.render(
-                                colors,
-                                entity.clone(),
-                                window,
-                                ai_generating,
-                                false,
-                            );
+                            let editor_el =
+                                editor.render(colors, entity.clone(), window, ai_generating, false);
                             let p = status_panel_shell(surface).child(header).child(
                                 div()
                                     .flex_1()
@@ -273,33 +270,23 @@ impl StatusPanel {
 
         let Some(status) = &self.status else {
             return status_panel_shell(surface).child(
-                div()
-                    .flex_1()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(muted)
-                            .child("No uncommitted changes"),
-                    ),
+                div().flex_1().flex().items_center().justify_center().child(
+                    div()
+                        .text_sm()
+                        .text_color(muted)
+                        .child("No uncommitted changes"),
+                ),
             );
         };
 
         if !status.has_changes() {
             return status_panel_shell(surface).child(
-                div()
-                    .flex_1()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(muted)
-                            .child("No uncommitted changes"),
-                    ),
+                div().flex_1().flex().items_center().justify_center().child(
+                    div()
+                        .text_sm()
+                        .text_color(muted)
+                        .child("No uncommitted changes"),
+                ),
             );
         }
 
@@ -313,17 +300,10 @@ impl StatusPanel {
             .overflow_y_scroll()
             .flex()
             .flex_col();
-        let file_list = self.populate_file_sections(
-            file_list,
-            status,
-            colors,
-            entity.clone(),
-            false,
-            false,
-        );
+        let file_list =
+            self.populate_file_sections(file_list, status, colors, entity.clone(), false, false);
 
-        let editor_el =
-            editor.render(colors, entity.clone(), window, ai_generating, true);
+        let editor_el = editor.render(colors, entity.clone(), window, ai_generating, true);
 
         let can_commit = !status.staged.is_empty();
         let commit_label = if can_commit {
@@ -445,9 +425,10 @@ impl StatusPanel {
                     ),
             );
             for (i, entry) in status.staged.iter().enumerate() {
-                let is_sel = self.selection.as_ref().is_some_and(|s| {
-                    s.section == StatusFileSection::Staged && s.file_idx == i
-                });
+                let is_sel = self
+                    .selection
+                    .as_ref()
+                    .is_some_and(|s| s.section == StatusFileSection::Staged && s.file_idx == i);
                 list = list.child(render_status_file_entry(
                     entry,
                     is_sel,
@@ -500,9 +481,10 @@ impl StatusPanel {
                     ),
             );
             for (i, entry) in status.unstaged.iter().enumerate() {
-                let is_sel = self.selection.as_ref().is_some_and(|s| {
-                    s.section == StatusFileSection::Unstaged && s.file_idx == i
-                });
+                let is_sel = self
+                    .selection
+                    .as_ref()
+                    .is_some_and(|s| s.section == StatusFileSection::Unstaged && s.file_idx == i);
                 list = list.child(render_status_file_entry(
                     entry,
                     is_sel,
@@ -555,9 +537,10 @@ impl StatusPanel {
                     ),
             );
             for (i, entry) in status.untracked.iter().enumerate() {
-                let is_sel = self.selection.as_ref().is_some_and(|s| {
-                    s.section == StatusFileSection::Untracked && s.file_idx == i
-                });
+                let is_sel = self
+                    .selection
+                    .as_ref()
+                    .is_some_and(|s| s.section == StatusFileSection::Untracked && s.file_idx == i);
                 list = list.child(render_status_file_entry(
                     entry,
                     is_sel,
@@ -590,9 +573,10 @@ impl StatusPanel {
                     ),
             );
             for (i, entry) in status.conflicted.iter().enumerate() {
-                let is_sel = self.selection.as_ref().is_some_and(|s| {
-                    s.section == StatusFileSection::Conflicted && s.file_idx == i
-                });
+                let is_sel = self
+                    .selection
+                    .as_ref()
+                    .is_some_and(|s| s.section == StatusFileSection::Conflicted && s.file_idx == i);
                 list = list.child(render_status_file_entry(
                     entry,
                     is_sel,

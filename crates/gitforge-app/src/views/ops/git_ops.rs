@@ -2,13 +2,11 @@ use gitforge_git::RepoState;
 use gitforge_graph::{CommitEntry, Graph};
 use gpui::*;
 
-
 use crate::views::app::{GitForgeApp, MainViewMode};
 use crate::views::diff_panel::CommitDiffState;
 use crate::views::status_panel::StatusFileSection;
 
 impl GitForgeApp {
-
     pub(crate) fn apply_repo_state_to_panels(&mut self, repo_state_data: &RepoState) {
         let has_uncommitted = repo_state_data.status.has_changes();
 
@@ -37,9 +35,9 @@ impl GitForgeApp {
             has_uncommitted,
         );
         let in_history = self.repo_session.view_mode == MainViewMode::CommitHistory;
-        let preserve_staging =
-            in_history && self.repo_session.status_panel.is_graph_staging();
-        self.repo_session.status_panel
+        let preserve_staging = in_history && self.repo_session.status_panel.is_graph_staging();
+        self.repo_session
+            .status_panel
             .set_status(repo_state_data.status.clone(), preserve_staging);
         self.repo_session.diff_panel.clear();
 
@@ -108,7 +106,12 @@ impl GitForgeApp {
         let Some(idx) = self.repo_session.graph_panel.selected_idx() else {
             return;
         };
-        let Some(commit_id) = self.repo_session.graph_panel.commit_id_at(idx).map(String::from) else {
+        let Some(commit_id) = self
+            .repo_session
+            .graph_panel
+            .commit_id_at(idx)
+            .map(String::from)
+        else {
             return;
         };
 
@@ -161,28 +164,42 @@ impl GitForgeApp {
         cx.notify();
     }
     pub fn toggle_sidebar_branches(&mut self, cx: &mut Context<Self>) {
-        self.repo_session.sidebar_state.branches_expanded = !self.repo_session.sidebar_state.branches_expanded;
+        self.repo_session.sidebar_state.branches_expanded =
+            !self.repo_session.sidebar_state.branches_expanded;
         self.save_settings();
         cx.notify();
     }
 
     pub fn toggle_sidebar_remotes(&mut self, cx: &mut Context<Self>) {
-        self.repo_session.sidebar_state.remotes_expanded = !self.repo_session.sidebar_state.remotes_expanded;
+        self.repo_session.sidebar_state.remotes_expanded =
+            !self.repo_session.sidebar_state.remotes_expanded;
         self.save_settings();
         cx.notify();
     }
 
     pub fn toggle_sidebar_tags(&mut self, cx: &mut Context<Self>) {
-        self.repo_session.sidebar_state.tags_expanded = !self.repo_session.sidebar_state.tags_expanded;
+        self.repo_session.sidebar_state.tags_expanded =
+            !self.repo_session.sidebar_state.tags_expanded;
         self.save_settings();
         cx.notify();
     }
 
     pub fn toggle_sidebar_remote(&mut self, remote: String, cx: &mut Context<Self>) {
-        if self.repo_session.sidebar_state.expanded_remotes.contains(&remote) {
-            self.repo_session.sidebar_state.expanded_remotes.remove(&remote);
+        if self
+            .repo_session
+            .sidebar_state
+            .expanded_remotes
+            .contains(&remote)
+        {
+            self.repo_session
+                .sidebar_state
+                .expanded_remotes
+                .remove(&remote);
         } else {
-            self.repo_session.sidebar_state.expanded_remotes.insert(remote);
+            self.repo_session
+                .sidebar_state
+                .expanded_remotes
+                .insert(remote);
         }
         cx.notify();
     }
@@ -477,7 +494,9 @@ impl GitForgeApp {
         extend: bool,
         cx: &mut Context<Self>,
     ) {
-        self.repo_session.status_panel.select_diff_line(line_idx, extend);
+        self.repo_session
+            .status_panel
+            .select_diff_line(line_idx, extend);
         cx.notify();
     }
 
@@ -663,7 +682,6 @@ impl GitForgeApp {
         self.open_repo_from_path(path, cx);
     }
 
-
     pub fn fetch_all(&mut self, cx: &mut Context<Self>) {
         self.run_git_op_with_status("Fetch", "Fetching all remotes...", cx, move |repo| {
             repo.fetch_all(true)
@@ -779,7 +797,9 @@ impl GitForgeApp {
             match result {
                 Ok(Ok(blame_lines)) => {
                     this.update(cx, |this, cx| {
-                        this.repo_session.diff_panel.set_blame(blame_lines, path_for_result);
+                        this.repo_session
+                            .diff_panel
+                            .set_blame(blame_lines, path_for_result);
                         cx.notify();
                     })
                     .ok();
@@ -834,7 +854,12 @@ impl GitForgeApp {
         let Some(idx) = self.repo_session.graph_panel.selected_idx() else {
             return;
         };
-        let Some(commit_id) = self.repo_session.graph_panel.commit_id_at(idx).map(String::from) else {
+        let Some(commit_id) = self
+            .repo_session
+            .graph_panel
+            .commit_id_at(idx)
+            .map(String::from)
+        else {
             return;
         };
 

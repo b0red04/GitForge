@@ -80,7 +80,13 @@ impl Repository {
     }
 
     /// Spawns a `git` subprocess.
-    pub fn push(&self, remote: &str, branch: Option<&str>, force: bool, set_upstream: bool) -> GitResult<String> {
+    pub fn push(
+        &self,
+        remote: &str,
+        branch: Option<&str>,
+        force: bool,
+        set_upstream: bool,
+    ) -> GitResult<String> {
         let mut args = vec!["push"];
         if force {
             args.push("--force");
@@ -96,7 +102,12 @@ impl Repository {
     }
 
     /// Spawns a `git` subprocess.
-    pub fn clone_repo(url: &str, path: &Path, bare: bool, depth: Option<usize>) -> GitResult<String> {
+    pub fn clone_repo(
+        url: &str,
+        path: &Path,
+        bare: bool,
+        depth: Option<usize>,
+    ) -> GitResult<String> {
         let mut args: Vec<String> = vec!["clone".into()];
         if bare {
             args.push("--bare".into());

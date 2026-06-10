@@ -1,11 +1,12 @@
 use crate::provider::HostingProvider;
-use crate::{GitHubProvider, GitLabProvider, CodebergProvider};
+use crate::{CodebergProvider, GitHubProvider, GitLabProvider};
 
 pub fn normalize_remote_url(url: &str) -> String {
     let url = url.trim();
     if url.starts_with("git@") {
         let without_prefix = url.strip_prefix("git@").unwrap_or(url);
-        without_prefix.replacen(':', "/", 1)
+        without_prefix
+            .replacen(':', "/", 1)
             .trim_end_matches(".git")
             .to_string()
     } else if url.starts_with("ssh://") {

@@ -1,8 +1,8 @@
 use gitforge_ui::{AppColors, Theme};
 use gpui::*;
 
-use crate::views::app::GitForgeApp;
 use super::super::settings_window::{SettingsDraft, SettingsSection, SettingsWindow};
+use crate::views::app::GitForgeApp;
 
 impl GitForgeApp {
     pub fn set_theme(&mut self, name: &str, cx: &mut Context<Self>) {
@@ -110,11 +110,8 @@ impl GitForgeApp {
         let repo_data = self.settings_repo_data();
         let accounts = self.hosting_accounts_snapshot();
         let main = cx.entity().downgrade();
-        let window_bounds = WindowBounds::Windowed(Bounds::centered(
-            None,
-            size(px(900.0), px(700.0)),
-            cx,
-        ));
+        let window_bounds =
+            WindowBounds::Windowed(Bounds::centered(None, size(px(900.0), px(700.0)), cx));
 
         match cx.open_window(
             WindowOptions {
@@ -136,18 +133,11 @@ impl GitForgeApp {
                         super::super::settings_window::CloseSettingsWindow,
                         None,
                     ),
-                    KeyBinding::new(
-                        "ctrl-v",
-                        super::super::settings_window::PasteApiKey,
-                        None,
-                    ),
-                    KeyBinding::new(
-                        "cmd-v",
-                        super::super::settings_window::PasteApiKey,
-                        None,
-                    ),
+                    KeyBinding::new("ctrl-v", super::super::settings_window::PasteApiKey, None),
+                    KeyBinding::new("cmd-v", super::super::settings_window::PasteApiKey, None),
                 ]);
-                let view = cx.new(|cx| SettingsWindow::new(main, colors, draft, initial_section, cx));
+                let view =
+                    cx.new(|cx| SettingsWindow::new(main, colors, draft, initial_section, cx));
                 view.update(cx, |settings, cx| settings.bootstrap_ai(cx));
                 view.focus_handle(cx).focus(window);
                 view
@@ -175,7 +165,8 @@ impl GitForgeApp {
         self.repo_session.sidebar_state.tags_expanded = draft.sidebar_tags_expanded;
         self.set_theme(&draft.theme, cx);
         self.save_settings();
-        if draft.show_checkpoint_refs != prev_checkpoint || draft.commit_limit != prev_commit_limit {
+        if draft.show_checkpoint_refs != prev_checkpoint || draft.commit_limit != prev_commit_limit
+        {
             self.refresh_repository(cx);
         }
         cx.notify();

@@ -65,9 +65,8 @@ fn detect_key_type(name: &str) -> SshKeyType {
 }
 
 pub fn list_ssh_keys() -> GitResult<Vec<SshKey>> {
-    let ssh_dir = ssh_dir().ok_or_else(|| {
-        GitError::OperationFailed("Cannot determine home directory".into())
-    })?;
+    let ssh_dir = ssh_dir()
+        .ok_or_else(|| GitError::OperationFailed("Cannot determine home directory".into()))?;
 
     if !ssh_dir.exists() {
         return Ok(Vec::new());
@@ -106,9 +105,7 @@ pub fn list_ssh_keys() -> GitResult<Vec<SshKey>> {
         let pub_path = path.with_extension("pub");
         let has_public_key = pub_path.exists();
 
-        let is_loaded = agent_keys
-            .iter()
-            .any(|k| k.contains(&name));
+        let is_loaded = agent_keys.iter().any(|k| k.contains(&name));
 
         keys.push(SshKey {
             path: path.clone(),
@@ -124,9 +121,8 @@ pub fn list_ssh_keys() -> GitResult<Vec<SshKey>> {
 }
 
 pub fn get_public_key(key_name: &str) -> GitResult<String> {
-    let ssh_dir = ssh_dir().ok_or_else(|| {
-        GitError::OperationFailed("Cannot determine home directory".into())
-    })?;
+    let ssh_dir = ssh_dir()
+        .ok_or_else(|| GitError::OperationFailed("Cannot determine home directory".into()))?;
 
     let pub_path = ssh_dir.join(format!("{}.pub", key_name));
     if !pub_path.exists() {
@@ -136,9 +132,8 @@ pub fn get_public_key(key_name: &str) -> GitResult<String> {
         )));
     }
 
-    std::fs::read_to_string(&pub_path).map_err(|e| {
-        GitError::OperationFailed(format!("Failed to read public key: {}", e))
-    })
+    std::fs::read_to_string(&pub_path)
+        .map_err(|e| GitError::OperationFailed(format!("Failed to read public key: {}", e)))
 }
 
 pub fn generate_ssh_key(
@@ -147,14 +142,12 @@ pub fn generate_ssh_key(
     passphrase: Option<&str>,
     output_name: Option<&str>,
 ) -> GitResult<PathBuf> {
-    let ssh_dir = ssh_dir().ok_or_else(|| {
-        GitError::OperationFailed("Cannot determine home directory".into())
-    })?;
+    let ssh_dir = ssh_dir()
+        .ok_or_else(|| GitError::OperationFailed("Cannot determine home directory".into()))?;
 
     if !ssh_dir.exists() {
-        std::fs::create_dir_all(&ssh_dir).map_err(|e| {
-            GitError::OperationFailed(format!("Failed to create ~/.ssh: {}", e))
-        })?;
+        std::fs::create_dir_all(&ssh_dir)
+            .map_err(|e| GitError::OperationFailed(format!("Failed to create ~/.ssh: {}", e)))?;
     }
 
     let filename = output_name.unwrap_or(match key_type {
@@ -198,9 +191,8 @@ pub fn generate_ssh_key(
 }
 
 pub fn delete_ssh_key(key_name: &str) -> GitResult<()> {
-    let ssh_dir = ssh_dir().ok_or_else(|| {
-        GitError::OperationFailed("Cannot determine home directory".into())
-    })?;
+    let ssh_dir = ssh_dir()
+        .ok_or_else(|| GitError::OperationFailed("Cannot determine home directory".into()))?;
 
     let key_path = ssh_dir.join(key_name);
     let pub_path = ssh_dir.join(format!("{}.pub", key_name));
@@ -220,28 +212,23 @@ pub fn delete_ssh_key(key_name: &str) -> GitResult<()> {
 }
 
 fn list_agent_keys() -> Vec<String> {
-    let output = std::process::Command::new("ssh-add")
-        .arg("-l")
-        .output();
+    let output = std::process::Command::new("ssh-add").arg("-l").output();
 
     match output {
-        Ok(out) if out.status.success() => {
-            String::from_utf8_lossy(&out.stdout)
-                .lines()
-                .filter_map(|line| {
-                    let parts: Vec<&str> = line.split_whitespace().collect();
-                    parts.last().map(|s| s.to_string())
-                })
-                .collect()
-        }
+        Ok(out) if out.status.success() => String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .filter_map(|line| {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                parts.last().map(|s| s.to_string())
+            })
+            .collect(),
         _ => Vec::new(),
     }
 }
 
 pub fn add_key_to_agent(key_name: &str) -> GitResult<()> {
-    let ssh_dir = ssh_dir().ok_or_else(|| {
-        GitError::OperationFailed("Cannot determine home directory".into())
-    })?;
+    let ssh_dir = ssh_dir()
+        .ok_or_else(|| GitError::OperationFailed("Cannot determine home directory".into()))?;
 
     let key_path = ssh_dir.join(key_name);
     if !key_path.exists() {
@@ -266,9 +253,8 @@ pub fn add_key_to_agent(key_name: &str) -> GitResult<()> {
 }
 
 pub fn remove_key_from_agent(key_name: &str) -> GitResult<()> {
-    let ssh_dir = ssh_dir().ok_or_else(|| {
-        GitError::OperationFailed("Cannot determine home directory".into())
-    })?;
+    let ssh_dir = ssh_dir()
+        .ok_or_else(|| GitError::OperationFailed("Cannot determine home directory".into()))?;
 
     let key_path = ssh_dir.join(key_name);
 
@@ -288,9 +274,7 @@ pub fn remove_key_from_agent(key_name: &str) -> GitResult<()> {
 }
 
 pub fn check_ssh_agent() -> SshAgentStatus {
-    let output = std::process::Command::new("ssh-add")
-        .arg("-l")
-        .output();
+    let output = std::process::Command::new("ssh-add").arg("-l").output();
 
     match output {
         Ok(out) => {

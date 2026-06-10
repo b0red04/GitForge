@@ -2,7 +2,9 @@ use anyhow::Result;
 use async_trait::async_trait;
 
 use crate::config::CommitMessageConfig;
-use crate::prompt::{build_commit_message_prompt, build_multi_commit_message_prompt, truncate_diff};
+use crate::prompt::{
+    build_commit_message_prompt, build_multi_commit_message_prompt, truncate_diff,
+};
 
 #[async_trait]
 pub trait AiProvider: Send + Sync {

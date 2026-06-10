@@ -1,7 +1,7 @@
-use anyhow::Result;
-use async_trait::async_trait;
 use crate::models::{HostingAccount, RemoteRepo};
 use crate::provider::HostingProvider;
+use anyhow::Result;
+use async_trait::async_trait;
 
 pub struct GitHubProvider {
     base_url: String,
@@ -62,10 +62,7 @@ impl HostingProvider for GitHubProvider {
 
     async fn authenticate(&self, token: &str) -> Result<HostingAccount> {
         let client = make_client(token);
-        let response = client
-            .get(format!("{}/user", self.base_url))
-            .send()
-            .await?;
+        let response = client.get(format!("{}/user", self.base_url)).send().await?;
 
         if !response.status().is_success() {
             anyhow::bail!("GitHub authentication failed: {}", response.status());
@@ -184,7 +181,12 @@ impl HostingProvider for GitHubProvider {
         Ok(items.iter().map(json_to_remote_repo).collect())
     }
 
-    async fn create_fork(&self, account: &HostingAccount, owner: &str, repo: &str) -> Result<RemoteRepo> {
+    async fn create_fork(
+        &self,
+        account: &HostingAccount,
+        owner: &str,
+        repo: &str,
+    ) -> Result<RemoteRepo> {
         let token = account.token()?;
         let client = make_client(&token);
         let response = client
@@ -204,7 +206,10 @@ impl HostingProvider for GitHubProvider {
 
     fn file_url(&self, repo_full_name: &str, sha: &str, path: &str, line: Option<u32>) -> String {
         match line {
-            Some(l) => format!("{}/{}/blob/{}/{}#L{}", self.web_url, repo_full_name, sha, path, l),
+            Some(l) => format!(
+                "{}/{}/blob/{}/{}#L{}",
+                self.web_url, repo_full_name, sha, path, l
+            ),
             None => format!("{}/{}/blob/{}/{}", self.web_url, repo_full_name, sha, path),
         }
     }

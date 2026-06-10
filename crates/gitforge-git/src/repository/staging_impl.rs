@@ -72,12 +72,14 @@ impl Repository {
 
         if let Some(mut stdin) = child.stdin.take() {
             use std::io::Write;
-            stdin.write_all(patch.as_bytes())
+            stdin
+                .write_all(patch.as_bytes())
                 .map_err(|e| GitError::OperationFailed(format!("Failed to write patch: {}", e)))?;
         }
 
-        let output = child.wait_with_output()
-            .map_err(|e| GitError::OperationFailed(format!("Failed to wait for git apply: {}", e)))?;
+        let output = child.wait_with_output().map_err(|e| {
+            GitError::OperationFailed(format!("Failed to wait for git apply: {}", e))
+        })?;
 
         if !output.status.success() {
             return Err(GitError::OperationFailed(
@@ -106,8 +108,9 @@ impl Repository {
         for path in paths {
             let full_path = self.path.join(path);
             if full_path.exists() {
-                std::fs::remove_file(&full_path)
-                    .map_err(|e| GitError::OperationFailed(format!("Failed to remove {}: {}", path.display(), e)))?;
+                std::fs::remove_file(&full_path).map_err(|e| {
+                    GitError::OperationFailed(format!("Failed to remove {}: {}", path.display(), e))
+                })?;
             }
         }
         Ok(())
@@ -118,8 +121,9 @@ impl Repository {
         let gitignore_path = self.path.join(".gitignore");
         let mut existing = String::new();
         if gitignore_path.exists() {
-            existing = std::fs::read_to_string(&gitignore_path)
-                .map_err(|e| GitError::OperationFailed(format!("Failed to read .gitignore: {}", e)))?;
+            existing = std::fs::read_to_string(&gitignore_path).map_err(|e| {
+                GitError::OperationFailed(format!("Failed to read .gitignore: {}", e))
+            })?;
             if !existing.ends_with('\n') {
                 existing.push('\n');
             }

@@ -119,11 +119,7 @@ mod tests {
 
     #[test]
     fn linear_history() {
-        let commits = vec![
-            entry("c3", &["c2"]),
-            entry("c2", &["c1"]),
-            entry("c1", &[]),
-        ];
+        let commits = vec![entry("c3", &["c2"]), entry("c2", &["c1"]), entry("c1", &[])];
         let g = Graph::build(&commits);
         assert_eq!(g.len(), 3);
 

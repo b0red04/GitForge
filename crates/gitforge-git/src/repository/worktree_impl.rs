@@ -56,7 +56,10 @@ impl Repository {
             worktrees.push(wt);
         }
 
-        let current_path = self.path.canonicalize().unwrap_or_else(|_| self.path.clone());
+        let current_path = self
+            .path
+            .canonicalize()
+            .unwrap_or_else(|_| self.path.clone());
         for wt in &mut worktrees {
             let wt_canonical = wt.path.canonicalize().unwrap_or_else(|_| wt.path.clone());
             wt.is_current = wt_canonical == current_path;
@@ -66,7 +69,12 @@ impl Repository {
     }
 
     /// Spawns a `git` subprocess.
-    pub fn worktree_add(&self, target_path: &Path, refname: Option<&str>, create_branch: Option<&str>) -> GitResult<()> {
+    pub fn worktree_add(
+        &self,
+        target_path: &Path,
+        refname: Option<&str>,
+        create_branch: Option<&str>,
+    ) -> GitResult<()> {
         let mut args = vec!["worktree", "add"];
         if let Some(branch_name) = create_branch {
             args.push("-b");

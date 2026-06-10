@@ -1,4 +1,4 @@
-use gitforge_ui::{rgba_to_hsla, AppColors};
+use gitforge_ui::{AppColors, rgba_to_hsla};
 use gpui::*;
 
 pub struct CommitEditor {
@@ -112,7 +112,11 @@ impl CommitEditor {
         };
         let generate_color = if ai_generating { muted } else { accent };
 
-        let mut editor = div().id("commit-editor-panel").bg(surface).flex().flex_col();
+        let mut editor = div()
+            .id("commit-editor-panel")
+            .bg(surface)
+            .flex()
+            .flex_col();
         if compact {
             editor = editor.flex_shrink_0().border_t_1().border_color(border);
         } else {
@@ -147,8 +151,8 @@ impl CommitEditor {
                 } else {
                     first_line.to_string()
                 };
-                let is_selected = self.message.lines().next().unwrap_or("")
-                    == alt.lines().next().unwrap_or("");
+                let is_selected =
+                    self.message.lines().next().unwrap_or("") == alt.lines().next().unwrap_or("");
                 let pill_bg = if is_selected { accent } else { surface };
                 let pill_tc = if is_selected {
                     rgba_to_hsla(colors.background)
@@ -254,81 +258,81 @@ impl CommitEditor {
         }
         editor = editor.child(msg_input);
         editor = editor.child(
-                div()
-                    .px_3()
-                    .py_2()
-                    .border_t_1()
-                    .border_color(border)
-                    .flex()
-                    .flex_shrink_0()
-                    .gap_2()
-                    .child({
-                        let ent_gen = ent4.clone();
-                        div()
-                            .id("ai-generate-btn")
-                            .px_3()
-                            .py_1()
-                            .rounded(px(4.0))
-                            .border_1()
-                            .border_color(generate_color)
-                            .cursor_pointer()
-                            .text_xs()
-                            .text_color(generate_color)
-                            .child(generate_label)
-                            .on_click(move |_ev, _window, cx| {
-                                if let Some(e) = ent_gen.upgrade() {
+            div()
+                .px_3()
+                .py_2()
+                .border_t_1()
+                .border_color(border)
+                .flex()
+                .flex_shrink_0()
+                .gap_2()
+                .child({
+                    let ent_gen = ent4.clone();
+                    div()
+                        .id("ai-generate-btn")
+                        .px_3()
+                        .py_1()
+                        .rounded(px(4.0))
+                        .border_1()
+                        .border_color(generate_color)
+                        .cursor_pointer()
+                        .text_xs()
+                        .text_color(generate_color)
+                        .child(generate_label)
+                        .on_click(move |_ev, _window, cx| {
+                            if let Some(e) = ent_gen.upgrade() {
+                                e.update(cx, |this, cx| {
+                                    this.generate_commit_message(cx);
+                                });
+                            }
+                        })
+                })
+                .child({
+                    let btn_bg = if has_message { accent } else { muted };
+                    div()
+                        .id("submit-commit-btn")
+                        .px_4()
+                        .py_1()
+                        .rounded(px(4.0))
+                        .bg(btn_bg)
+                        .cursor_pointer()
+                        .text_xs()
+                        .text_color(rgba_to_hsla(colors.background))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child("Commit")
+                        .on_click(move |_ev, _window, cx| {
+                            if has_message {
+                                if let Some(e) = ent2.upgrade() {
                                     e.update(cx, |this, cx| {
-                                        this.generate_commit_message(cx);
+                                        this.perform_commit(false, cx);
                                     });
                                 }
-                            })
-                    })
-                    .child({
-                        let btn_bg = if has_message { accent } else { muted };
-                        div()
-                            .id("submit-commit-btn")
-                            .px_4()
-                            .py_1()
-                            .rounded(px(4.0))
-                            .bg(btn_bg)
-                            .cursor_pointer()
-                            .text_xs()
-                            .text_color(rgba_to_hsla(colors.background))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child("Commit")
-                            .on_click(move |_ev, _window, cx| {
-                                if has_message {
-                                    if let Some(e) = ent2.upgrade() {
-                                        e.update(cx, |this, cx| {
-                                            this.perform_commit(false, cx);
-                                        });
-                                    }
+                            }
+                        })
+                })
+                .child({
+                    div()
+                        .id("amend-commit-btn")
+                        .px_4()
+                        .py_1()
+                        .rounded(px(4.0))
+                        .border_1()
+                        .border_color(border)
+                        .cursor_pointer()
+                        .text_xs()
+                        .text_color(text_color)
+                        .child("Amend")
+                        .on_click(move |_ev, _window, cx| {
+                            if has_message {
+                                if let Some(e) = ent3.upgrade() {
+                                    e.update(cx, |this, cx| {
+                                        this.perform_commit(true, cx);
+                                    });
                                 }
-                            })
-                    })
-                    .child({
-                        div()
-                            .id("amend-commit-btn")
-                            .px_4()
-                            .py_1()
-                            .rounded(px(4.0))
-                            .border_1()
-                            .border_color(border)
-                            .cursor_pointer()
-                            .text_xs()
-                            .text_color(text_color)
-                            .child("Amend")
-                            .on_click(move |_ev, _window, cx| {
-                                if has_message {
-                                    if let Some(e) = ent3.upgrade() {
-                                        e.update(cx, |this, cx| {
-                                            this.perform_commit(true, cx);
-                                        });
-                                    }
-                                }
-                            })
-                    }),
-            );
+                            }
+                        })
+                }),
+        );
 
         editor
     }

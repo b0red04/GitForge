@@ -1,7 +1,7 @@
-use anyhow::Result;
-use async_trait::async_trait;
 use crate::models::{HostingAccount, RemoteRepo};
 use crate::provider::HostingProvider;
+use anyhow::Result;
+use async_trait::async_trait;
 
 pub struct GitLabProvider {
     base_url: String,
@@ -17,9 +17,7 @@ impl GitLabProvider {
     }
 
     pub fn with_url(base_url: String) -> Self {
-        let web_url = base_url
-            .trim_end_matches("/api/v4")
-            .to_string();
+        let web_url = base_url.trim_end_matches("/api/v4").to_string();
         Self { base_url, web_url }
     }
 }
@@ -35,10 +33,7 @@ fn make_client(token: &str) -> reqwest::Client {
         .user_agent("gitforge")
         .default_headers({
             let mut headers = reqwest::header::HeaderMap::new();
-            headers.insert(
-                "PRIVATE-TOKEN",
-                token.parse().unwrap(),
-            );
+            headers.insert("PRIVATE-TOKEN", token.parse().unwrap());
             headers
         })
         .build()
@@ -47,8 +42,8 @@ fn make_client(token: &str) -> reqwest::Client {
 
 fn url_encode(s: &str) -> String {
     s.replace('%', "%25")
-     .replace('/', "%2F")
-     .replace(' ', "%20")
+        .replace('/', "%2F")
+        .replace(' ', "%20")
 }
 
 #[async_trait]
@@ -63,10 +58,7 @@ impl HostingProvider for GitLabProvider {
 
     async fn authenticate(&self, token: &str) -> Result<HostingAccount> {
         let client = make_client(token);
-        let response = client
-            .get(format!("{}/user", self.base_url))
-            .send()
-            .await?;
+        let response = client.get(format!("{}/user", self.base_url)).send().await?;
 
         if !response.status().is_success() {
             anyhow::bail!("GitLab authentication failed: {}", response.status());
@@ -127,19 +119,27 @@ impl HostingProvider for GitLabProvider {
         Ok(all_repos)
     }
 
-    async fn list_org_repos(&self, account: &HostingAccount, group: &str) -> Result<Vec<RemoteRepo>> {
+    async fn list_org_repos(
+        &self,
+        account: &HostingAccount,
+        group: &str,
+    ) -> Result<Vec<RemoteRepo>> {
         let token = account.token()?;
         let client = make_client(&token);
         let response = client
             .get(format!(
                 "{}/groups/{}/projects?per_page=100",
-                self.base_url, url_encode(group)
+                self.base_url,
+                url_encode(group)
             ))
             .send()
             .await?;
 
         if !response.status().is_success() {
-            anyhow::bail!("Failed to list GitLab group projects: {}", response.status());
+            anyhow::bail!(
+                "Failed to list GitLab group projects: {}",
+                response.status()
+            );
         }
 
         let projects: Vec<serde_json::Value> = response.json().await?;
@@ -165,7 +165,12 @@ impl HostingProvider for GitLabProvider {
         Ok(projects.iter().map(json_to_remote_repo).collect())
     }
 
-    async fn create_fork(&self, account: &HostingAccount, owner: &str, repo: &str) -> Result<RemoteRepo> {
+    async fn create_fork(
+        &self,
+        account: &HostingAccount,
+        owner: &str,
+        repo: &str,
+    ) -> Result<RemoteRepo> {
         let token = account.token()?;
         let client = make_client(&token);
         let project_path = url_encode(&format!("{}/{}", owner, repo));
@@ -187,13 +192,21 @@ impl HostingProvider for GitLabProvider {
     fn file_url(&self, repo_full_name: &str, sha: &str, path: &str, line: Option<u32>) -> String {
         let encoded = url_encode(repo_full_name);
         match line {
-            Some(l) => format!("{}/{}/-/blob/{}/{}#L{}", self.web_url, encoded, sha, path, l),
+            Some(l) => format!(
+                "{}/{}/-/blob/{}/{}#L{}",
+                self.web_url, encoded, sha, path, l
+            ),
             None => format!("{}/{}/-/blob/{}/{}", self.web_url, encoded, sha, path),
         }
     }
 
     fn commit_url(&self, repo_full_name: &str, sha: &str) -> String {
-        format!("{}/{}/-/commit/{}", self.web_url, url_encode(repo_full_name), sha)
+        format!(
+            "{}/{}/-/commit/{}",
+            self.web_url,
+            url_encode(repo_full_name),
+            sha
+        )
     }
 
     fn repo_url(&self, repo_full_name: &str) -> String {
@@ -209,13 +222,19 @@ fn json_to_remote_repo(project: &serde_json::Value) -> RemoteRepo {
         .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
         .map(|dt| dt.with_timezone(&Utc));
 
-    let http_url = project["http_url_to_repo"].as_str().unwrap_or("").to_string();
+    let http_url = project["http_url_to_repo"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
     let ssh_url = project["ssh_url_to_repo"].as_str().map(|s| s.to_string());
     let web_url = project["web_url"].as_str().unwrap_or("").to_string();
 
     RemoteRepo {
         name: project["name"].as_str().unwrap_or("").to_string(),
-        full_name: project["path_with_namespace"].as_str().unwrap_or("").to_string(),
+        full_name: project["path_with_namespace"]
+            .as_str()
+            .unwrap_or("")
+            .to_string(),
         description: project["description"].as_str().map(|s| s.to_string()),
         clone_url: http_url,
         ssh_url,

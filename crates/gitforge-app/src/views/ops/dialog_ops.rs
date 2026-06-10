@@ -3,11 +3,10 @@ use gpui::*;
 
 use std::path::PathBuf;
 
-use crate::views::app::{GitForgeApp, AppDialog};
 use super::super::settings_window::SettingsSection;
+use crate::views::app::{AppDialog, GitForgeApp};
 
 impl GitForgeApp {
-
     pub fn open_create_branch_dialog(
         &mut self,
         start_point: Option<String>,
@@ -205,7 +204,8 @@ impl GitForgeApp {
     }
 
     pub fn toggle_sidebar_worktrees(&mut self, cx: &mut Context<Self>) {
-        self.repo_session.sidebar_state.worktrees_expanded = !self.repo_session.sidebar_state.worktrees_expanded;
+        self.repo_session.sidebar_state.worktrees_expanded =
+            !self.repo_session.sidebar_state.worktrees_expanded;
         cx.notify();
     }
 
@@ -258,21 +258,24 @@ impl GitForgeApp {
             match result {
                 Ok(Ok(())) => {
                     this.update(cx, |this, cx| {
-                        this.repo_session.remote_status = "Credential stored in keyring".to_string();
+                        this.repo_session.remote_status =
+                            "Credential stored in keyring".to_string();
                         cx.notify();
                     })
                     .ok();
                 }
                 Ok(Err(e)) => {
                     this.update(cx, |this, cx| {
-                        this.repo_session.remote_status = format!("Failed to store credential: {}", e);
+                        this.repo_session.remote_status =
+                            format!("Failed to store credential: {}", e);
                         cx.notify();
                     })
                     .ok();
                 }
                 Err(e) => {
                     this.update(cx, |this, cx| {
-                        this.repo_session.remote_status = format!("Credential storage error: {}", e);
+                        this.repo_session.remote_status =
+                            format!("Credential storage error: {}", e);
                         cx.notify();
                     })
                     .ok();
@@ -303,9 +306,8 @@ impl GitForgeApp {
     }
     pub fn spawn_init_repo_picker(&mut self, cx: &mut Context<Self>) {
         cx.spawn(async move |this, cx| {
-            let path = cx.update(|_cx| {
-                rfd::AsyncFileDialog::new().set_title("Select Parent Directory")
-            });
+            let path =
+                cx.update(|_cx| rfd::AsyncFileDialog::new().set_title("Select Parent Directory"));
             let folder = match path {
                 Ok(dialog) => dialog.pick_folder().await,
                 Err(_) => None,
@@ -346,7 +348,8 @@ impl GitForgeApp {
                 }
                 Ok(Err(e)) => {
                     this.update(cx, |this, cx| {
-                        this.repo_session.last_error = Some(format!("Failed to init repository: {}", e));
+                        this.repo_session.last_error =
+                            Some(format!("Failed to init repository: {}", e));
                         cx.notify();
                     })
                     .ok();

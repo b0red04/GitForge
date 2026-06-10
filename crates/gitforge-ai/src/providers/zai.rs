@@ -7,13 +7,7 @@ pub fn zai_provider(
     endpoint: ZaiEndpoint,
     temperature: f32,
 ) -> OpenAiCompatibleProvider {
-    OpenAiCompatibleProvider::new(
-        endpoint.base_url(),
-        api_key,
-        model,
-        "zai",
-        temperature,
-    )
+    OpenAiCompatibleProvider::new(endpoint.base_url(), api_key, model, "zai", temperature)
 }
 
 pub fn zai_models_base_url(endpoint: ZaiEndpoint) -> &'static str {

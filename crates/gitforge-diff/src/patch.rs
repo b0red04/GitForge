@@ -1,9 +1,6 @@
-use crate::types::{DiffLine, DiffLineType, DiffHunk};
+use crate::types::{DiffHunk, DiffLine, DiffLineType};
 
-pub fn extract_patch_from_selection(
-    file_lines: &[DiffLine],
-    selected_indices: &[usize],
-) -> String {
+pub fn extract_patch_from_selection(file_lines: &[DiffLine], selected_indices: &[usize]) -> String {
     if selected_indices.is_empty() {
         return String::new();
     }
@@ -54,17 +51,22 @@ pub fn extract_patch_from_selection(
     let mut result = String::new();
 
     for hunk in &hunks {
-        let old_count: u32 = hunk.lines.iter()
-            .filter(|l| l.line_type == DiffLineType::Removed || l.line_type == DiffLineType::Context)
+        let old_count: u32 = hunk
+            .lines
+            .iter()
+            .filter(|l| {
+                l.line_type == DiffLineType::Removed || l.line_type == DiffLineType::Context
+            })
             .count() as u32;
-        let new_count: u32 = hunk.lines.iter()
+        let new_count: u32 = hunk
+            .lines
+            .iter()
             .filter(|l| l.line_type == DiffLineType::Added || l.line_type == DiffLineType::Context)
             .count() as u32;
 
         result.push_str(&format!(
             "@@ -{},{} +{},{} @@\n",
-            hunk.old_start, old_count,
-            hunk.new_start, new_count,
+            hunk.old_start, old_count, hunk.new_start, new_count,
         ));
 
         for hl in &hunk.lines {
@@ -99,10 +101,16 @@ pub fn extract_hunk_patch(
 
         match line.line_type {
             DiffLineType::Added => {
-                if selected { new_count += 1; body.push_str(&format!("+{}\n", line.content)); }
+                if selected {
+                    new_count += 1;
+                    body.push_str(&format!("+{}\n", line.content));
+                }
             }
             DiffLineType::Removed => {
-                if selected { old_count += 1; body.push_str(&format!("-{}\n", line.content)); }
+                if selected {
+                    old_count += 1;
+                    body.push_str(&format!("-{}\n", line.content));
+                }
             }
             DiffLineType::Context => {
                 old_count += 1;
@@ -120,7 +128,10 @@ pub fn extract_hunk_patch(
         return String::new();
     }
 
-    format!("@@ -{},{} +{},{} @@\n{}", hunk.old_start, old_count, hunk.new_start, new_count, body)
+    format!(
+        "@@ -{},{} +{},{} @@\n{}",
+        hunk.old_start, old_count, hunk.new_start, new_count, body
+    )
 }
 
 struct HunkBuilder {

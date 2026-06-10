@@ -3,7 +3,7 @@
 //! Adapted from Zed's `git_graph` lane state machine (segment list, not per-row arcs).
 
 use crate::types::CommitId;
-use smallvec::{smallvec, SmallVec};
+use smallvec::{SmallVec, smallvec};
 use std::collections::HashMap;
 use std::ops::Range;
 
@@ -51,9 +51,7 @@ impl CommitLine {
                     }
                 }
                 CommitLineSegment::Curve {
-                    to_column,
-                    on_row,
-                    ..
+                    to_column, on_row, ..
                 } => {
                     if *on_row >= first_visible_row {
                         return Some((idx, current_column));
@@ -104,9 +102,7 @@ impl LaneState {
                 let final_destination = destination_column.unwrap_or(parent_column);
 
                 match segments.last_mut() {
-                    Some(CommitLineSegment::Straight { to_row })
-                        if *to_row == usize::MAX =>
-                    {
+                    Some(CommitLineSegment::Straight { to_row }) if *to_row == usize::MAX => {
                         if final_destination != lane_column {
                             *to_row = ending_row.saturating_sub(1);
                             let curved = CommitLineSegment::Curve {
@@ -145,9 +141,8 @@ impl LaneState {
                                         curve_kind: CurveKind::Checkout,
                                     });
                                 } else {
-                                    segments.push(CommitLineSegment::Straight {
-                                        to_row: ending_row,
-                                    });
+                                    segments
+                                        .push(CommitLineSegment::Straight { to_row: ending_row });
                                 }
                             } else if *to_column != final_destination {
                                 segments.push(CommitLineSegment::Curve {
@@ -159,9 +154,7 @@ impl LaneState {
                         } else {
                             *on_row = ending_row;
                             if *to_column != final_destination {
-                                segments.push(CommitLineSegment::Straight {
-                                    to_row: ending_row,
-                                });
+                                segments.push(CommitLineSegment::Straight { to_row: ending_row });
                                 segments.push(CommitLineSegment::Curve {
                                     to_column: final_destination,
                                     on_row: ending_row,
@@ -170,7 +163,9 @@ impl LaneState {
                             }
                         }
                     }
-                    Some(CommitLineSegment::Curve { on_row, to_column, .. }) => {
+                    Some(CommitLineSegment::Curve {
+                        on_row, to_column, ..
+                    }) => {
                         if *on_row < ending_row {
                             if *to_column != final_destination {
                                 segments.push(CommitLineSegment::Straight {
@@ -182,9 +177,7 @@ impl LaneState {
                                     curve_kind: CurveKind::Checkout,
                                 });
                             } else {
-                                segments.push(CommitLineSegment::Straight {
-                                    to_row: ending_row,
-                                });
+                                segments.push(CommitLineSegment::Straight { to_row: ending_row });
                             }
                         } else if *to_column != final_destination {
                             segments.push(CommitLineSegment::Curve {
@@ -280,9 +273,7 @@ impl LineGraphBuilder {
                         }
                     }
 
-                    if let Some(line) =
-                        state.finalize(commit_row, lane_column, commit_lane)
-                    {
+                    if let Some(line) = state.finalize(commit_row, lane_column, commit_lane) {
                         self.lines.push(line);
                     }
                 }
@@ -294,9 +285,7 @@ impl LineGraphBuilder {
                         starting_col: commit_lane,
                         starting_row: commit_row,
                         destination_column: None,
-                        segments: smallvec![CommitLineSegment::Straight {
-                            to_row: usize::MAX
-                        }],
+                        segments: smallvec![CommitLineSegment::Straight { to_row: usize::MAX }],
                     };
                     self.parent_to_lanes
                         .entry(parent_id.clone())

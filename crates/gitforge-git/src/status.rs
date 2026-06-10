@@ -29,15 +29,14 @@ pub struct FileEntry {
 
 impl RepoStatus {
     pub fn has_changes(&self) -> bool {
-        !self.staged.is_empty() || !self.unstaged.is_empty()
-            || !self.untracked.is_empty() || !self.conflicted.is_empty()
+        !self.staged.is_empty()
+            || !self.unstaged.is_empty()
+            || !self.untracked.is_empty()
+            || !self.conflicted.is_empty()
     }
 
     pub fn changed_file_count(&self) -> usize {
-        self.staged.len()
-            + self.unstaged.len()
-            + self.untracked.len()
-            + self.conflicted.len()
+        self.staged.len() + self.unstaged.len() + self.untracked.len() + self.conflicted.len()
     }
 }
 

@@ -7,7 +7,10 @@ use std::ops::Range;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use super::diff_view::{DiffLineSelection, SharedHighlightState, DIFF_LINE_HEIGHT, DIFF_LINE_NUM_WIDTH, render_diff_empty_state, render_diff_lines, render_highlighted_segments};
+use super::diff_view::{
+    DIFF_LINE_HEIGHT, DIFF_LINE_NUM_WIDTH, DiffLineSelection, SharedHighlightState,
+    render_diff_empty_state, render_diff_lines, render_highlighted_segments,
+};
 use super::layout::{FILE_LIST_WIDTH, RIGHT_MIN_WIDTH};
 
 const IMAGE_EXTENSIONS: &[&str] = &[

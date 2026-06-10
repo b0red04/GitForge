@@ -2,18 +2,18 @@ use crate::error::{GitError, GitResult};
 use std::path::Path;
 use std::process::Command;
 
-pub mod log_impl;
-pub mod status_impl;
-pub mod diff_impl;
-pub mod objects_impl;
 pub mod blame_impl;
-pub mod worktree_impl;
-pub mod staging_impl;
 pub mod branch_impl;
+pub mod diff_impl;
+pub mod log_impl;
 pub mod merge_impl;
 pub mod network_impl;
+pub mod objects_impl;
+pub mod staging_impl;
 pub mod stash_impl;
+pub mod status_impl;
 pub mod submodule_impl;
+pub mod worktree_impl;
 
 pub struct Repository {
     pub(crate) repo: gix::Repository,
@@ -43,16 +43,19 @@ impl Repository {
     }
 
     fn parse_object_id(&self, id: &str, label: &str) -> GitResult<gix::ObjectId> {
-        id.parse().map_err(|e| {
-            GitError::OperationFailed(format!("Invalid {} '{}': {}", label, id, e))
-        })
+        id.parse()
+            .map_err(|e| GitError::OperationFailed(format!("Invalid {} '{}': {}", label, id, e)))
     }
 
     fn find_commit_tree(&self, commit_id: &str) -> GitResult<gix::Tree<'_>> {
         let id = self.parse_object_id(commit_id, "commit ID")?;
-        let commit = self.repo.find_commit(id)
+        let commit = self
+            .repo
+            .find_commit(id)
             .map_err(|e| GitError::OperationFailed(e.to_string()))?;
-        commit.tree().map_err(|e| GitError::OperationFailed(e.to_string()))
+        commit
+            .tree()
+            .map_err(|e| GitError::OperationFailed(e.to_string()))
     }
 
     pub(crate) fn run_git(&self, args: &[&str]) -> GitResult<std::process::Output> {
@@ -61,7 +64,9 @@ impl Repository {
             .args(args)
             .current_dir(&self.path)
             .output()
-            .map_err(|e| GitError::OperationFailed(format!("Failed to run git {}: {}", label, e)))?;
+            .map_err(|e| {
+                GitError::OperationFailed(format!("Failed to run git {}: {}", label, e))
+            })?;
 
         if !output.status.success() {
             return Err(GitError::OperationFailed(
@@ -77,7 +82,9 @@ impl Repository {
             .args(args)
             .current_dir(&self.path)
             .output()
-            .map_err(|e| GitError::OperationFailed(format!("Failed to run git {}: {}", label, e)))?;
+            .map_err(|e| {
+                GitError::OperationFailed(format!("Failed to run git {}: {}", label, e))
+            })?;
 
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();

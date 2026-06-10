@@ -44,13 +44,9 @@ pub fn untracked_line_count(repo_root: &Path, rel_path: &str) -> Option<DiffStat
     let added = if data.is_empty() {
         0
     } else {
-        data.iter().filter(|&&b| b == b'\n').count() as u32
-            + u32::from(!data.ends_with(b"\n"))
+        data.iter().filter(|&&b| b == b'\n').count() as u32 + u32::from(!data.ends_with(b"\n"))
     };
-    Some(DiffStat {
-        added,
-        deleted: 0,
-    })
+    Some(DiffStat { added, deleted: 0 })
 }
 
 #[cfg(test)]

@@ -1,6 +1,5 @@
 use gpui::Context;
 
-
 use crate::views::app::GitForgeApp;
 
 impl GitForgeApp {

@@ -1,7 +1,7 @@
-use crate::error::{GitError, GitResult};
-use crate::repository::Repository;
 use crate::commit::CommitInfo;
+use crate::error::{GitError, GitResult};
 use crate::reference::{RefInfo, RefKind};
+use crate::repository::Repository;
 use gix::revision::walk::Sorting;
 use gix::traverse::commit::simple::CommitTimeOrder;
 use std::process::Command;
@@ -37,7 +37,8 @@ impl Repository {
             return Ok(None);
         };
 
-        let commit = id.object()
+        let commit = id
+            .object()
             .map_err(|e| GitError::OperationFailed(e.to_string()))?
             .try_into_commit()
             .map_err(|_| GitError::OperationFailed("HEAD is not a commit".into()))?;
@@ -127,13 +128,16 @@ impl Repository {
     }
 
     pub fn references(&self) -> GitResult<Vec<RefInfo>> {
-        let refs = self.repo.references()
+        let refs = self
+            .repo
+            .references()
             .map_err(|e| GitError::OperationFailed(e.to_string()))?;
 
         let mut result = Vec::new();
         let head_branch = self.head_branch()?;
 
-        for reference in refs.all()
+        for reference in refs
+            .all()
             .map_err(|e| GitError::OperationFailed(e.to_string()))?
         {
             let r = reference.map_err(|e| GitError::OperationFailed(e.to_string()))?;
@@ -186,7 +190,8 @@ impl Repository {
                 RefKind::Tag => 2,
                 RefKind::Stash => 3,
             };
-            kind_order(&a.kind).cmp(&kind_order(&b.kind))
+            kind_order(&a.kind)
+                .cmp(&kind_order(&b.kind))
                 .then_with(|| a.name.cmp(&b.name))
         });
 
@@ -199,7 +204,9 @@ impl Repository {
             .args(["rev-parse", "--abbrev-ref", "HEAD"])
             .current_dir(&self.path)
             .output()
-            .map_err(|e| GitError::OperationFailed(format!("Failed to run git rev-parse: {}", e)))?;
+            .map_err(|e| {
+                GitError::OperationFailed(format!("Failed to run git rev-parse: {}", e))
+            })?;
 
         if !output.status.success() {
             return Ok(None);
@@ -214,14 +221,18 @@ impl Repository {
             .args(["symbolic-ref", "-q", "HEAD"])
             .current_dir(&self.path)
             .output()
-            .map_err(|e| GitError::OperationFailed(format!("Failed to run git symbolic-ref: {}", e)))?;
+            .map_err(|e| {
+                GitError::OperationFailed(format!("Failed to run git symbolic-ref: {}", e))
+            })?;
         Ok(!output.status.success())
     }
 
     fn commit_info_from_gix(&self, commit: &gix::Commit<'_>) -> GitResult<CommitInfo> {
         let id = commit.id.to_hex().to_string();
         let short_id = id[..7].to_string();
-        let message_ref = commit.message().map_err(|e| GitError::OperationFailed(e.to_string()))?;
+        let message_ref = commit
+            .message()
+            .map_err(|e| GitError::OperationFailed(e.to_string()))?;
         let summary = message_ref.title.to_string();
         let body = message_ref.body.map(|b| b.to_string()).unwrap_or_default();
         let message = if body.is_empty() {
@@ -230,20 +241,27 @@ impl Repository {
             format!("{}\n\n{}", summary, body)
         };
 
-        let author = commit.author().map_err(|e| GitError::OperationFailed(e.to_string()))?;
-        let committer = commit.committer().map_err(|e| GitError::OperationFailed(e.to_string()))?;
-
-        let author_time = author.time()
+        let author = commit
+            .author()
             .map_err(|e| GitError::OperationFailed(e.to_string()))?;
-        let committer_time = committer.time()
+        let committer = commit
+            .committer()
             .map_err(|e| GitError::OperationFailed(e.to_string()))?;
 
-        let author_dt = chrono::DateTime::from_timestamp(author_time.seconds, 0)
-            .unwrap_or_default();
-        let committer_dt = chrono::DateTime::from_timestamp(committer_time.seconds, 0)
-            .unwrap_or_default();
+        let author_time = author
+            .time()
+            .map_err(|e| GitError::OperationFailed(e.to_string()))?;
+        let committer_time = committer
+            .time()
+            .map_err(|e| GitError::OperationFailed(e.to_string()))?;
 
-        let parent_ids: Vec<String> = commit.parent_ids()
+        let author_dt =
+            chrono::DateTime::from_timestamp(author_time.seconds, 0).unwrap_or_default();
+        let committer_dt =
+            chrono::DateTime::from_timestamp(committer_time.seconds, 0).unwrap_or_default();
+
+        let parent_ids: Vec<String> = commit
+            .parent_ids()
             .map(|id| id.to_hex().to_string())
             .collect();
 

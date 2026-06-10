@@ -9,7 +9,6 @@ pub const CENTER_FLEX: f32 = 3.0;
 pub const RIGHT_FLEX: f32 = 2.0;
 
 pub const GRAPH_LANE_WIDTH: f32 = 140.0;
-pub const REF_COL_MIN: f32 = 100.0;
 pub const HASH_COL: f32 = 60.0;
 pub const TIME_COL: f32 = 90.0;
 pub const FILE_LIST_WIDTH: f32 = 240.0;

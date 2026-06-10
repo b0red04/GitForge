@@ -1,4 +1,4 @@
-use gitforge_git::{RepoLoadOptions, CommitLogOptions};
+use gitforge_git::{CommitLogOptions, RepoLoadOptions};
 use gitforge_ui::{AppColors, Theme, rgba_to_hsla};
 use gpui::*;
 
@@ -237,11 +237,12 @@ impl Render for GitForgeApp {
             entity.clone(),
         );
 
-        let graph_area = super::layout::grow_center(div()).child(self.repo_session.graph_panel.render(
-            &self.colors,
-            self.settings.show_checkpoint_refs,
-            entity.clone(),
-        ));
+        let graph_area =
+            super::layout::grow_center(div()).child(self.repo_session.graph_panel.render(
+                &self.colors,
+                self.settings.show_checkpoint_refs,
+                entity.clone(),
+            ));
 
         let right_content = match self.repo_session.view_mode {
             MainViewMode::CommitHistory => {
@@ -264,16 +265,22 @@ impl Render for GitForgeApp {
                     )
                 }
             }
-            MainViewMode::Status => {
-                self.repo_session.status_panel
-                    .render(&self.colors, entity.clone(), window, self.ai_generating, &self.repo_session.commit_editor)
-            }
+            MainViewMode::Status => self.repo_session.status_panel.render(
+                &self.colors,
+                entity.clone(),
+                window,
+                self.ai_generating,
+                &self.repo_session.commit_editor,
+            ),
         };
 
         let right_panel = super::layout::grow_right(div()).child(right_content);
 
-        let status_bar =
-            super::toolbar::render_status_bar(&self.repo_session.remote_status, &self.colors, window);
+        let status_bar = super::toolbar::render_status_bar(
+            &self.repo_session.remote_status,
+            &self.colors,
+            window,
+        );
 
         let error_banner = self.repo_session.last_error.as_ref().map(|err| {
             let _error_color = rgba_to_hsla(self.colors.error);
@@ -368,7 +375,10 @@ impl Render for GitForgeApp {
             ));
         }
 
-        if let Some(palette) = self.command_palette.render(&self.colors, entity.clone(), window) {
+        if let Some(palette) = self
+            .command_palette
+            .render(&self.colors, entity.clone(), window)
+        {
             inner = inner.child(palette);
         }
 

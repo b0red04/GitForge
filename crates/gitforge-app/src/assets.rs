@@ -12,7 +12,10 @@ impl EmbeddedAssets {
 
         macro_rules! embed {
             ($path:literal) => {
-                files.insert($path, include_bytes!(concat!("../../../assets/", $path)).as_slice());
+                files.insert(
+                    $path,
+                    include_bytes!(concat!("../../../assets/", $path)).as_slice(),
+                );
             };
         }
 

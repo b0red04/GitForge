@@ -1,12 +1,16 @@
+use crate::blame::BlameLine;
 use crate::error::{GitError, GitResult};
 use crate::repository::Repository;
-use crate::blame::BlameLine;
-use std::path::Path;
 use std::collections::HashMap;
+use std::path::Path;
 
 impl Repository {
     /// Spawns a `git` subprocess.
-    pub fn blame_file(&self, file_path: &Path, revision: Option<&str>) -> GitResult<Vec<BlameLine>> {
+    pub fn blame_file(
+        &self,
+        file_path: &Path,
+        revision: Option<&str>,
+    ) -> GitResult<Vec<BlameLine>> {
         let mut args = vec!["blame", "--porcelain"];
         if let Some(rev) = revision {
             args.push(rev);
@@ -42,13 +46,16 @@ fn parse_blame_porcelain(output: &str) -> GitResult<Vec<BlameLine>> {
         if raw_line.starts_with('\t') {
             let content = raw_line[1..].to_string();
             if let Some(commit_id) = &current_commit_id {
-                let info = commits.get(commit_id).cloned().unwrap_or_else(|| BlameCommitInfo {
-                    author: String::new(),
-                    author_mail: String::new(),
-                    author_time: String::new(),
-                    summary: String::new(),
-                    is_boundary: false,
-                });
+                let info = commits
+                    .get(commit_id)
+                    .cloned()
+                    .unwrap_or_else(|| BlameCommitInfo {
+                        author: String::new(),
+                        author_mail: String::new(),
+                        author_time: String::new(),
+                        summary: String::new(),
+                        is_boundary: false,
+                    });
                 lines.push(BlameLine {
                     line_number: current_line_num,
                     commit_id: commit_id.clone(),

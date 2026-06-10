@@ -39,7 +39,9 @@ impl Repository {
             .env("GIT_EDITOR", "true")
             .current_dir(&self.path)
             .output()
-            .map_err(|e| GitError::OperationFailed(format!("Failed to run git rebase --continue: {}", e)))?;
+            .map_err(|e| {
+                GitError::OperationFailed(format!("Failed to run git rebase --continue: {}", e))
+            })?;
 
         if !output.status.success() {
             return Err(GitError::OperationFailed(
@@ -68,7 +70,12 @@ impl Repository {
             .env("GIT_EDITOR", "true")
             .current_dir(&self.path)
             .output()
-            .map_err(|e| GitError::OperationFailed(format!("Failed to run git cherry-pick --continue: {}", e)))?;
+            .map_err(|e| {
+                GitError::OperationFailed(format!(
+                    "Failed to run git cherry-pick --continue: {}",
+                    e
+                ))
+            })?;
 
         if !output.status.success() {
             return Err(GitError::OperationFailed(
