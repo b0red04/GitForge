@@ -619,6 +619,7 @@ impl GitForgeApp {
     }
 
     pub fn checkout_branch(&mut self, name: String, cx: &mut Context<Self>) {
+        self.local_branch_dropdown_open = false;
         self.run_git_op("Checkout", cx, move |repo| repo.checkout_branch(&name));
     }
 

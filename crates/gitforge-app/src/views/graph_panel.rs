@@ -12,7 +12,7 @@ const COMMIT_CIRCLE_RADIUS: f32 = 3.5;
 const COMMIT_CIRCLE_STROKE_WIDTH: f32 = 1.5;
 const LINE_WIDTH: f32 = 1.5;
 const GRAPH_COL_MIN: f32 = 80.0;
-const GRAPH_COL_MAX: f32 = 320.0;
+const GRAPH_COL_MAX: f32 = 1200.0;
 const HASH_COL_MIN: f32 = 48.0;
 const HASH_COL_MAX: f32 = 140.0;
 const TIME_COL_MIN: f32 = 70.0;
@@ -53,6 +53,7 @@ pub struct GraphPanel {
     use_filtered: bool,
     commit_index: std::collections::HashMap<String, usize>,
     graph_col_width: f32,
+    graph_col_user_resized: bool,
     hash_col_width: f32,
     time_col_width: f32,
     active_resize: Option<HistoryColumnResize>,
@@ -72,6 +73,7 @@ impl GraphPanel {
             use_filtered: false,
             commit_index: std::collections::HashMap::new(),
             graph_col_width: layout::GRAPH_LANE_WIDTH,
+            graph_col_user_resized: false,
             hash_col_width: HASH_COL,
             time_col_width: TIME_COL,
             active_resize: None,
@@ -90,6 +92,10 @@ impl GraphPanel {
             self.commit_index.insert(c.id.clone(), i);
             self.commit_index.insert(c.short_id.clone(), i);
         }
+        if !self.graph_col_user_resized {
+            self.graph_col_width = auto_graph_col_width(&graph);
+        }
+
         self.commits = commits;
         self.references = references;
         self.graph = graph;
@@ -242,6 +248,10 @@ impl GraphPanel {
     }
 
     fn start_column_resize(&mut self, column: HistoryColumn, start_x: f32) {
+        if column == HistoryColumn::Graph {
+            self.graph_col_user_resized = true;
+        }
+
         let start_width = match column {
             HistoryColumn::Graph => self.graph_col_width,
             HistoryColumn::Sha => self.hash_col_width,
@@ -261,7 +271,11 @@ impl GraphPanel {
 
         let delta = current_x - active_resize.start_x;
         let (target, min, max) = match active_resize.column {
-            HistoryColumn::Graph => (&mut self.graph_col_width, GRAPH_COL_MIN, GRAPH_COL_MAX),
+            HistoryColumn::Graph => (
+                &mut self.graph_col_width,
+                GRAPH_COL_MIN,
+                GRAPH_COL_MAX.max(active_resize.start_width),
+            ),
             HistoryColumn::Sha => (&mut self.hash_col_width, HASH_COL_MIN, HASH_COL_MAX),
             HistoryColumn::Time => (&mut self.time_col_width, TIME_COL_MIN, TIME_COL_MAX),
         };
@@ -586,6 +600,33 @@ fn graph_spacer(width: f32) -> Div {
 
 fn resize_spacer() -> Div {
     div().w(px(RESIZE_HANDLE_WIDTH)).flex_shrink_0()
+}
+
+fn auto_graph_col_width(graph: &Graph) -> f32 {
+    let max_node_lane = graph.nodes().iter().map(|node| node.lane).max();
+    let max_line_lane = graph.lines().iter().fold(None, |max_lane, line| {
+        let line_max = line.segments.iter().fold(
+            line.child_column.max(line.color_lane),
+            |segment_max, segment| match segment {
+                CommitLineSegment::Straight { .. } => segment_max,
+                CommitLineSegment::Curve { to_column, .. } => segment_max.max(*to_column),
+            },
+        );
+
+        Some(max_lane.map_or(line_max, |lane: usize| lane.max(line_max)))
+    });
+
+    let max_lane = max_node_lane
+        .into_iter()
+        .chain(max_line_lane)
+        .max()
+        .unwrap_or(0);
+    let required_width = LEFT_PADDING + (max_lane as f32 + 1.0) * LANE_WIDTH + LEFT_PADDING;
+
+    required_width
+        .max(layout::GRAPH_LANE_WIDTH)
+        .max(GRAPH_COL_MIN)
+        .min(GRAPH_COL_MAX)
 }
 
 fn lane_center_x(bounds: Bounds<Pixels>, lane: f32) -> Pixels {

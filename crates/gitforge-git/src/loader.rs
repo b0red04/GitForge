@@ -5,6 +5,7 @@ use crate::repository::Repository;
 use crate::repository::log_impl::CommitLogOptions;
 use crate::status::RepoStatus;
 use crate::worktree::WorktreeInfo;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 #[derive(Clone)]
@@ -14,6 +15,7 @@ pub struct RepoState {
     pub head_commit: Option<String>,
     pub commits: Vec<CommitInfo>,
     pub references: Vec<RefInfo>,
+    pub conflicting_local_branches: HashSet<String>,
     pub status: RepoStatus,
     pub worktrees: Vec<WorktreeInfo>,
 }
@@ -48,6 +50,17 @@ impl RepoState {
         let head_commit = repo.head_commit()?.map(|c| c.short_id.clone());
         let commits = repo.commit_log_with_options(options.commit_limit, options.log_options)?;
         let references = repo.references()?;
+        let local_branches = references
+            .iter()
+            .filter(|r| r.kind == crate::reference::RefKind::Branch)
+            .map(|r| r.name.clone())
+            .collect::<Vec<_>>();
+        let conflicting_local_branches = repo
+            .local_branches_conflicting_with_main(&local_branches)
+            .unwrap_or_else(|e| {
+                tracing::warn!("Failed to detect branch conflicts with main: {}", e);
+                HashSet::new()
+            });
         let status = repo.status()?;
         let worktrees = repo.worktree_list().unwrap_or_default();
 
@@ -65,6 +78,7 @@ impl RepoState {
             head_commit,
             commits,
             references,
+            conflicting_local_branches,
             status,
             worktrees,
         })
