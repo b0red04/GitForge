@@ -98,7 +98,11 @@ impl Repository {
                     return Ok(false);
                 }
 
-                Ok(true)
+                tracing::warn!(
+                    "Unexpected git merge-tree error, assuming no conflict: {}",
+                    message
+                );
+                Ok(false)
             }
         }
     }

@@ -248,10 +248,6 @@ impl GraphPanel {
     }
 
     fn start_column_resize(&mut self, column: HistoryColumn, start_x: f32) {
-        if column == HistoryColumn::Graph {
-            self.graph_col_user_resized = true;
-        }
-
         let start_width = match column {
             HistoryColumn::Graph => self.graph_col_width,
             HistoryColumn::Sha => self.hash_col_width,
@@ -287,6 +283,10 @@ impl GraphPanel {
 
         if (*target - next_width).abs() < f32::EPSILON {
             return false;
+        }
+
+        if active_resize.column == HistoryColumn::Graph {
+            self.graph_col_user_resized = true;
         }
 
         *target = next_width;
