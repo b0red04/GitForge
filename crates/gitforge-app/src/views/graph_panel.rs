@@ -4,7 +4,7 @@ use gitforge_ui::{AppColors, rgba_to_hsla};
 use gpui::*;
 use std::ops::Range;
 
-use super::layout::{self, HASH_COL, ROW_HEIGHT, TIME_COL};
+use super::layout::{self, AUTHOR_COL, HASH_COL, ROW_HEIGHT, TIME_COL};
 
 const LEFT_PADDING: f32 = 12.0;
 const LANE_WIDTH: f32 = 16.0;
@@ -17,6 +17,8 @@ const HASH_COL_MIN: f32 = 48.0;
 const HASH_COL_MAX: f32 = 140.0;
 const TIME_COL_MIN: f32 = 70.0;
 const TIME_COL_MAX: f32 = 160.0;
+const AUTHOR_COL_MIN: f32 = 60.0;
+const AUTHOR_COL_MAX: f32 = 200.0;
 const VISIBLE_REF_PILLS: usize = 4;
 const RESIZE_HANDLE_WIDTH: f32 = 6.0;
 
@@ -25,6 +27,7 @@ enum HistoryColumn {
     Graph,
     Sha,
     Time,
+    Author,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -56,6 +59,7 @@ pub struct GraphPanel {
     graph_col_user_resized: bool,
     hash_col_width: f32,
     time_col_width: f32,
+    author_col_width: f32,
     active_resize: Option<HistoryColumnResize>,
 }
 
@@ -76,6 +80,7 @@ impl GraphPanel {
             graph_col_user_resized: false,
             hash_col_width: HASH_COL,
             time_col_width: TIME_COL,
+            author_col_width: AUTHOR_COL,
             active_resize: None,
         }
     }
@@ -252,6 +257,7 @@ impl GraphPanel {
             HistoryColumn::Graph => self.graph_col_width,
             HistoryColumn::Sha => self.hash_col_width,
             HistoryColumn::Time => self.time_col_width,
+            HistoryColumn::Author => self.author_col_width,
         };
         self.active_resize = Some(HistoryColumnResize {
             column,
@@ -274,9 +280,10 @@ impl GraphPanel {
             ),
             HistoryColumn::Sha => (&mut self.hash_col_width, HASH_COL_MIN, HASH_COL_MAX),
             HistoryColumn::Time => (&mut self.time_col_width, TIME_COL_MIN, TIME_COL_MAX),
+            HistoryColumn::Author => (&mut self.author_col_width, AUTHOR_COL_MIN, AUTHOR_COL_MAX),
         };
         let signed_delta = match active_resize.column {
-            HistoryColumn::Time => -delta,
+            HistoryColumn::Time | HistoryColumn::Author => -delta,
             HistoryColumn::Graph | HistoryColumn::Sha => delta,
         };
         let next_width = (active_resize.start_width + signed_delta).clamp(min, max);
@@ -301,6 +308,10 @@ impl GraphPanel {
         &self,
         colors: &AppColors,
         show_checkpoint_refs: bool,
+        show_graph_col: bool,
+        show_sha_col: bool,
+        show_time_col: bool,
+        show_author_col: bool,
         entity: WeakEntity<super::app::GitForgeApp>,
     ) -> Div {
         let bg = rgba_to_hsla(colors.background);
@@ -349,16 +360,38 @@ impl GraphPanel {
                     .child(filter_label.to_string()),
             );
 
-        let graph_col_width = self.graph_col_width;
-        let hash_col_width = self.hash_col_width;
-        let time_col_width = self.time_col_width;
+        let graph_col_width = if show_graph_col {
+            self.graph_col_width
+        } else {
+            0.0
+        };
+        let hash_col_width = if show_sha_col {
+            self.hash_col_width
+        } else {
+            0.0
+        };
+        let time_col_width = if show_time_col {
+            self.time_col_width
+        } else {
+            0.0
+        };
+        let author_col_width = if show_author_col {
+            self.author_col_width
+        } else {
+            0.0
+        };
         let resize_events = render_resize_event_listener(entity.clone());
         let column_headers = render_column_headers(
             border,
             muted,
             entity.clone(),
+            show_graph_col,
             graph_col_width,
+            show_sha_col,
             hash_col_width,
+            show_author_col,
+            author_col_width,
+            show_time_col,
             time_col_width,
         );
 
@@ -404,7 +437,7 @@ impl GraphPanel {
                             rgba_to_hsla(cl_for_row.background)
                         };
                         let wip_entity = list_entity.clone();
-                        let row = div()
+                        let mut row = div()
                             .id("uncommitted-row")
                             .px_0()
                             .py_0()
@@ -427,22 +460,36 @@ impl GraphPanel {
                                         this.select_uncommitted(cx);
                                     });
                                 }
-                            })
-                            .child(graph_spacer(graph_col_width))
-                            .child(resize_spacer())
-                            .child(div().w(px(hash_col_width)).flex_shrink_0())
-                            .child(resize_spacer())
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .pl_2()
-                                    .text_xs()
-                                    .font_weight(FontWeight::BOLD)
-                                    .text_color(rgba_to_hsla(cl_for_row.warning))
-                                    .child("Uncommitted Changes"),
-                            )
-                            .child(resize_spacer())
-                            .child(div().w(px(time_col_width)).flex_shrink_0());
+                            });
+                        if show_graph_col {
+                            row = row
+                                .child(graph_spacer(graph_col_width))
+                                .child(resize_spacer());
+                        }
+                        if show_sha_col {
+                            row = row
+                                .child(div().w(px(hash_col_width)).flex_shrink_0())
+                                .child(resize_spacer());
+                        }
+                        row = row.child(
+                            div()
+                                .flex_1()
+                                .pl_2()
+                                .text_xs()
+                                .font_weight(FontWeight::BOLD)
+                                .text_color(rgba_to_hsla(cl_for_row.warning))
+                                .child("Uncommitted Changes"),
+                        );
+                        if show_author_col {
+                            row = row
+                                .child(resize_spacer())
+                                .child(div().w(px(author_col_width)).flex_shrink_0());
+                        }
+                        if show_time_col {
+                            row = row
+                                .child(resize_spacer())
+                                .child(div().w(px(time_col_width)).flex_shrink_0());
+                        }
 
                         rows.push(row.into_any_element());
                         continue;
@@ -466,12 +513,13 @@ impl GraphPanel {
 
                     let summary = commit.summary.clone();
                     let short_id = commit.short_id.clone();
+                    let author_name = commit.author_name.clone();
 
                     let click_entity = list_entity.clone();
                     let ref_pills = render_ref_pills(&refs_for_commit, &cl);
                     let time_label = format_relative_time(&commit.author_date);
 
-                    let row = div()
+                    let mut row = div()
                         .id(ElementId::Name(format!("commit-row-{commit_idx}").into()))
                         .px_0()
                         .py_0()
@@ -494,44 +542,62 @@ impl GraphPanel {
                                     this.select_commit(commit_idx, cx);
                                 });
                             }
-                        })
-                        .child(graph_spacer(graph_col_width))
-                        .child(resize_spacer())
-                        .child(
+                        });
+                    if show_graph_col {
+                        row = row
+                            .child(graph_spacer(graph_col_width))
+                            .child(resize_spacer());
+                    }
+                    if show_sha_col {
+                        row = row
+                            .child(
+                                div()
+                                    .w(px(hash_col_width))
+                                    .flex_shrink_0()
+                                    .pl_2()
+                                    .text_xs()
+                                    .font_family("monospace")
+                                    .text_color(rgba_to_hsla(cl.accent))
+                                    .child(short_id),
+                            )
+                            .child(resize_spacer());
+                    }
+                    row = row.child(
+                        div()
+                            .flex_1()
+                            .min_w(px(0.0))
+                            .text_sm()
+                            .pl_1()
+                            .pr_2()
+                            .text_color(rgba_to_hsla(cl.text))
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap_1()
+                            .overflow_hidden()
+                            .child(ref_pills)
+                            .child(
+                                div()
+                                    .min_w(px(0.0))
+                                    .overflow_hidden()
+                                    .text_ellipsis()
+                                    .child(summary),
+                            ),
+                    );
+                    if show_author_col {
+                        row = row.child(resize_spacer()).child(
                             div()
-                                .w(px(hash_col_width))
+                                .w(px(author_col_width))
                                 .flex_shrink_0()
-                                .pl_2()
                                 .text_xs()
-                                .font_family("monospace")
-                                .text_color(rgba_to_hsla(cl.accent))
-                                .child(short_id),
-                        )
-                        .child(resize_spacer())
-                        .child(
-                            div()
-                                .flex_1()
-                                .min_w(px(0.0))
-                                .text_sm()
-                                .pl_1()
-                                .pr_2()
-                                .text_color(rgba_to_hsla(cl.text))
-                                .flex()
-                                .flex_row()
-                                .items_center()
-                                .gap_1()
+                                .text_color(rgba_to_hsla(cl.text_muted))
                                 .overflow_hidden()
-                                .child(ref_pills)
-                                .child(
-                                    div()
-                                        .min_w(px(0.0))
-                                        .overflow_hidden()
-                                        .text_ellipsis()
-                                        .child(summary),
-                                ),
-                        )
-                        .child(resize_spacer())
-                        .child(
+                                .text_ellipsis()
+                                .child(author_name),
+                        );
+                    }
+                    if show_time_col {
+                        row = row.child(resize_spacer()).child(
                             div()
                                 .w(px(time_col_width))
                                 .flex_shrink_0()
@@ -541,6 +607,7 @@ impl GraphPanel {
                                 .text_align(TextAlign::Right)
                                 .child(time_label),
                         );
+                    }
 
                     rows.push(row.into_any_element());
                 }
@@ -569,27 +636,30 @@ impl GraphPanel {
         .w(px(graph_col_width))
         .h_full();
 
+        let mut content_area = div()
+            .flex_1()
+            .h_full()
+            .overflow_hidden()
+            .relative()
+            .child(list);
+
+        if show_graph_col {
+            content_area = content_area.child(
+                div()
+                    .absolute()
+                    .left(px(0.0))
+                    .top(px(0.0))
+                    .w(px(graph_col_width))
+                    .h_full()
+                    .overflow_hidden()
+                    .child(graph_canvas),
+            );
+        }
+
         history_panel_shell(bg, border)
             .child(header)
             .child(column_headers)
-            .child(
-                div()
-                    .flex_1()
-                    .h_full()
-                    .overflow_hidden()
-                    .relative()
-                    .child(list)
-                    .child(
-                        div()
-                            .absolute()
-                            .left(px(0.0))
-                            .top(px(0.0))
-                            .w(px(graph_col_width))
-                            .h_full()
-                            .overflow_hidden()
-                            .child(graph_canvas),
-                    ),
-            )
+            .child(content_area)
             .child(resize_events)
     }
 }
@@ -975,11 +1045,16 @@ fn render_column_headers(
     border: Hsla,
     muted: Hsla,
     entity: WeakEntity<super::app::GitForgeApp>,
+    show_graph_col: bool,
     graph_col_width: f32,
+    show_sha_col: bool,
     hash_col_width: f32,
+    show_author_col: bool,
+    author_col_width: f32,
+    show_time_col: bool,
     time_col_width: f32,
 ) -> Div {
-    div()
+    let mut headers = div()
         .px_2()
         .py_1()
         .border_b_1()
@@ -988,41 +1063,69 @@ fn render_column_headers(
         .flex_row()
         .items_center()
         .text_xs()
-        .text_color(muted)
-        .child(
-            div()
-                .w(px(graph_col_width))
-                .flex_shrink_0()
-                .text_align(TextAlign::Center)
-                .child("GRAPH"),
-        )
-        .child(render_resize_handle(
-            HistoryColumn::Graph,
+        .text_color(muted);
+
+    if show_graph_col {
+        headers = headers
+            .child(
+                div()
+                    .w(px(graph_col_width))
+                    .flex_shrink_0()
+                    .text_align(TextAlign::Center)
+                    .child("GRAPH"),
+            )
+            .child(render_resize_handle(
+                HistoryColumn::Graph,
+                entity.clone(),
+                border,
+            ));
+    }
+    if show_sha_col {
+        headers = headers
+            .child(
+                div()
+                    .w(px(hash_col_width))
+                    .flex_shrink_0()
+                    .pl_2()
+                    .child("SHA"),
+            )
+            .child(render_resize_handle(
+                HistoryColumn::Sha,
+                entity.clone(),
+                border,
+            ));
+    }
+    headers = headers.child(div().flex_1().pl_1().child("DESCRIPTION"));
+    if show_author_col {
+        headers = headers
+            .child(render_resize_handle(
+                HistoryColumn::Author,
+                entity.clone(),
+                border,
+            ))
+            .child(
+                div()
+                    .w(px(author_col_width))
+                    .flex_shrink_0()
+                    .child("AUTHOR"),
+            );
+    }
+    if show_time_col {
+        headers = headers.child(render_resize_handle(
+            HistoryColumn::Time,
             entity.clone(),
             border,
-        ))
-        .child(
-            div()
-                .w(px(hash_col_width))
-                .flex_shrink_0()
-                .pl_2()
-                .child("SHA"),
-        )
-        .child(render_resize_handle(
-            HistoryColumn::Sha,
-            entity.clone(),
-            border,
-        ))
-        .child(div().flex_1().pl_1().child("DESCRIPTION"))
-        .child(render_resize_handle(HistoryColumn::Time, entity, border))
-        .child(
+        ));
+        headers = headers.child(
             div()
                 .w(px(time_col_width))
                 .flex_shrink_0()
                 .pr_2()
                 .text_align(TextAlign::Right)
                 .child("TIME"),
-        )
+        );
+    }
+    headers
 }
 
 fn render_resize_handle(

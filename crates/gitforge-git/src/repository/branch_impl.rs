@@ -15,6 +15,11 @@ impl Repository {
 
     /// Spawns a `git` subprocess.
     pub fn delete_branch(&self, name: &str, force: bool) -> GitResult<()> {
+        if self.head_branch()?.as_deref() == Some(name) {
+            return Err(GitError::OperationFailed(format!(
+                "Cannot delete the currently checked-out branch '{name}'"
+            )));
+        }
         let flag = if force { "-D" } else { "-d" };
         self.run_git(&["branch", flag, name])?;
         Ok(())

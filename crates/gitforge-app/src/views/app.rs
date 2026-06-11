@@ -69,6 +69,10 @@ pub enum AppDialog {
     RenameBranch {
         old_name: String,
     },
+    DeleteBranch {
+        name: String,
+        force: bool,
+    },
     CreateTag {
         target: Option<String>,
     },
@@ -130,6 +134,7 @@ pub struct GitForgeApp {
     pub command_palette: CommandPalette,
     pub(crate) settings_window: Option<WindowHandle<SettingsWindow>>,
     pub(crate) quit_requested: bool,
+    pub(crate) periodic_fetch_generation: u64,
 }
 
 impl Focusable for GitForgeApp {
@@ -170,6 +175,7 @@ impl GitForgeApp {
             command_palette: CommandPalette::new(cx),
             settings_window: None,
             quit_requested: false,
+            periodic_fetch_generation: 0,
         };
         app.load_ssh_state();
         app.load_hosting_accounts();
@@ -203,6 +209,13 @@ impl GitForgeApp {
                 include_custom_refs: self.settings.show_checkpoint_refs,
             },
         }
+    }
+
+    pub(crate) fn active_repo_behavior_settings(&self) -> super::settings::RepoBehaviorSettings {
+        self.repo_session
+            .active_tab()
+            .map(|tab| self.settings.repo_settings_for_path(&tab.path))
+            .unwrap_or_default()
     }
 }
 
@@ -243,6 +256,10 @@ impl Render for GitForgeApp {
             super::layout::grow_center(div()).child(self.repo_session.graph_panel.render(
                 &self.colors,
                 self.settings.show_checkpoint_refs,
+                self.settings.graph_show_graph_column,
+                self.settings.graph_show_sha_column,
+                self.settings.graph_show_time_column,
+                self.settings.graph_show_author_column,
                 entity.clone(),
             ));
 
@@ -396,6 +413,15 @@ impl Render for GitForgeApp {
         if self.local_branch_dropdown_open {
             inner = inner.child(super::titlebar::render_local_branch_dropdown(
                 active_repo_state,
+                &self.colors,
+                entity.clone(),
+            ));
+        }
+
+        if self.repo_session.sidebar_state.context_menu != super::sidebar::ContextMenuAction::None {
+            inner = inner.child(super::sidebar::render_context_menu_overlay(
+                &self.repo_session.sidebar_state.context_menu,
+                self.repo_session.sidebar_state.context_menu_pos,
                 &self.colors,
                 entity.clone(),
             ));

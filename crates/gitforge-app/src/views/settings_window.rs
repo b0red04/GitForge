@@ -1,5 +1,7 @@
 use super::app::GitForgeApp;
-use super::settings::AppSettings;
+use super::layout::{TITLEBAR_HEIGHT, WINDOW_CORNER_RADIUS};
+use super::settings::{AppSettings, RepoBehaviorSettings};
+use super::window_chrome::{apply_top_corner_radius, seal_rounded_corners};
 use gitforge_ui::{AppColors, Appearance, Theme, ThemeEntry, rgba_to_hsla};
 use gpui::prelude::FluentBuilder;
 use gpui::*;
@@ -68,7 +70,20 @@ impl SettingsSection {
             ],
             SettingsSection::ExternalTools => &["editor", "terminal", "diff", "merge", "tool"],
             SettingsSection::Sidebar => &["branches", "remotes", "tags", "expand"],
-            SettingsSection::Graph => &["checkpoint", "refs", "graph", "commit", "limit"],
+            SettingsSection::Graph => &[
+                "checkpoint",
+                "refs",
+                "graph",
+                "commit",
+                "limit",
+                "column",
+                "sha",
+                "time",
+                "author",
+                "visible",
+                "hide",
+                "show",
+            ],
             SettingsSection::Ai => &[
                 "provider",
                 "model",
@@ -107,6 +122,10 @@ pub struct SettingsDraft {
     pub show_checkpoint_refs: bool,
     pub commit_limit: usize,
     pub commit_limit_text: String,
+    pub graph_show_graph_column: bool,
+    pub graph_show_sha_column: bool,
+    pub graph_show_time_column: bool,
+    pub graph_show_author_column: bool,
     pub ai_provider: String,
     pub ai_model: String,
     pub ai_conventional_commits: bool,
@@ -124,6 +143,11 @@ pub struct SettingsDraft {
     pub ai_temperature_text: String,
     /// In-session text for custom summary line limit (not persisted directly).
     pub ai_summary_text: String,
+    pub repo_path: Option<PathBuf>,
+    pub repo_periodic_fetch_enabled: bool,
+    pub repo_fetch_interval_minutes: u64,
+    pub repo_fetch_interval_text: String,
+    pub repo_auto_push_on_commit: bool,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -149,6 +173,10 @@ impl SettingsDraft {
             show_checkpoint_refs: settings.show_checkpoint_refs,
             commit_limit: settings.commit_limit,
             commit_limit_text: settings.commit_limit.to_string(),
+            graph_show_graph_column: settings.graph_show_graph_column,
+            graph_show_sha_column: settings.graph_show_sha_column,
+            graph_show_time_column: settings.graph_show_time_column,
+            graph_show_author_column: settings.graph_show_author_column,
             ai_provider: settings.ai.provider.clone(),
             ai_model: settings.ai.model.clone(),
             ai_conventional_commits: settings.ai.conventional_commits,
@@ -168,7 +196,20 @@ impl SettingsDraft {
             } else {
                 settings.ai.summary_max_chars.to_string()
             },
+            repo_path: None,
+            repo_periodic_fetch_enabled: false,
+            repo_fetch_interval_minutes: 15,
+            repo_fetch_interval_text: "15".to_string(),
+            repo_auto_push_on_commit: false,
         }
+    }
+
+    pub fn sync_repo_settings(&mut self, path: Option<PathBuf>, settings: RepoBehaviorSettings) {
+        self.repo_path = path;
+        self.repo_periodic_fetch_enabled = settings.periodic_fetch_enabled;
+        self.repo_fetch_interval_minutes = settings.fetch_interval_minutes.max(1);
+        self.repo_fetch_interval_text = self.repo_fetch_interval_minutes.to_string();
+        self.repo_auto_push_on_commit = settings.auto_push_on_commit;
     }
 
     pub fn apply_to(&self, settings: &mut AppSettings) {
@@ -184,6 +225,10 @@ impl SettingsDraft {
         if let Ok(parsed) = self.commit_limit_text.parse::<usize>() {
             settings.commit_limit = parsed.max(1);
         }
+        settings.graph_show_graph_column = self.graph_show_graph_column;
+        settings.graph_show_sha_column = self.graph_show_sha_column;
+        settings.graph_show_time_column = self.graph_show_time_column;
+        settings.graph_show_author_column = self.graph_show_author_column;
         settings.ai.provider = self.ai_provider.clone();
         settings.ai.model = self.ai_model.clone();
         settings.ai.conventional_commits = self.ai_conventional_commits;
@@ -207,6 +252,26 @@ impl SettingsDraft {
         } else if self.ai_summary_text.trim().is_empty() {
             settings.ai.summary_max_chars = self.ai_summary_max_chars;
         }
+
+        if let Some(path) = self.repo_path.as_ref() {
+            let repo = settings.repo_settings_for_path_mut(path);
+            repo.periodic_fetch_enabled = self.repo_periodic_fetch_enabled;
+            repo.fetch_interval_minutes = self.repo_fetch_interval_minutes.max(1);
+            repo.auto_push_on_commit = self.repo_auto_push_on_commit;
+        }
+    }
+}
+
+fn edit_repo_fetch_interval_field(draft: &mut SettingsDraft, ch: Option<&str>) {
+    if let Some(c) = ch {
+        if c.chars().all(|c| c.is_ascii_digit()) {
+            draft.repo_fetch_interval_text.push_str(c);
+        }
+    } else {
+        draft.repo_fetch_interval_text.pop();
+    }
+    if let Ok(parsed) = draft.repo_fetch_interval_text.parse::<u64>() {
+        draft.repo_fetch_interval_minutes = parsed.max(1);
     }
 }
 
@@ -348,6 +413,7 @@ enum SettingsTextField {
     AiTemperature,
     AiSummaryMaxChars,
     CommitLimit,
+    RepoFetchInterval,
     Search,
 }
 
@@ -384,6 +450,8 @@ impl SettingsWindow {
             draft,
             repo_data: SettingsRepoData {
                 open_tabs: Vec::new(),
+                active_path: None,
+                active_settings: RepoBehaviorSettings::default(),
                 recent_paths: Vec::new(),
                 closed_paths: Vec::new(),
             },
@@ -557,6 +625,10 @@ impl SettingsWindow {
         repo_data: SettingsRepoData,
         accounts: Vec<gitforge_hosting::HostingAccount>,
     ) {
+        self.draft.sync_repo_settings(
+            repo_data.active_path.clone(),
+            repo_data.active_settings.clone(),
+        );
         self.repo_data = repo_data;
         self.accounts = accounts;
     }
@@ -634,6 +706,10 @@ impl SettingsWindow {
                     }
                     SettingsTextField::CommitLimit => {
                         edit_commit_limit_field(draft, ch);
+                        return;
+                    }
+                    SettingsTextField::RepoFetchInterval => {
+                        edit_repo_fetch_interval_field(draft, ch);
                         return;
                     }
                     SettingsTextField::AiApiKey | SettingsTextField::Search => {
@@ -791,6 +867,175 @@ impl Focusable for SettingsWindow {
     }
 }
 
+fn settings_window_control_button(
+    id: impl Into<ElementId>,
+    icon_path: &'static str,
+    icon_color: Hsla,
+    icon_hover: Hsla,
+    hover_bg: Hsla,
+    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> Stateful<Div> {
+    div()
+        .id(id.into())
+        .group("")
+        .flex()
+        .items_center()
+        .justify_center()
+        .w(px(20.0))
+        .h(px(20.0))
+        .rounded(px(10.0))
+        .cursor_pointer()
+        .hover(|s| s.bg(hover_bg))
+        .active(|s| s.bg(hover_bg))
+        .child(
+            svg()
+                .flex_none()
+                .size(px(16.0))
+                .path(icon_path)
+                .text_color(icon_color)
+                .group_hover("", |s| s.text_color(icon_hover)),
+        )
+        .on_click(on_click)
+        .on_mouse_move(|_, _, cx| cx.stop_propagation())
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+}
+
+fn render_settings_window_controls(
+    window: &Window,
+    icon_color: Hsla,
+    icon_hover: Hsla,
+    hover_bg: Hsla,
+) -> Option<impl IntoElement> {
+    if !matches!(window.window_decorations(), Decorations::Client { .. }) {
+        return None;
+    }
+
+    let controls = window.window_controls();
+    let max_icon = if window.is_maximized() {
+        "icons/generic_restore.svg"
+    } else {
+        "icons/generic_maximize.svg"
+    };
+
+    let mut row = div()
+        .id("settings-titlebar-window-controls")
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_3()
+        .px_3()
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation());
+
+    if controls.minimize {
+        row = row.child(settings_window_control_button(
+            "settings-titlebar-minimize",
+            "icons/generic_minimize.svg",
+            icon_color,
+            icon_hover,
+            hover_bg,
+            |_ev, window, _cx| window.minimize_window(),
+        ));
+    }
+
+    if controls.maximize {
+        row = row.child(settings_window_control_button(
+            "settings-titlebar-maximize",
+            max_icon,
+            icon_color,
+            icon_hover,
+            hover_bg,
+            |_ev, window, _cx| window.zoom_window(),
+        ));
+    }
+
+    row = row.child(settings_window_control_button(
+        "settings-titlebar-close",
+        "icons/generic_close.svg",
+        icon_color,
+        icon_hover,
+        hover_bg,
+        |_ev, window, _cx| window.remove_window(),
+    ));
+
+    Some(row)
+}
+
+fn render_settings_titlebar(colors: &AppColors, window: &Window) -> impl IntoElement {
+    let decorations = window.window_decorations();
+    let controls = window.window_controls();
+    let titlebar_bg = if window.is_window_active() {
+        rgba_to_hsla(colors.surface)
+    } else {
+        rgba_to_hsla(colors.surface_high)
+    };
+    let muted = rgba_to_hsla(colors.text_muted);
+    let text = rgba_to_hsla(colors.text);
+    let icon_hover = text;
+    let hover_bg = rgba_to_hsla(colors.surface_high);
+    let rounding = px(WINDOW_CORNER_RADIUS);
+    let tiling = match decorations {
+        Decorations::Server => Tiling::default(),
+        Decorations::Client { tiling } => tiling,
+    };
+
+    let title = div()
+        .flex()
+        .items_center()
+        .gap_2()
+        .min_w(px(0.0))
+        .overflow_hidden()
+        .child(
+            div()
+                .text_sm()
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(text)
+                .child("GitForge"),
+        )
+        .child(div().text_sm().text_color(muted).child("/"))
+        .child(div().text_sm().text_color(muted).child("Settings"));
+
+    let mut bar = div()
+        .id("settings-titlebar")
+        .relative()
+        .w_full()
+        .h(px(TITLEBAR_HEIGHT))
+        .flex_shrink_0()
+        .window_control_area(WindowControlArea::Drag)
+        .flex()
+        .flex_row()
+        .items_center()
+        .bg(titlebar_bg)
+        .on_mouse_down(MouseButton::Left, |_ev, window, _| {
+            window.start_window_move();
+        })
+        .on_click(|event, window, _| {
+            if event.click_count() == 2 {
+                window.zoom_window();
+            }
+        });
+
+    if matches!(decorations, Decorations::Client { .. }) && controls.window_menu {
+        bar = bar.on_mouse_down(MouseButton::Right, |ev, window, _| {
+            window.show_window_menu(ev.position);
+        });
+    }
+
+    if matches!(decorations, Decorations::Client { .. }) {
+        bar = seal_rounded_corners(apply_top_corner_radius(bar, rounding, tiling), titlebar_bg);
+    }
+
+    bar = bar.pl(px(8.0)).child(title.flex_1().min_w(px(0.0)));
+
+    if !window.is_fullscreen() {
+        if let Some(controls) = render_settings_window_controls(window, muted, icon_hover, hover_bg)
+        {
+            bar = bar.child(controls);
+        }
+    }
+
+    bar
+}
+
 impl Render for SettingsWindow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let query = self.search_query.to_lowercase();
@@ -808,7 +1053,6 @@ impl Render for SettingsWindow {
                 .unwrap_or(self.active_section)
         };
 
-        let bg = rgba_to_hsla(self.colors.background);
         let surface = rgba_to_hsla(self.colors.surface);
         let surface_high = rgba_to_hsla(self.colors.surface_high);
         let border = rgba_to_hsla(self.colors.border);
@@ -862,27 +1106,10 @@ impl Render for SettingsWindow {
             accounts,
         );
 
-        div()
-            .id("settings-root")
-            .size_full()
-            .bg(bg)
-            .text_color(text)
-            .track_focus(&self.focus_handle)
-            .on_action(cx.listener(Self::handle_close))
-            .on_action(cx.listener(Self::paste_api_key))
-            .on_key_down({
-                let ent = ent_keys;
-                let input_fh = input_focus.clone();
-                let api_key_fh = api_key_focus.clone();
-                move |ev: &KeyDownEvent, window, cx| {
-                    if !input_fh.is_focused(window) && !api_key_fh.is_focused(window) {
-                        return;
-                    }
-                    if let Some(e) = ent.upgrade() {
-                        e.update(cx, |this, cx| this.handle_key_input(ev, window, cx));
-                    }
-                }
-            })
+        let settings_content = div()
+            .relative()
+            .flex_1()
+            .min_h(px(0.0))
             .flex()
             .flex_row()
             .overflow_hidden()
@@ -904,7 +1131,45 @@ impl Render for SettingsWindow {
                     .text_xs()
                     .text_color(muted)
                     .child("Escape Close"),
-            )
+            );
+
+        let inner = div()
+            .id("settings-window-content")
+            .flex()
+            .flex_col()
+            .size_full()
+            .overflow_hidden()
+            .child(render_settings_titlebar(&self.colors, window))
+            .child(super::titlebar::render_titlebar_divider(&self.colors))
+            .child(settings_content);
+
+        div()
+            .id("settings-root")
+            .size_full()
+            .bg(gpui::transparent_black())
+            .text_color(text)
+            .track_focus(&self.focus_handle)
+            .on_action(cx.listener(Self::handle_close))
+            .on_action(cx.listener(Self::paste_api_key))
+            .on_key_down({
+                let ent = ent_keys;
+                let input_fh = input_focus.clone();
+                let api_key_fh = api_key_focus.clone();
+                move |ev: &KeyDownEvent, window, cx| {
+                    if !input_fh.is_focused(window) && !api_key_fh.is_focused(window) {
+                        return;
+                    }
+                    if let Some(e) = ent.upgrade() {
+                        e.update(cx, |this, cx| this.handle_key_input(ev, window, cx));
+                    }
+                }
+            })
+            .overflow_hidden()
+            .child(super::window_chrome::render_window_chrome(
+                inner,
+                &self.colors,
+                window,
+            ))
     }
 }
 
@@ -1049,6 +1314,8 @@ fn render_sidebar(
 #[derive(Clone)]
 pub struct SettingsRepoData {
     pub open_tabs: Vec<(u64, PathBuf)>,
+    pub active_path: Option<PathBuf>,
+    pub active_settings: RepoBehaviorSettings,
     pub recent_paths: Vec<String>,
     pub closed_paths: Vec<PathBuf>,
 }
@@ -1181,11 +1448,18 @@ fn render_content(
             section_body,
             repo_data.unwrap_or(SettingsRepoData {
                 open_tabs: Vec::new(),
+                active_path: None,
+                active_settings: RepoBehaviorSettings::default(),
                 recent_paths: Vec::new(),
                 closed_paths: Vec::new(),
             }),
+            draft,
+            focused,
+            input_focused,
             colors,
             main_app.clone(),
+            entity.clone(),
+            input_focus,
         ),
         SettingsSection::Accounts => {
             render_accounts_section(section_body, accounts, colors, main_app.clone())
@@ -1252,6 +1526,44 @@ fn setting_row(
         .child(control)
 }
 
+fn setting_row_without_border(
+    label: &str,
+    description: &str,
+    control: impl IntoElement,
+    text: Hsla,
+    muted: Hsla,
+) -> impl IntoElement {
+    div()
+        .w_full()
+        .py_3()
+        .flex()
+        .items_start()
+        .gap_4()
+        .child(
+            div()
+                .flex_1()
+                .min_w(px(0.0))
+                .flex()
+                .flex_col()
+                .gap_1()
+                .pt_1()
+                .child(
+                    div()
+                        .text_sm()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(text)
+                        .child(label.to_string()),
+                )
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(muted)
+                        .child(description.to_string()),
+                ),
+        )
+        .child(control)
+}
+
 fn pill_toggle(
     on: bool,
     ent: WeakEntity<SettingsWindow>,
@@ -1297,8 +1609,27 @@ fn pill_toggle(
                             "checkpoints" => {
                                 draft.show_checkpoint_refs = !draft.show_checkpoint_refs
                             }
+                            "graph-col-graph" => {
+                                draft.graph_show_graph_column = !draft.graph_show_graph_column
+                            }
+                            "graph-col-sha" => {
+                                draft.graph_show_sha_column = !draft.graph_show_sha_column
+                            }
+                            "graph-col-time" => {
+                                draft.graph_show_time_column = !draft.graph_show_time_column
+                            }
+                            "graph-col-author" => {
+                                draft.graph_show_author_column = !draft.graph_show_author_column
+                            }
                             "conventional" => {
                                 draft.ai_conventional_commits = !draft.ai_conventional_commits
+                            }
+                            "repo-periodic-fetch" => {
+                                draft.repo_periodic_fetch_enabled =
+                                    !draft.repo_periodic_fetch_enabled
+                            }
+                            "repo-auto-push" => {
+                                draft.repo_auto_push_on_commit = !draft.repo_auto_push_on_commit
                             }
                             _ => {}
                         },
@@ -1339,7 +1670,6 @@ fn text_field_control(
     };
 
     let ent_focus = entity.clone();
-    let ent_input = entity.clone();
     let fh = input_focus.clone();
 
     div()
@@ -1361,23 +1691,6 @@ fn text_field_control(
                 });
             }
             window.focus(&fh);
-        })
-        .on_key_down(move |ev: &KeyDownEvent, _window, cx| {
-            if let Some(e) = ent_input.upgrade() {
-                e.update(cx, |this, cx| {
-                    this.focused_field = field;
-                    match ev.keystroke.key.as_str() {
-                        "backspace" => this.edit_focused_field(None, cx),
-                        _ => {
-                            if let Some(ch) = ev.keystroke.key_char.clone() {
-                                if !ev.keystroke.modifiers.platform {
-                                    this.edit_focused_field(Some(&ch), cx);
-                                }
-                            }
-                        }
-                    }
-                });
-            }
         })
         .child(
             div()
@@ -1729,9 +2042,10 @@ fn theme_picker_control(
     div()
         .flex()
         .flex_col()
-        .gap_3()
-        .max_w(px(420.0))
+        .gap_2()
+        .max_w(px(440.0))
         .child(render_group("Dark", &dark_themes))
+        .child(div().w_full().h(px(1.0)).my_2().bg(border))
         .child(render_group("Light", &light_themes))
 }
 
@@ -1741,18 +2055,16 @@ fn render_general_section(
     colors: &AppColors,
     entity: WeakEntity<SettingsWindow>,
 ) -> Stateful<Div> {
-    let border = rgba_to_hsla(colors.border);
     let text = rgba_to_hsla(colors.text);
     let muted = rgba_to_hsla(colors.text_muted);
 
     let themes = Theme::discover_themes();
     let theme_control = theme_picker_control(&draft.theme, &themes, colors, entity);
 
-    body.child(setting_row(
+    body.child(setting_row_without_border(
         "Theme",
         "Choose the application color scheme.",
         theme_control,
-        border,
         text,
         muted,
     ))
@@ -1884,7 +2196,7 @@ fn render_sidebar_section(
 }
 
 fn render_graph_section(
-    body: Stateful<Div>,
+    mut body: Stateful<Div>,
     draft: &SettingsDraft,
     focused: SettingsTextField,
     input_focused: bool,
@@ -1896,7 +2208,7 @@ fn render_graph_section(
     let text = rgba_to_hsla(colors.text);
     let muted = rgba_to_hsla(colors.text_muted);
 
-    body.child(setting_row(
+    body = body.child(setting_row(
         "Show Checkpoint Refs",
         "Display checkpoint references in the commit graph.",
         pill_toggle(
@@ -1908,8 +2220,60 @@ fn render_graph_section(
         border,
         text,
         muted,
-    ))
-    .child(setting_row(
+    ));
+    body = body.child(setting_row(
+        "Show Graph Column",
+        "Display the lane visualization column with arcs and commit circles.",
+        pill_toggle(
+            draft.graph_show_graph_column,
+            entity.clone(),
+            "graph-col-graph",
+            colors,
+        ),
+        border,
+        text,
+        muted,
+    ));
+    body = body.child(setting_row(
+        "Show SHA Column",
+        "Display the short commit hash column.",
+        pill_toggle(
+            draft.graph_show_sha_column,
+            entity.clone(),
+            "graph-col-sha",
+            colors,
+        ),
+        border,
+        text,
+        muted,
+    ));
+    body = body.child(setting_row(
+        "Show Time Column",
+        "Display the relative time column (e.g. \"5m ago\").",
+        pill_toggle(
+            draft.graph_show_time_column,
+            entity.clone(),
+            "graph-col-time",
+            colors,
+        ),
+        border,
+        text,
+        muted,
+    ));
+    body = body.child(setting_row(
+        "Show Author Column",
+        "Display the commit author name column.",
+        pill_toggle(
+            draft.graph_show_author_column,
+            entity.clone(),
+            "graph-col-author",
+            colors,
+        ),
+        border,
+        text,
+        muted,
+    ));
+    body.child(setting_row(
         "Commit Limit",
         "Maximum number of commits to load when opening a repository.",
         text_field_control(
@@ -2367,14 +2731,87 @@ fn render_ai_section(
 fn render_repositories_section(
     mut body: Stateful<Div>,
     data: SettingsRepoData,
+    draft: &SettingsDraft,
+    focused: SettingsTextField,
+    input_focused: bool,
     colors: &AppColors,
     main_app: WeakEntity<GitForgeApp>,
+    entity: WeakEntity<SettingsWindow>,
+    input_focus: &FocusHandle,
 ) -> Stateful<Div> {
     let border = rgba_to_hsla(colors.border);
     let text = rgba_to_hsla(colors.text);
     let muted = rgba_to_hsla(colors.text_muted);
     let accent = rgba_to_hsla(colors.accent);
     let hover = rgba_to_hsla(colors.sidebar_hover);
+
+    body = body.child(
+        div()
+            .text_xs()
+            .font_weight(FontWeight::SEMIBOLD)
+            .text_color(muted)
+            .child("Active Repository Behavior"),
+    );
+    if let Some(path) = data.active_path.as_ref() {
+        body = body
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(muted)
+                    .overflow_hidden()
+                    .text_ellipsis()
+                    .child(path.to_string_lossy().to_string()),
+            )
+            .child(setting_row(
+                "Periodic Fetch",
+                "Fetch all remotes periodically while this repository is active.",
+                pill_toggle(
+                    draft.repo_periodic_fetch_enabled,
+                    entity.clone(),
+                    "repo-periodic-fetch",
+                    colors,
+                ),
+                border,
+                text,
+                muted,
+            ))
+            .child(setting_row(
+                "Fetch Interval",
+                "Minutes between periodic fetches for this repository.",
+                text_field_control(
+                    &draft.repo_fetch_interval_text,
+                    SettingsTextField::RepoFetchInterval,
+                    focused == SettingsTextField::RepoFetchInterval && input_focused,
+                    "15",
+                    colors,
+                    entity.clone(),
+                    input_focus,
+                ),
+                border,
+                text,
+                muted,
+            ))
+            .child(setting_row(
+                "Auto Push on Commit",
+                "Push the current branch to origin after a successful commit.",
+                pill_toggle(
+                    draft.repo_auto_push_on_commit,
+                    entity.clone(),
+                    "repo-auto-push",
+                    colors,
+                ),
+                border,
+                text,
+                muted,
+            ));
+    } else {
+        body = body.child(
+            div()
+                .text_xs()
+                .text_color(muted)
+                .child("Open a repository to customize repository-specific behavior."),
+        );
+    }
 
     body = body.child(
         div()

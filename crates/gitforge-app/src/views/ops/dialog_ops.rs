@@ -23,6 +23,18 @@ impl GitForgeApp {
         cx.notify();
     }
 
+    pub fn open_delete_branch_dialog(&mut self, name: String, force: bool, cx: &mut Context<Self>) {
+        if self.is_current_branch(&name) {
+            self.repo_session.remote_status =
+                format!("Cannot delete the currently checked-out branch '{}'.", name);
+            cx.notify();
+            return;
+        }
+        self.active_dialog = AppDialog::DeleteBranch { name, force };
+        self.dialog_input.clear();
+        cx.notify();
+    }
+
     pub fn open_stash_push_dialog(&mut self, cx: &mut Context<Self>) {
         self.active_dialog = AppDialog::StashPush;
         self.dialog_input.clear();
@@ -66,6 +78,9 @@ impl GitForgeApp {
                     return;
                 }
                 self.rename_branch(old_name, input, cx);
+            }
+            AppDialog::DeleteBranch { name, force } => {
+                self.delete_branch(name, force, cx);
             }
             AppDialog::CreateTag { target } => {
                 if input.is_empty() {
