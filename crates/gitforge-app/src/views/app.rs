@@ -124,6 +124,7 @@ pub struct GitForgeApp {
     pub(crate) ai_generating: bool,
     pub(crate) focus_handle: FocusHandle,
     pub(crate) toolbar_more_open: bool,
+    pub(crate) local_branch_dropdown_open: bool,
     pub(crate) titlebar_menus_visible: bool,
     pub(crate) active_titlebar_menu: Option<TitlebarMenu>,
     pub command_palette: CommandPalette,
@@ -163,6 +164,7 @@ impl GitForgeApp {
             ai_generating: false,
             focus_handle: cx.focus_handle(),
             toolbar_more_open: false,
+            local_branch_dropdown_open: false,
             titlebar_menus_visible: false,
             active_titlebar_menu: None,
             command_palette: CommandPalette::new(cx),
@@ -301,6 +303,7 @@ impl Render for GitForgeApp {
             entity.clone(),
             self.titlebar_menus_visible,
             self.active_titlebar_menu,
+            self.local_branch_dropdown_open,
         );
         let titlebar_divider = super::titlebar::render_titlebar_divider(&self.colors);
 
@@ -390,11 +393,26 @@ impl Render for GitForgeApp {
             ));
         }
 
+        if self.local_branch_dropdown_open {
+            inner = inner.child(super::titlebar::render_local_branch_dropdown(
+                active_repo_state,
+                &self.colors,
+                entity.clone(),
+            ));
+        }
+
+        let root_entity = entity.clone();
+
         div()
             .id("app-root")
             .size_full()
             .bg(gpui::transparent_black())
             .track_focus(&self.focus_handle)
+            .on_click(move |_ev, _window, cx| {
+                if let Some(e) = root_entity.upgrade() {
+                    e.update(cx, |this, cx| this.close_floating_menus(cx));
+                }
+            })
             .on_action(cx.listener(Self::handle_open_repository))
             .on_action(cx.listener(Self::handle_close_dialog))
             .on_action(cx.listener(Self::handle_select_prev))

@@ -1,5 +1,6 @@
-use crate::error::GitResult;
+use crate::error::{GitError, GitResult};
 use crate::repository::Repository;
+use std::collections::HashSet;
 
 impl Repository {
     /// Spawns a `git` subprocess.
@@ -35,6 +36,80 @@ impl Repository {
     pub fn checkout_commit(&self, sha: &str) -> GitResult<()> {
         self.run_git(&["checkout", sha])?;
         Ok(())
+    }
+
+    pub fn main_branch_name(&self) -> GitResult<Option<String>> {
+        for branch in ["main", "master"] {
+            if self
+                .run_git(&["rev-parse", "--verify", &format!("refs/heads/{branch}")])
+                .is_ok()
+            {
+                return Ok(Some(branch.to_string()));
+            }
+        }
+
+        for branch in ["origin/main", "origin/master"] {
+            if self
+                .run_git(&["rev-parse", "--verify", &format!("refs/remotes/{branch}")])
+                .is_ok()
+            {
+                return Ok(Some(branch.to_string()));
+            }
+        }
+
+        Ok(None)
+    }
+
+    pub fn local_branches_conflicting_with_main(
+        &self,
+        branches: &[String],
+    ) -> GitResult<HashSet<String>> {
+        let Some(base) = self.main_branch_name()? else {
+            return Ok(HashSet::new());
+        };
+
+        let mut conflicting = HashSet::new();
+        for branch in branches {
+            if branch == &base || format!("origin/{branch}") == base {
+                continue;
+            }
+
+            if self.branch_conflicts_with_base(&base, branch)? {
+                conflicting.insert(branch.clone());
+            }
+        }
+
+        Ok(conflicting)
+    }
+
+    pub fn branch_conflicts_with_base(&self, base: &str, branch: &str) -> GitResult<bool> {
+        let output = self.run_git_raw(&["merge-tree", "--write-tree", base, branch])?;
+
+        match output.status.code() {
+            Some(0) => Ok(false),
+            Some(1) => Ok(true),
+            Some(code) => {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                if stderr.contains("usage: git merge-tree")
+                    || stderr.contains("unknown option")
+                    || stderr.contains("not a git command")
+                {
+                    return Err(GitError::OperationFailed(
+                        "git merge-tree is unavailable for conflict detection".into(),
+                    ));
+                }
+                tracing::warn!(
+                    "Unexpected git merge-tree exit code {}, assuming no conflict: {}",
+                    code,
+                    stderr
+                );
+                Ok(false)
+            }
+            None => {
+                tracing::warn!("git merge-tree terminated by signal, assuming no conflict");
+                Ok(false)
+            }
+        }
     }
 
     /// Spawns a `git` subprocess.

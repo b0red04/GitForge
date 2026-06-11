@@ -1,4 +1,4 @@
-use gitforge_git::RepoState;
+use gitforge_git::{RefKind, RepoState};
 use gitforge_ui::{AppColors, rgba_to_hsla};
 use gpui::*;
 
@@ -75,13 +75,74 @@ fn no_repo_prompt(muted: Hsla) -> Div {
         .child("Press Ctrl+O to open a repository")
 }
 
-fn repo_breadcrumb(repo: TitlebarRepoContext, muted: Hsla) -> Div {
-    let branch_icon = if repo.is_detached {
+fn branch_selector_button(
+    repo: &TitlebarRepoContext,
+    muted: Hsla,
+    text_color: Hsla,
+    hover_bg: Hsla,
+    active_bg: Hsla,
+    dropdown_open: bool,
+    entity: WeakEntity<super::app::GitForgeApp>,
+) -> Stateful<Div> {
+    let icon_path = if repo.is_detached {
         "icons/git-commit.svg"
     } else {
         "icons/git-branch.svg"
     };
+    let bg = if dropdown_open {
+        active_bg
+    } else {
+        gpui::transparent_black()
+    };
 
+    div()
+        .id("titlebar-branch-selector")
+        .flex()
+        .items_center()
+        .gap_1()
+        .min_w(px(0.0))
+        .max_w(px(280.0))
+        .h(px(24.0))
+        .px_2()
+        .rounded(px(4.0))
+        .bg(bg)
+        .cursor_pointer()
+        .hover(move |s| s.bg(hover_bg))
+        .child(titlebar_icon(icon_path, muted))
+        .child(
+            div()
+                .text_sm()
+                .text_color(text_color)
+                .min_w(px(0.0))
+                .overflow_hidden()
+                .text_ellipsis()
+                .child(repo.branch_name.clone()),
+        )
+        .child(
+            svg()
+                .flex_none()
+                .size(px(12.0))
+                .path("icons/chevron-down.svg")
+                .text_color(muted),
+        )
+        .on_click(move |_ev, _window, cx| {
+            if let Some(e) = entity.upgrade() {
+                e.update(cx, |app, cx| app.toggle_local_branch_dropdown(cx));
+            }
+        })
+        .on_mouse_move(|_, _, cx| cx.stop_propagation())
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+}
+
+fn repo_breadcrumb_with_selector(
+    repo: TitlebarRepoContext,
+    muted: Hsla,
+    text_color: Hsla,
+    hover_bg: Hsla,
+    active_bg: Hsla,
+    dropdown_open: bool,
+    entity: WeakEntity<super::app::GitForgeApp>,
+) -> Div {
     div()
         .flex()
         .flex_row()
@@ -91,16 +152,19 @@ fn repo_breadcrumb(repo: TitlebarRepoContext, muted: Hsla) -> Div {
         .overflow_hidden()
         .child(breadcrumb_segment(
             "icons/git-commit.svg",
-            repo.repo_name,
+            repo.repo_name.clone(),
             muted,
             px(180.0),
         ))
         .child(div().text_sm().text_color(muted).flex_none().child("/"))
-        .child(breadcrumb_segment(
-            branch_icon,
-            repo.branch_name,
+        .child(branch_selector_button(
+            &repo,
             muted,
-            px(260.0),
+            text_color,
+            hover_bg,
+            active_bg,
+            dropdown_open,
+            entity,
         ))
 }
 
@@ -404,6 +468,160 @@ pub fn render_titlebar_menu_dropdown(
     dropdown
 }
 
+pub fn render_local_branch_dropdown(
+    repo_state: Option<&RepoState>,
+    colors: &AppColors,
+    entity: WeakEntity<super::app::GitForgeApp>,
+) -> Stateful<Div> {
+    let surface = rgba_to_hsla(colors.surface);
+    let border = rgba_to_hsla(colors.border);
+    let text_color = rgba_to_hsla(colors.text);
+    let muted = rgba_to_hsla(colors.text_muted);
+    let hover_bg = rgba_to_hsla(colors.sidebar_hover);
+    let selected_bg = rgba_to_hsla(colors.selection_bg);
+    let warning = rgba_to_hsla(colors.warning);
+    let accent = rgba_to_hsla(colors.accent);
+
+    let mut dropdown = div()
+        .id("titlebar-local-branch-dropdown")
+        .absolute()
+        .top(px(TITLEBAR_HEIGHT))
+        .left(px(230.0))
+        .min_w(px(320.0))
+        .max_w(px(420.0))
+        .max_h(px(460.0))
+        .overflow_y_scroll()
+        .bg(surface)
+        .border_1()
+        .border_color(border)
+        .rounded(px(6.0))
+        .py_2()
+        .shadow(vec![BoxShadow {
+            color: black().opacity(0.38),
+            offset: point(px(0.0), px(6.0)),
+            blur_radius: px(16.0),
+            spread_radius: px(0.0),
+        }])
+        .on_mouse_move(|_, _, cx| cx.stop_propagation())
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        .on_click(|_, _, cx| cx.stop_propagation());
+
+    dropdown = dropdown.child(
+        div()
+            .px_3()
+            .pb_1()
+            .text_xs()
+            .text_color(muted)
+            .child("LOCAL BRANCHES"),
+    );
+
+    let Some(repo) = repo_state else {
+        return dropdown.child(
+            div()
+                .px_3()
+                .py_2()
+                .text_sm()
+                .text_color(muted)
+                .child("No repository open"),
+        );
+    };
+
+    let mut branches = repo
+        .references
+        .iter()
+        .filter(|rf| rf.kind == RefKind::Branch)
+        .collect::<Vec<_>>();
+    branches.sort_by(|a, b| b.is_head.cmp(&a.is_head).then_with(|| a.name.cmp(&b.name)));
+
+    if branches.is_empty() {
+        return dropdown.child(
+            div()
+                .px_3()
+                .py_2()
+                .text_sm()
+                .text_color(muted)
+                .child("No local branches"),
+        );
+    }
+
+    for (idx, branch) in branches.into_iter().enumerate() {
+        let branch_name = branch.name.clone();
+        let is_head = branch.is_head;
+        let has_conflict = repo.conflicting_local_branches.contains(&branch_name);
+        let row_entity = entity.clone();
+        let row_bg = if is_head {
+            selected_bg
+        } else {
+            gpui::transparent_black()
+        };
+
+        let mut row = div()
+            .id(ElementId::Name(format!("local-branch-row-{idx}").into()))
+            .mx_1()
+            .h(px(30.0))
+            .px_2()
+            .flex()
+            .items_center()
+            .gap_2()
+            .rounded(px(4.0))
+            .bg(row_bg)
+            .cursor_pointer()
+            .hover(move |s| s.bg(hover_bg))
+            .on_click(move |_ev, _window, cx| {
+                if let Some(e) = row_entity.upgrade() {
+                    let name = branch_name.clone();
+                    e.update(cx, |app, cx| {
+                        app.close_local_branch_dropdown(cx);
+                        if !is_head {
+                            app.checkout_branch(name, cx);
+                        }
+                    });
+                }
+            })
+            .child(
+                svg()
+                    .flex_none()
+                    .size(px(14.0))
+                    .path("icons/git-branch.svg")
+                    .text_color(if is_head { accent } else { muted }),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w(px(0.0))
+                    .overflow_hidden()
+                    .text_ellipsis()
+                    .text_sm()
+                    .text_color(text_color)
+                    .child(branch.name.clone()),
+            );
+
+        if has_conflict {
+            row = row.child(
+                svg()
+                    .flex_none()
+                    .size(px(15.0))
+                    .path("icons/git_merge_conflict.svg")
+                    .text_color(warning),
+            );
+        }
+
+        if is_head {
+            row = row.child(
+                svg()
+                    .flex_none()
+                    .size(px(13.0))
+                    .path("icons/check.svg")
+                    .text_color(accent),
+            );
+        }
+
+        dropdown = dropdown.child(row);
+    }
+
+    dropdown
+}
+
 pub fn render_titlebar(
     repo_state: Option<&RepoState>,
     colors: &AppColors,
@@ -411,6 +629,7 @@ pub fn render_titlebar(
     entity: WeakEntity<super::app::GitForgeApp>,
     menus_visible: bool,
     active_menu: Option<TitlebarMenu>,
+    branch_dropdown_open: bool,
 ) -> impl IntoElement {
     let decorations = window.window_decorations();
     let controls = window.window_controls();
@@ -459,7 +678,15 @@ pub fn render_titlebar(
     }
 
     left_cluster = if let Some(repo) = repo_context {
-        left_cluster.child(repo_breadcrumb(repo, muted))
+        left_cluster.child(repo_breadcrumb_with_selector(
+            repo,
+            muted,
+            icon_hover,
+            hover_bg,
+            rgba_to_hsla(colors.selection_bg),
+            branch_dropdown_open,
+            entity.clone(),
+        ))
     } else {
         left_cluster.child(no_repo_prompt(muted))
     };

@@ -15,7 +15,43 @@ use crate::views::settings_window::SettingsSection;
 impl GitForgeApp {
     pub fn toggle_toolbar_more(&mut self, cx: &mut Context<Self>) {
         self.toolbar_more_open = !self.toolbar_more_open;
+        if self.toolbar_more_open {
+            self.local_branch_dropdown_open = false;
+        }
         cx.notify();
+    }
+
+    pub fn toggle_local_branch_dropdown(&mut self, cx: &mut Context<Self>) {
+        self.local_branch_dropdown_open = !self.local_branch_dropdown_open;
+        if self.local_branch_dropdown_open {
+            self.toolbar_more_open = false;
+            self.titlebar_menus_visible = false;
+            self.active_titlebar_menu = None;
+        }
+        cx.notify();
+    }
+
+    pub fn close_local_branch_dropdown(&mut self, cx: &mut Context<Self>) {
+        if self.local_branch_dropdown_open {
+            self.local_branch_dropdown_open = false;
+            cx.notify();
+        }
+    }
+
+    pub fn close_floating_menus(&mut self, cx: &mut Context<Self>) {
+        let changed = self.toolbar_more_open
+            || self.local_branch_dropdown_open
+            || self.titlebar_menus_visible
+            || self.active_titlebar_menu.is_some();
+
+        self.toolbar_more_open = false;
+        self.local_branch_dropdown_open = false;
+        self.titlebar_menus_visible = false;
+        self.active_titlebar_menu = None;
+
+        if changed {
+            cx.notify();
+        }
     }
 
     pub fn close_toolbar_more(&mut self, cx: &mut Context<Self>) {
@@ -27,6 +63,9 @@ impl GitForgeApp {
 
     pub fn toggle_titlebar_menus(&mut self, cx: &mut Context<Self>) {
         self.titlebar_menus_visible = !self.titlebar_menus_visible;
+        if self.titlebar_menus_visible {
+            self.local_branch_dropdown_open = false;
+        }
         if !self.titlebar_menus_visible {
             self.active_titlebar_menu = None;
         }
@@ -36,6 +75,7 @@ impl GitForgeApp {
     pub fn open_titlebar_menu(&mut self, menu: TitlebarMenu, cx: &mut Context<Self>) {
         self.titlebar_menus_visible = true;
         self.active_titlebar_menu = Some(menu);
+        self.local_branch_dropdown_open = false;
         cx.notify();
     }
 
@@ -163,6 +203,8 @@ impl GitForgeApp {
             cx.notify();
         } else if self.command_palette.is_visible() {
             self.command_palette.hide(cx);
+        } else if self.local_branch_dropdown_open {
+            self.close_local_branch_dropdown(cx);
         } else if self.titlebar_menus_visible || self.active_titlebar_menu.is_some() {
             self.hide_titlebar_menus(cx);
         }
