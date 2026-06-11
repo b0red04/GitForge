@@ -1,4 +1,4 @@
-use crate::error::GitResult;
+use crate::error::{GitError, GitResult};
 use crate::repository::Repository;
 use std::collections::HashSet;
 
@@ -83,16 +83,7 @@ impl Repository {
     }
 
     pub fn branch_conflicts_with_base(&self, base: &str, branch: &str) -> GitResult<bool> {
-        let output = match self.run_git_raw(&["merge-tree", "--write-tree", base, branch]) {
-            Ok(o) => o,
-            Err(err) => {
-                tracing::warn!(
-                    "Failed to execute git merge-tree, assuming no conflict: {}",
-                    err
-                );
-                return Ok(false);
-            }
-        };
+        let output = self.run_git_raw(&["merge-tree", "--write-tree", base, branch])?;
 
         match output.status.code() {
             Some(0) => Ok(false),
@@ -103,8 +94,9 @@ impl Repository {
                     || stderr.contains("unknown option")
                     || stderr.contains("not a git command")
                 {
-                    tracing::warn!("git merge-tree is unavailable for conflict detection");
-                    return Ok(false);
+                    return Err(GitError::OperationFailed(
+                        "git merge-tree is unavailable for conflict detection".into(),
+                    ));
                 }
                 tracing::warn!(
                     "Unexpected git merge-tree exit code {}, assuming no conflict: {}",

@@ -59,7 +59,9 @@ impl Repository {
     }
 
     pub(crate) fn run_git(&self, args: &[&str]) -> GitResult<std::process::Output> {
-        let label = args[0];
+        let label = args.first().ok_or_else(|| {
+            GitError::OperationFailed("git command requires at least one argument".into())
+        })?;
         let output = Command::new("git")
             .args(args)
             .current_dir(&self.path)
@@ -77,7 +79,9 @@ impl Repository {
     }
 
     pub(crate) fn run_git_raw(&self, args: &[&str]) -> GitResult<std::process::Output> {
-        let label = args[0];
+        let label = args.first().ok_or_else(|| {
+            GitError::OperationFailed("git command requires at least one argument".into())
+        })?;
         Command::new("git")
             .args(args)
             .current_dir(&self.path)
@@ -88,7 +92,9 @@ impl Repository {
     }
 
     pub(crate) fn run_git_with_combined_error(&self, args: &[&str]) -> GitResult<String> {
-        let label = args[0];
+        let label = args.first().ok_or_else(|| {
+            GitError::OperationFailed("git command requires at least one argument".into())
+        })?;
         let output = Command::new("git")
             .args(args)
             .current_dir(&self.path)
