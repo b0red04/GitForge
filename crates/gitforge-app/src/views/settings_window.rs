@@ -954,7 +954,7 @@ fn render_settings_window_controls(
         icon_color,
         icon_hover,
         hover_bg,
-        |_ev, window, _cx| window.remove_window(),
+        |_ev, window, cx| window.dispatch_action(Box::new(CloseSettingsWindow), cx),
     ));
 
     Some(row)

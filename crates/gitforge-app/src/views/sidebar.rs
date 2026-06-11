@@ -56,9 +56,11 @@ impl SidebarState {
         }
         for rf in &repo_state.references {
             if rf.kind == RefKind::RemoteBranch {
-                if let Some(ref remote) = rf.remote_name {
-                    self.expanded_remotes.insert(remote.clone());
-                }
+                let remote = rf
+                    .remote_name
+                    .clone()
+                    .unwrap_or_else(|| "origin".to_string());
+                self.expanded_remotes.insert(remote);
             }
         }
     }

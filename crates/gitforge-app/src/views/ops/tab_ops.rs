@@ -244,6 +244,17 @@ impl GitForgeApp {
         self.repo_session.active_repo_tab_id = Some(tab_id);
         self.repo_session.apply_active_repo_tab_to_view();
         self.repo_session.restore_snapshot_from_tab();
+        {
+            let repo_state = self
+                .repo_session
+                .active_tab()
+                .and_then(|tab| tab.repo_state.clone());
+            if let Some(ref repo_state) = repo_state {
+                self.repo_session
+                    .sidebar_state
+                    .seed_expanded_remotes(repo_state);
+            }
+        }
 
         self.save_settings();
         cx.notify();

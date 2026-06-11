@@ -50,7 +50,13 @@ pub(crate) fn render_dialog_overlay(
         AppDialog::CreateBranch { .. } => "Branch name",
         AppDialog::RenameBranch { .. } => "New branch name",
         AppDialog::DeleteBranch { name, force } => {
-            return render_delete_branch_overlay(name, *force, colors, entity);
+            return render_delete_branch_overlay(
+                name,
+                *force,
+                colors,
+                entity,
+                input_focus,
+            );
         }
         AppDialog::CreateTag { .. } => "Tag name",
         AppDialog::StashPush => "Stash message (optional)",
@@ -556,6 +562,7 @@ fn render_delete_branch_overlay(
     force: bool,
     colors: &AppColors,
     entity: WeakEntity<GitForgeApp>,
+    input_focus: &FocusHandle,
 ) -> Stateful<Div> {
     let overlay_bg = rgba_to_hsla(colors.background).opacity(0.7);
     let surface = rgba_to_hsla(colors.surface);
@@ -567,6 +574,10 @@ fn render_delete_branch_overlay(
     let ent_cancel = entity.clone();
     let ent_confirm = entity.clone();
     let branch_name = name.to_string();
+    let fh = input_focus.clone();
+    let ent_key_cancel = entity.clone();
+    let ent_key_confirm = entity.clone();
+    let branch_name_key = name.to_string();
 
     div()
         .id("dialog-overlay")
@@ -581,6 +592,7 @@ fn render_delete_branch_overlay(
         .child(
             div()
                 .id("dialog-box")
+                .track_focus(&fh)
                 .w(px(380.0))
                 .bg(surface)
                 .border_1()
@@ -590,6 +602,30 @@ fn render_delete_branch_overlay(
                 .flex()
                 .flex_col()
                 .gap_3()
+                .on_click(move |_ev, window, _cx| {
+                    window.focus(&fh);
+                })
+                .on_key_down(move |ev: &KeyDownEvent, _window, cx| {
+                    match ev.keystroke.key.as_str() {
+                        "escape" => {
+                            if let Some(e) = ent_key_cancel.upgrade() {
+                                e.update(cx, |this, cx| {
+                                    this.cancel_dialog(cx);
+                                });
+                            }
+                        }
+                        "enter" => {
+                            if let Some(e) = ent_key_confirm.upgrade() {
+                                let name = branch_name_key.clone();
+                                e.update(cx, |this, cx| {
+                                    this.active_dialog = AppDialog::None;
+                                    this.delete_branch(name, force, cx);
+                                });
+                            }
+                        }
+                        _ => {}
+                    }
+                })
                 .child(
                     div()
                         .text_sm()
@@ -601,7 +637,10 @@ fn render_delete_branch_overlay(
                     div()
                         .text_sm()
                         .text_color(text_color)
-                        .child(format!("Delete branch '{}'? This cannot be undone.", name)),
+                        .child(format!(
+                            "Delete branch '{}'? This cannot be undone.",
+                            name
+                        )),
                 )
                 .child(
                     div()

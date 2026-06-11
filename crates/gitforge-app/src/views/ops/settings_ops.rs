@@ -160,6 +160,7 @@ impl GitForgeApp {
         let prev_sha_col = self.settings.graph_show_sha_column;
         let prev_time_col = self.settings.graph_show_time_column;
         let prev_author_col = self.settings.graph_show_author_column;
+        let prev_periodic = self.active_repo_behavior_settings();
         draft.apply_to(&mut self.settings);
         self.repo_session.sidebar_state.branches_expanded = draft.sidebar_branches_expanded;
         self.repo_session.sidebar_state.remotes_expanded = draft.sidebar_remotes_expanded;
@@ -170,11 +171,18 @@ impl GitForgeApp {
             || draft.graph_show_sha_column != prev_sha_col
             || draft.graph_show_time_column != prev_time_col
             || draft.graph_show_author_column != prev_author_col;
+        let cur_periodic = self.active_repo_behavior_settings();
+        let periodic_changed = prev_periodic.periodic_fetch_enabled
+            != cur_periodic.periodic_fetch_enabled
+            || prev_periodic.fetch_interval_minutes != cur_periodic.fetch_interval_minutes;
         if draft.show_checkpoint_refs != prev_checkpoint || draft.commit_limit != prev_commit_limit
         {
             self.refresh_repository(cx);
         } else if columns_changed {
             cx.notify();
+        }
+        if periodic_changed {
+            self.restart_periodic_fetch(cx);
         }
         cx.notify();
     }
