@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use gitforge_git::{RepoState, Repository};
 use gitforge_graph::Graph;
+use gpui::AppContext;
 use parking_lot::Mutex;
 
 use super::app::MainViewMode;
@@ -52,6 +53,10 @@ pub(crate) struct RepoSession {
     pub(crate) next_repo_tab_id: u64,
     pub(crate) graph_panel: GraphPanel,
     pub(crate) diff_panel: DiffPanel,
+    /// Cached, render-only mirror of `diff_panel`. It is embedded with
+    /// `.cached(...)` so that scrolling the commit history (which does not
+    /// change the diff) recycles its paint instead of re-rendering it.
+    pub(crate) diff_view: gpui::Entity<super::diff_panel::DiffViewMirror>,
     pub status_panel: StatusPanel,
     pub commit_editor: CommitEditor,
     pub sidebar_state: SidebarState,
@@ -70,6 +75,7 @@ impl RepoSession {
             next_repo_tab_id: 1,
             graph_panel: GraphPanel::new(),
             diff_panel: DiffPanel::new(),
+            diff_view: cx.new(|_| super::diff_panel::DiffViewMirror::new()),
             status_panel: StatusPanel::new(),
             commit_editor: CommitEditor::new(cx),
             sidebar_state: SidebarState::new(cx),

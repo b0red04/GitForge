@@ -217,6 +217,49 @@ impl GitForgeApp {
             .map(|tab| self.settings.repo_settings_for_path(&tab.path))
             .unwrap_or_default()
     }
+
+    /// Refresh the cached diff mirror view when (and only when) the diff's
+    /// observable state has changed. This is what keeps commit-history
+    /// scrolling cheap: the scroll does not change the diff key, so the mirror
+    /// is left clean and GPUI recycles its previous paint instead of
+    /// re-rendering the entire diff panel on every scroll frame.
+    fn sync_diff_view(
+        &self,
+        repo_state: Option<&gitforge_git::RepoState>,
+        app: WeakEntity<Self>,
+        cx: &mut Context<Self>,
+    ) {
+        let loading = self.repo_session.loading;
+        let sel_idx = self.repo_session.graph_panel.selected_commit_idx();
+        let selected_commit = repo_state
+            .and_then(|rs| sel_idx.and_then(|i| rs.commits.get(i)))
+            .cloned();
+        let selected_commit_id = selected_commit.as_ref().map(|c| c.id.clone());
+
+        let key = self.repo_session.diff_panel.build_key(
+            self.settings.theme.clone(),
+            loading,
+            selected_commit_id,
+        );
+
+        if self.repo_session.diff_view.read(cx).key() == &key {
+            return;
+        }
+
+        let snapshot = self.repo_session.diff_panel.build_snapshot(
+            self.colors.clone(),
+            loading,
+            selected_commit,
+            app,
+        );
+        let diff_view = self.repo_session.diff_view.clone();
+        cx.defer(move |cx| {
+            diff_view.update(cx, |mirror, cx| {
+                mirror.update_snapshot(key, snapshot);
+                cx.notify();
+            });
+        });
+    }
 }
 
 impl Render for GitForgeApp {
@@ -266,31 +309,39 @@ impl Render for GitForgeApp {
         let right_content = match self.repo_session.view_mode {
             MainViewMode::CommitHistory => {
                 if self.repo_session.graph_panel.is_uncommitted_selected() {
-                    self.repo_session.status_panel.render_graph_staging(
-                        active_repo_state,
-                        &self.colors,
-                        entity.clone(),
-                        window,
-                        self.ai_generating,
-                        &self.repo_session.commit_editor,
-                    )
+                    self.repo_session
+                        .status_panel
+                        .render_graph_staging(
+                            active_repo_state,
+                            &self.colors,
+                            entity.clone(),
+                            window,
+                            self.ai_generating,
+                            &self.repo_session.commit_editor,
+                        )
+                        .into_any_element()
                 } else {
-                    self.repo_session.diff_panel.render(
-                        active_repo_state,
-                        self.repo_session.graph_panel.selected_commit_idx(),
-                        &self.colors,
-                        entity.clone(),
-                        self.repo_session.loading,
-                    )
+                    // Refresh the cached diff mirror only when the diff's
+                    // observable state changed. Scrolling the commit history
+                    // leaves it unchanged, so GPUI recycles its paint instead
+                    // of re-rendering the whole diff panel every frame.
+                    self.sync_diff_view(active_repo_state, entity.clone(), cx);
+                    AnyView::from(self.repo_session.diff_view.clone())
+                        .cached(super::diff_panel::diff_view_cache_style())
+                        .into_any_element()
                 }
             }
-            MainViewMode::Status => self.repo_session.status_panel.render(
-                &self.colors,
-                entity.clone(),
-                window,
-                self.ai_generating,
-                &self.repo_session.commit_editor,
-            ),
+            MainViewMode::Status => self
+                .repo_session
+                .status_panel
+                .render(
+                    &self.colors,
+                    entity.clone(),
+                    window,
+                    self.ai_generating,
+                    &self.repo_session.commit_editor,
+                )
+                .into_any_element(),
         };
 
         let right_panel = super::layout::grow_right(div()).child(right_content);

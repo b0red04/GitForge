@@ -1,6 +1,6 @@
-use gitforge_diff::{DiffLineType, FileDiff};
+use gitforge_diff::{DiffLine, DiffLineType, FileDiff};
 use gitforge_git::BlameLine;
-use gitforge_git::RepoState;
+use gitforge_git::CommitInfo;
 use gitforge_ui::{AppColors, rgba_to_hsla};
 use gpui::*;
 use std::ops::Range;
@@ -19,12 +19,53 @@ const IMAGE_EXTENSIONS: &[&str] = &[
 
 const LFS_POINTER_HEADER: &str = "version https://git-lfs";
 
+/// Per-file added/removed line counts, computed once when a diff is loaded so
+/// they never have to be recounted during a render.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct FileLineStats {
+    pub added: usize,
+    pub removed: usize,
+}
+
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub struct CommitDiffState {
     pub commit_id: String,
-    pub file_diffs: Vec<FileDiff>,
+    /// Stored behind an `Arc` so that cloning the diff state per render is a
+    /// cheap reference-count bump instead of deep-cloning every file's lines.
+    pub file_diffs: Arc<[FileDiff]>,
+    pub file_stats: Arc<[FileLineStats]>,
     pub selected_file_idx: Option<usize>,
+}
+
+impl CommitDiffState {
+    pub fn new(
+        commit_id: String,
+        file_diffs: Vec<FileDiff>,
+        selected_file_idx: Option<usize>,
+    ) -> Self {
+        let file_stats: Arc<[FileLineStats]> = file_diffs
+            .iter()
+            .map(|fd| {
+                let mut stats = FileLineStats::default();
+                for line in &fd.lines {
+                    match line.line_type {
+                        DiffLineType::Added => stats.added += 1,
+                        DiffLineType::Removed => stats.removed += 1,
+                        _ => {}
+                    }
+                }
+                stats
+            })
+            .collect();
+
+        Self {
+            commit_id,
+            file_diffs: file_diffs.into(),
+            file_stats,
+            selected_file_idx,
+        }
+    }
 }
 
 pub struct DiffPanel {
@@ -49,6 +90,89 @@ pub enum DiffViewMode {
 struct BlameState {
     lines: Vec<BlameLine>,
     file_path: String,
+}
+
+/// Blame data captured for a render snapshot.
+#[derive(Clone)]
+pub struct DiffBlameSnapshot {
+    pub lines: Vec<BlameLine>,
+    pub file_path: String,
+}
+
+/// An immutable, render-ready copy of everything `DiffPanel` needs to draw.
+///
+/// `DiffPanel` remains the single source of truth in `RepoSession`; this
+/// snapshot is rebuilt from it only when the diff's observable state changes,
+/// then handed to [`DiffViewMirror`] (a cached GPUI view). Because scrolling
+/// the commit history does not change the snapshot, the mirror's painted output
+/// is recycled by GPUI instead of being rebuilt every scroll frame.
+#[derive(Clone)]
+pub struct DiffSnapshot {
+    pub colors: AppColors,
+    pub loading: bool,
+    pub selected_commit: Option<CommitInfo>,
+    pub diff_state: Option<CommitDiffState>,
+    pub view_mode: DiffViewMode,
+    pub code_view_file: Option<String>,
+    pub code_view_content: Option<String>,
+    pub blame: Option<DiffBlameSnapshot>,
+    pub selection: Option<Range<usize>>,
+    pub highlight: Arc<SharedHighlightState>,
+    pub scroll_handle: UniformListScrollHandle,
+    pub code_scroll_handle: UniformListScrollHandle,
+    pub app: WeakEntity<super::app::GitForgeApp>,
+}
+
+/// A cheap, comparable fingerprint of the diff panel's visible state. When this
+/// is unchanged between frames, the mirror view does not need re-rendering and
+/// GPUI's view caching recycles the previous paint.
+#[derive(Clone, PartialEq, Eq, Default)]
+pub struct DiffViewKey {
+    pub theme: String,
+    pub loading: bool,
+    pub selected_commit_id: Option<String>,
+    pub diff_commit_id: Option<String>,
+    pub selected_file_idx: Option<usize>,
+    pub view_mode_tag: u8,
+    pub code_view_file: Option<String>,
+    pub blame_file: Option<String>,
+    pub selection: Option<Range<usize>>,
+}
+
+/// A render-only GPUI view that mirrors the diff panel. It is embedded with
+/// `.cached(...)` so that, unless its snapshot changes, GPUI recycles its
+/// layout and paint instead of recomputing it on unrelated re-renders (such as
+/// scrolling the commit history).
+pub struct DiffViewMirror {
+    snapshot: Option<DiffSnapshot>,
+    key: DiffViewKey,
+}
+
+impl DiffViewMirror {
+    pub fn new() -> Self {
+        Self {
+            snapshot: None,
+            key: DiffViewKey::default(),
+        }
+    }
+
+    pub fn key(&self) -> &DiffViewKey {
+        &self.key
+    }
+
+    pub fn update_snapshot(&mut self, key: DiffViewKey, snapshot: DiffSnapshot) {
+        self.key = key;
+        self.snapshot = Some(snapshot);
+    }
+}
+
+impl Render for DiffViewMirror {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        match &self.snapshot {
+            Some(snap) => render_diff_panel(snap),
+            None => div().w_full().h_full(),
+        }
+    }
 }
 
 #[allow(dead_code)]
@@ -177,22 +301,79 @@ impl DiffPanel {
         self.selection.indices()
     }
 
-    pub fn render(
-        &self,
-        repo_state: Option<&RepoState>,
-        selected_commit_idx: Option<usize>,
-        colors: &AppColors,
-        entity: WeakEntity<super::app::GitForgeApp>,
-        loading: bool,
-    ) -> Div {
-        let surface = rgba_to_hsla(colors.surface);
-        let border = rgba_to_hsla(colors.border);
-        let muted = rgba_to_hsla(colors.text_muted);
-        let text_color = rgba_to_hsla(colors.text);
+    fn view_mode_tag(&self) -> u8 {
+        match self.view_mode {
+            DiffViewMode::Diff => 0,
+            DiffViewMode::Code => 1,
+            DiffViewMode::Blame => 2,
+        }
+    }
 
-        match (repo_state, &self.diff_state, selected_commit_idx) {
-            (Some(repo), Some(diff_state), Some(idx)) => {
-                let commit = &repo.commits[idx];
+    /// Build a cheap fingerprint of the diff panel's visible state, used to
+    /// decide whether the cached mirror view needs to be refreshed.
+    pub fn build_key(
+        &self,
+        theme: String,
+        loading: bool,
+        selected_commit_id: Option<String>,
+    ) -> DiffViewKey {
+        DiffViewKey {
+            theme,
+            loading,
+            selected_commit_id,
+            diff_commit_id: self.diff_state.as_ref().map(|d| d.commit_id.clone()),
+            selected_file_idx: self.diff_state.as_ref().and_then(|d| d.selected_file_idx),
+            view_mode_tag: self.view_mode_tag(),
+            code_view_file: self.code_view_file.clone(),
+            blame_file: self.blame.as_ref().map(|b| b.file_path.clone()),
+            selection: self.selected_range(),
+        }
+    }
+
+    /// Capture a render-ready snapshot of the diff panel. Cloning is cheap: the
+    /// diff content lives behind `Arc`s and blame data is only copied while the
+    /// blame view is active.
+    pub fn build_snapshot(
+        &self,
+        colors: AppColors,
+        loading: bool,
+        selected_commit: Option<CommitInfo>,
+        app: WeakEntity<super::app::GitForgeApp>,
+    ) -> DiffSnapshot {
+        DiffSnapshot {
+            colors,
+            loading,
+            selected_commit,
+            diff_state: self.diff_state.clone(),
+            view_mode: self.view_mode.clone(),
+            code_view_file: self.code_view_file.clone(),
+            code_view_content: self.code_view_content.clone(),
+            blame: self.blame.as_ref().map(|b| DiffBlameSnapshot {
+                lines: b.lines.clone(),
+                file_path: b.file_path.clone(),
+            }),
+            selection: self.selected_range(),
+            highlight: self.highlight.clone(),
+            scroll_handle: self.scroll_handle.clone(),
+            code_scroll_handle: self.code_scroll_handle.clone(),
+            app,
+        }
+    }
+}
+
+fn render_diff_panel(snap: &DiffSnapshot) -> Div {
+    let colors = &snap.colors;
+    let entity = snap.app.clone();
+    let loading = snap.loading;
+
+    let surface = rgba_to_hsla(colors.surface);
+    let border = rgba_to_hsla(colors.border);
+    let muted = rgba_to_hsla(colors.text_muted);
+    let text_color = rgba_to_hsla(colors.text);
+
+    {
+        match (snap.selected_commit.as_ref(), &snap.diff_state) {
+            (Some(commit), Some(diff_state)) => {
                 let commit_detail =
                     render_commit_detail(commit, colors, border, text_color, muted, entity.clone());
 
@@ -209,6 +390,7 @@ impl DiffPanel {
 
                 let selected_file = diff_state.selected_file_idx;
                 let file_diffs = diff_state.file_diffs.clone();
+                let file_stats = diff_state.file_stats.clone();
                 let colors = colors.clone();
                 let file_click_entity = entity.clone();
 
@@ -251,16 +433,9 @@ impl DiffPanel {
                         rgba_to_hsla(colors.text_muted)
                     };
 
-                    let added_count = fd
-                        .lines
-                        .iter()
-                        .filter(|l| l.line_type == DiffLineType::Added)
-                        .count();
-                    let removed_count = fd
-                        .lines
-                        .iter()
-                        .filter(|l| l.line_type == DiffLineType::Removed)
-                        .count();
+                    let stats = file_stats.get(fi).copied().unwrap_or_default();
+                    let added_count = stats.added;
+                    let removed_count = stats.removed;
 
                     let stats_color_added = rgba_to_hsla(colors.diff_added);
                     let stats_color_removed = rgba_to_hsla(colors.diff_removed);
@@ -315,22 +490,25 @@ impl DiffPanel {
                     );
                 }
 
-                let diff_content = selected_file
-                    .and_then(|idx| file_diffs.get(idx).cloned())
-                    .or_else(|| file_diffs.first().cloned());
+                // Resolve the file to show without deep-cloning: the selected
+                // index if valid, otherwise the first file.
+                let resolved_idx = selected_file
+                    .filter(|&idx| idx < file_diffs.len())
+                    .or_else(|| (!file_diffs.is_empty()).then_some(0));
 
-                let sel_range = self.selected_range();
-                let diff_panel = match self.view_mode {
+                let sel_range = snap.selection.clone();
+                let diff_panel = match snap.view_mode {
                     DiffViewMode::Diff => render_diff_content(
-                        diff_content,
+                        file_diffs.clone(),
+                        resolved_idx,
                         &colors,
-                        self.scroll_handle.clone(),
-                        self.highlight.clone(),
+                        snap.scroll_handle.clone(),
+                        snap.highlight.clone(),
                         entity.clone(),
                         sel_range,
                     ),
                     DiffViewMode::Blame => {
-                        if let Some(ref blame_state) = self.blame {
+                        if let Some(ref blame_state) = snap.blame {
                             render_blame_view(
                                 &blame_state.lines,
                                 &blame_state.file_path,
@@ -339,21 +517,22 @@ impl DiffPanel {
                             )
                         } else {
                             render_diff_content(
-                                diff_content,
+                                file_diffs.clone(),
+                                resolved_idx,
                                 &colors,
-                                self.scroll_handle.clone(),
-                                self.highlight.clone(),
+                                snap.scroll_handle.clone(),
+                                snap.highlight.clone(),
                                 entity.clone(),
                                 sel_range,
                             )
                         }
                     }
                     DiffViewMode::Code => render_code_view(
-                        self.code_view_content.as_deref(),
-                        self.code_view_file.as_deref(),
+                        snap.code_view_content.as_deref(),
+                        snap.code_view_file.as_deref(),
                         &colors,
-                        self.code_scroll_handle.clone(),
-                        self.highlight.clone(),
+                        snap.code_scroll_handle.clone(),
+                        snap.highlight.clone(),
                         entity.clone(),
                     ),
                 };
@@ -396,6 +575,14 @@ impl DiffPanel {
             ),
         }
     }
+}
+
+/// Layout style applied to the cached diff mirror view so it fills the
+/// right-hand panel slot.
+pub fn diff_view_cache_style() -> StyleRefinement {
+    StyleRefinement::default()
+        .size_full()
+        .min_w(px(RIGHT_MIN_WIDTH))
 }
 
 fn diff_panel_root(surface: Hsla) -> Div {
@@ -575,7 +762,8 @@ fn render_commit_detail(
 }
 
 fn render_diff_content(
-    file_diff: Option<FileDiff>,
+    file_diffs: Arc<[FileDiff]>,
+    selected_idx: Option<usize>,
     colors: &AppColors,
     diff_scroll_handle: UniformListScrollHandle,
     highlight: Arc<SharedHighlightState>,
@@ -588,9 +776,10 @@ fn render_diff_content(
     let surface = rgba_to_hsla(colors.surface);
     let accent = rgba_to_hsla(colors.accent);
 
-    let Some(diff) = file_diff else {
+    let Some(idx) = selected_idx.filter(|&idx| idx < file_diffs.len()) else {
         return render_diff_empty_state(colors);
     };
+    let diff = &file_diffs[idx];
 
     let path_label = diff
         .new_path
@@ -786,8 +975,9 @@ fn render_diff_content(
         })
     };
 
+    let lines: Arc<[DiffLine]> = Arc::from(diff.lines.as_slice());
     let diff_lines = render_diff_lines(
-        &diff.lines,
+        lines,
         path_label,
         colors,
         diff_scroll_handle,
