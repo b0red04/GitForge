@@ -68,5 +68,53 @@ fn bench_graph_row_lookup(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, bench_graph_build, bench_graph_row_lookup);
+fn naive_visible_line_indices(graph: &Graph, rows: std::ops::Range<usize>) -> Vec<usize> {
+    graph
+        .lines()
+        .iter()
+        .enumerate()
+        .filter(|(_, line)| {
+            line.full_interval.start < rows.end && line.full_interval.end >= rows.start
+        })
+        .map(|(idx, _)| idx)
+        .collect()
+}
+
+fn bench_visible_line_lookup(c: &mut Criterion) {
+    let mut group = c.benchmark_group("visible_line_lookup");
+    let viewport_len = 40;
+
+    for (shape, commits) in [
+        ("linear", generate_linear_commits(50_000)),
+        ("branchy", generate_branchy_commits(50_000)),
+    ] {
+        let graph = Graph::build(&commits);
+        for (position, start) in [("top", 0), ("middle", 25_000), ("end", 49_960)] {
+            let rows = start..start + viewport_len;
+            group.bench_with_input(
+                BenchmarkId::new(format!("{shape}_indexed"), position),
+                &rows,
+                |b, rows| {
+                    b.iter(|| graph.visible_line_indices(black_box(rows.clone())));
+                },
+            );
+            group.bench_with_input(
+                BenchmarkId::new(format!("{shape}_naive"), position),
+                &rows,
+                |b, rows| {
+                    b.iter(|| naive_visible_line_indices(&graph, black_box(rows.clone())));
+                },
+            );
+        }
+    }
+
+    group.finish();
+}
+
+criterion_group!(
+    benches,
+    bench_graph_build,
+    bench_graph_row_lookup,
+    bench_visible_line_lookup
+);
 criterion_main!(benches);

@@ -50,13 +50,7 @@ pub(crate) fn render_dialog_overlay(
         AppDialog::CreateBranch { .. } => "Branch name",
         AppDialog::RenameBranch { .. } => "New branch name",
         AppDialog::DeleteBranch { name, force } => {
-            return render_delete_branch_overlay(
-                name,
-                *force,
-                colors,
-                entity,
-                input_focus,
-            );
+            return render_delete_branch_overlay(name, *force, colors, entity, input_focus);
         }
         AppDialog::CreateTag { .. } => "Tag name",
         AppDialog::StashPush => "Stash message (optional)",
@@ -637,10 +631,7 @@ fn render_delete_branch_overlay(
                     div()
                         .text_sm()
                         .text_color(text_color)
-                        .child(format!(
-                            "Delete branch '{}'? This cannot be undone.",
-                            name
-                        )),
+                        .child(format!("Delete branch '{}'? This cannot be undone.", name)),
                 )
                 .child(
                     div()

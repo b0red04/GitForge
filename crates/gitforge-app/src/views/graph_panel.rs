@@ -2,7 +2,9 @@ use gitforge_git::{CommitInfo, RefInfo, RefKind};
 use gitforge_graph::{CommitLineSegment, CurveKind, Graph};
 use gitforge_ui::{AppColors, rgba_to_hsla};
 use gpui::*;
+use std::collections::HashMap;
 use std::ops::Range;
+use std::sync::Arc;
 
 use super::layout::{self, AUTHOR_COL, HASH_COL, ROW_HEIGHT, TIME_COL};
 
@@ -44,17 +46,27 @@ pub enum GraphSelection {
     Commit(usize),
 }
 
+#[derive(Clone)]
+struct CommitRowRenderData {
+    summary: SharedString,
+    short_id: SharedString,
+    author_name: SharedString,
+    relative_time: SharedString,
+}
+
 pub struct GraphPanel {
-    commits: Vec<CommitInfo>,
-    references: Vec<RefInfo>,
-    graph: Graph,
+    commits: Arc<[CommitInfo]>,
+    row_render_data: Arc<[CommitRowRenderData]>,
+    references: Arc<[RefInfo]>,
+    graph: Arc<Graph>,
     selection: GraphSelection,
     has_uncommitted: bool,
     scroll_handle: UniformListScrollHandle,
     branch_filter: Option<String>,
     filtered_indices: Vec<usize>,
     use_filtered: bool,
-    commit_index: std::collections::HashMap<String, usize>,
+    commit_index: HashMap<String, usize>,
+    refs_by_commit: Arc<HashMap<String, Arc<[RefInfo]>>>,
     graph_col_width: f32,
     graph_col_user_resized: bool,
     hash_col_width: f32,
@@ -66,16 +78,18 @@ pub struct GraphPanel {
 impl GraphPanel {
     pub fn new() -> Self {
         Self {
-            commits: Vec::new(),
-            references: Vec::new(),
-            graph: Graph::new(),
+            commits: Arc::from([]),
+            row_render_data: Arc::from([]),
+            references: Arc::from([]),
+            graph: Arc::new(Graph::new()),
             selection: GraphSelection::None,
             has_uncommitted: false,
             scroll_handle: UniformListScrollHandle::default(),
             branch_filter: None,
             filtered_indices: Vec::new(),
             use_filtered: false,
-            commit_index: std::collections::HashMap::new(),
+            commit_index: HashMap::new(),
+            refs_by_commit: Arc::new(HashMap::new()),
             graph_col_width: layout::GRAPH_LANE_WIDTH,
             graph_col_user_resized: false,
             hash_col_width: HASH_COL,
@@ -97,13 +111,24 @@ impl GraphPanel {
             self.commit_index.insert(c.id.clone(), i);
             self.commit_index.insert(c.short_id.clone(), i);
         }
+        self.row_render_data = commits
+            .iter()
+            .map(|commit| CommitRowRenderData {
+                summary: commit.summary.clone().into(),
+                short_id: commit.short_id.clone().into(),
+                author_name: commit.author_name.clone().into(),
+                relative_time: format_relative_time(&commit.author_date).into(),
+            })
+            .collect::<Vec<_>>()
+            .into();
+        self.refs_by_commit = Arc::new(build_refs_by_commit(&references));
         if !self.graph_col_user_resized {
             self.graph_col_width = auto_graph_col_width(&graph);
         }
 
-        self.commits = commits;
-        self.references = references;
-        self.graph = graph;
+        self.commits = commits.into();
+        self.references = references.into();
+        self.graph = Arc::new(graph);
         self.has_uncommitted = has_uncommitted;
         self.selection = GraphSelection::None;
         self.update_filtered_indices();
@@ -411,9 +436,10 @@ impl GraphPanel {
         }
 
         let total_items = self.commits.len() + if self.has_uncommitted { 1 } else { 0 };
-        let commits = self.commits.clone();
-        let references = self.references.clone();
-        let graph = self.graph.clone();
+        let commits = Arc::clone(&self.commits);
+        let row_render_data = Arc::clone(&self.row_render_data);
+        let refs_by_commit = Arc::clone(&self.refs_by_commit);
+        let graph = Arc::clone(&self.graph);
         let selection = self.selection;
         let has_uncommitted = self.has_uncommitted;
         let cl = colors.clone();
@@ -452,7 +478,7 @@ impl GraphPanel {
                             .flex()
                             .flex_row()
                             .items_center()
-                            .h(px(ROW_HEIGHT))
+                            .h(graph_row_height())
                             .cursor_pointer()
                             .on_click(move |_ev, _window, cx| {
                                 if let Some(e) = wip_entity.upgrade() {
@@ -497,6 +523,7 @@ impl GraphPanel {
 
                     let commit_idx = if has_uncommitted { item_i - 1 } else { item_i };
                     let commit = &commits[commit_idx];
+                    let row_data = &row_render_data[commit_idx];
                     let is_selected = selection == GraphSelection::Commit(commit_idx);
                     let row_bg = if is_selected {
                         rgba_to_hsla(cl.sidebar_selected)
@@ -504,20 +531,15 @@ impl GraphPanel {
                         rgba_to_hsla(cl.background)
                     };
 
-                    let refs_for_commit: Vec<&RefInfo> = references
-                        .iter()
-                        .filter(|r| {
-                            r.target_commit_id == commit.id || r.target_commit_id == commit.short_id
-                        })
-                        .collect();
+                    let refs_for_commit = refs_by_commit.get(&commit.id);
 
-                    let summary = commit.summary.clone();
-                    let short_id = commit.short_id.clone();
-                    let author_name = commit.author_name.clone();
+                    let summary = row_data.summary.clone();
+                    let short_id = row_data.short_id.clone();
+                    let author_name = row_data.author_name.clone();
+                    let time_label = row_data.relative_time.clone();
 
                     let click_entity = list_entity.clone();
-                    let ref_pills = render_ref_pills(&refs_for_commit, &cl);
-                    let time_label = format_relative_time(&commit.author_date);
+                    let ref_pills = render_ref_pills(refs_for_commit, &cl);
 
                     let mut row = div()
                         .id(ElementId::Name(format!("commit-row-{commit_idx}").into()))
@@ -534,7 +556,7 @@ impl GraphPanel {
                         .flex()
                         .flex_row()
                         .items_center()
-                        .h(px(ROW_HEIGHT))
+                        .h(graph_row_height())
                         .cursor_pointer()
                         .on_click(move |_ev, _window, cx| {
                             if let Some(e) = click_entity.upgrade() {
@@ -665,7 +687,26 @@ impl GraphPanel {
 }
 
 fn graph_spacer(width: f32) -> Div {
-    div().w(px(width)).h(px(ROW_HEIGHT)).flex_shrink_0()
+    div().w(px(width)).h(graph_row_height()).flex_shrink_0()
+}
+
+fn graph_row_height() -> Pixels {
+    px(ROW_HEIGHT)
+}
+
+fn build_refs_by_commit(references: &[RefInfo]) -> HashMap<String, Arc<[RefInfo]>> {
+    let mut grouped: HashMap<String, Vec<RefInfo>> = HashMap::new();
+    for rf in references {
+        grouped
+            .entry(rf.target_commit_id.clone())
+            .or_default()
+            .push(rf.clone());
+    }
+
+    grouped
+        .into_iter()
+        .map(|(commit_id, refs)| (commit_id, Arc::from(refs)))
+        .collect()
 }
 
 fn resize_spacer() -> Div {
@@ -732,7 +773,7 @@ fn paint_graph_overlay(
         return;
     }
 
-    let row_height = px(ROW_HEIGHT);
+    let row_height = graph_row_height();
     let uncommitted_offset = usize::from(has_uncommitted);
 
     let scroll_state = scroll_handle.0.borrow();
@@ -754,14 +795,16 @@ fn paint_graph_overlay(
         .saturating_sub(uncommitted_offset);
 
     // Commit dots for visible graph rows.
-    for (graph_row, node) in graph.nodes().iter().enumerate() {
+    let visible_node_start = first_visible_graph_row.min(graph.nodes().len());
+    let visible_node_end = last_visible_graph_row
+        .saturating_add(1)
+        .min(graph.nodes().len());
+    for (graph_row, node) in graph.nodes()[visible_node_start..visible_node_end]
+        .iter()
+        .enumerate()
+    {
+        let graph_row = visible_node_start + graph_row;
         let list_row = graph_row_to_list_row(graph_row, uncommitted_offset);
-        if list_row < first_visible_list_row
-            || list_row > first_visible_list_row + visible_list_row_count
-        {
-            continue;
-        }
-
         let x = lane_center_x(bounds, node.lane as f32);
         let y = list_row_center_y(
             list_row,
@@ -797,7 +840,12 @@ fn paint_graph_overlay(
     let desired_curve_height = row_height / 3.0;
     let desired_curve_width = px(LANE_WIDTH / 3.0);
 
-    for line in graph.lines() {
+    for line_idx in graph.visible_line_indices(first_visible_graph_row..last_visible_graph_row + 1)
+    {
+        let Some(line) = graph.line_at(line_idx) else {
+            continue;
+        };
+
         if line.full_interval.end < first_visible_graph_row
             || line.full_interval.start > last_visible_graph_row
         {
@@ -948,27 +996,16 @@ fn draw_commit_circle(
     window: &mut Window,
 ) {
     let radius = px(COMMIT_CIRCLE_RADIUS);
-    let mut builder = PathBuilder::fill();
-    builder.move_to(point(center_x + radius, center_y));
-    builder.arc_to(
-        point(radius, radius),
-        px(0.),
-        false,
-        true,
-        point(center_x - radius, center_y),
+    window.paint_quad(
+        fill(
+            Bounds::new(
+                point(center_x - radius, center_y - radius),
+                size(radius * 2.0, radius * 2.0),
+            ),
+            color,
+        )
+        .corner_radii(radius),
     );
-    builder.arc_to(
-        point(radius, radius),
-        px(0.),
-        false,
-        true,
-        point(center_x + radius, center_y),
-    );
-    builder.close();
-
-    if let Ok(path) = builder.build() {
-        window.paint_path(path, color);
-    }
 
     if is_merge {
         let inner_r = px(2.0);
@@ -1154,13 +1191,17 @@ fn render_resize_handle(
         })
 }
 
-fn render_ref_pills(refs: &[&RefInfo], cl: &AppColors) -> Div {
+fn render_ref_pills(refs: Option<&Arc<[RefInfo]>>, cl: &AppColors) -> Div {
     let mut row = div()
         .flex()
         .flex_row()
         .items_center()
         .gap_1()
         .overflow_hidden();
+
+    let Some(refs) = refs else {
+        return row;
+    };
 
     for rf in refs.iter().take(VISIBLE_REF_PILLS) {
         row = row.child(render_ref_pill(rf, cl));
