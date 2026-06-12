@@ -748,7 +748,7 @@ impl StatusPanel {
         };
 
         let diff_lines = render_diff_lines(
-            std::sync::Arc::from(diff.lines.as_slice()),
+            diff.lines.clone(),
             path_label,
             colors,
             self.scroll_handle.clone(),

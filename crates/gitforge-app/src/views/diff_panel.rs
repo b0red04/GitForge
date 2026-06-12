@@ -48,7 +48,7 @@ impl CommitDiffState {
             .iter()
             .map(|fd| {
                 let mut stats = FileLineStats::default();
-                for line in &fd.lines {
+                for line in fd.lines.iter() {
                     match line.line_type {
                         DiffLineType::Added => stats.added += 1,
                         DiffLineType::Removed => stats.removed += 1,
@@ -843,7 +843,7 @@ fn render_diff_content(
             if first_line.content.starts_with(LFS_POINTER_HEADER) {
                 let mut oid = None;
                 let mut size = None;
-                for line in &diff.lines {
+                for line in diff.lines.iter() {
                     if let Some(rest) = line.content.strip_prefix("oid sha256:") {
                         oid = Some(rest.trim().to_string());
                     }
@@ -975,7 +975,7 @@ fn render_diff_content(
         })
     };
 
-    let lines: Arc<[DiffLine]> = Arc::from(diff.lines.as_slice());
+    let lines: Arc<[DiffLine]> = diff.lines.clone();
     let diff_lines = render_diff_lines(
         lines,
         path_label,
