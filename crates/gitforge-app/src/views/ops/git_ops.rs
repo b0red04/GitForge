@@ -324,6 +324,10 @@ impl GitForgeApp {
             cx.notify();
             return;
         };
+        let behavior = self.active_repo_behavior_settings();
+        let branch_to_push = self
+            .active_repo_state()
+            .and_then(|state| state.head_branch.clone());
 
         cx.spawn(async move |this, cx| {
             let result = tokio::task::spawn_blocking(move || {
@@ -346,6 +350,15 @@ impl GitForgeApp {
                 Ok(Ok(())) => {
                     this.update(cx, |this, cx| {
                         this.refresh_repository(cx);
+                        if behavior.auto_push_on_commit {
+                            if let Some(branch) = branch_to_push.clone() {
+                                this.push_current_branch("origin".into(), branch, false, cx);
+                            } else {
+                                this.repo_session.remote_status =
+                                    "Commit succeeded; skipped auto-push because HEAD is detached."
+                                        .into();
+                            }
+                        }
                     })
                     .ok();
                 }
@@ -607,9 +620,28 @@ impl GitForgeApp {
     }
 
     pub fn delete_branch(&mut self, name: String, force: bool, cx: &mut Context<Self>) {
+        if self.is_current_branch(&name) {
+            self.repo_session.remote_status =
+                format!("Cannot delete the currently checked-out branch '{}'.", name);
+            cx.notify();
+            return;
+        }
         self.run_git_op("Delete branch", cx, move |repo| {
             repo.delete_branch(&name, force)
         });
+    }
+
+    pub(crate) fn is_current_branch(&self, name: &str) -> bool {
+        self.active_repo_state()
+            .and_then(|state| state.head_branch.as_deref())
+            == Some(name)
+            || self.active_repo_state().is_some_and(|state| {
+                state.references.iter().any(|reference| {
+                    reference.kind == gitforge_git::RefKind::Branch
+                        && reference.is_head
+                        && reference.name == name
+                })
+            })
     }
 
     pub fn rename_branch(&mut self, old: String, new: String, cx: &mut Context<Self>) {
@@ -687,6 +719,41 @@ impl GitForgeApp {
         self.run_git_op_with_status("Fetch", "Fetching all remotes...", cx, move |repo| {
             repo.fetch_all(true)
         });
+    }
+
+    pub(crate) fn restart_periodic_fetch(&mut self, cx: &mut Context<Self>) {
+        self.periodic_fetch_generation = self.periodic_fetch_generation.wrapping_add(1);
+        let generation = self.periodic_fetch_generation;
+        let behavior = self.active_repo_behavior_settings();
+        if !behavior.periodic_fetch_enabled || self.repo_session.active_tab().is_none() {
+            return;
+        }
+        let interval_secs = behavior.fetch_interval_minutes.max(1) * 60;
+
+        cx.spawn(async move |this, cx| {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(interval_secs)).await;
+                let should_continue = this
+                    .update(cx, |this, cx| {
+                        if this.periodic_fetch_generation != generation {
+                            return false;
+                        }
+                        let behavior = this.active_repo_behavior_settings();
+                        if !behavior.periodic_fetch_enabled
+                            || this.repo_session.active_tab().is_none()
+                        {
+                            return false;
+                        }
+                        this.fetch_all(cx);
+                        true
+                    })
+                    .unwrap_or(false);
+                if !should_continue {
+                    break;
+                }
+            }
+        })
+        .detach();
     }
 
     pub fn fetch_remote(&mut self, remote: String, cx: &mut Context<Self>) {

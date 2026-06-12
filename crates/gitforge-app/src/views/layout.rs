@@ -11,6 +11,7 @@ pub const RIGHT_FLEX: f32 = 2.0;
 pub const GRAPH_LANE_WIDTH: f32 = 140.0;
 pub const HASH_COL: f32 = 60.0;
 pub const TIME_COL: f32 = 90.0;
+pub const AUTHOR_COL: f32 = 120.0;
 pub const FILE_LIST_WIDTH: f32 = 240.0;
 
 pub const TITLEBAR_HEIGHT: f32 = 32.0;

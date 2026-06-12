@@ -2,9 +2,11 @@ use gitforge_git::{CommitInfo, RefInfo, RefKind};
 use gitforge_graph::{CommitLineSegment, CurveKind, Graph};
 use gitforge_ui::{AppColors, rgba_to_hsla};
 use gpui::*;
+use std::collections::HashMap;
 use std::ops::Range;
+use std::sync::Arc;
 
-use super::layout::{self, HASH_COL, ROW_HEIGHT, TIME_COL};
+use super::layout::{self, AUTHOR_COL, HASH_COL, ROW_HEIGHT, TIME_COL};
 
 const LEFT_PADDING: f32 = 12.0;
 const LANE_WIDTH: f32 = 16.0;
@@ -17,6 +19,8 @@ const HASH_COL_MIN: f32 = 48.0;
 const HASH_COL_MAX: f32 = 140.0;
 const TIME_COL_MIN: f32 = 70.0;
 const TIME_COL_MAX: f32 = 160.0;
+const AUTHOR_COL_MIN: f32 = 60.0;
+const AUTHOR_COL_MAX: f32 = 200.0;
 const VISIBLE_REF_PILLS: usize = 4;
 const RESIZE_HANDLE_WIDTH: f32 = 6.0;
 
@@ -25,6 +29,7 @@ enum HistoryColumn {
     Graph,
     Sha,
     Time,
+    Author,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -41,41 +46,63 @@ pub enum GraphSelection {
     Commit(usize),
 }
 
+#[derive(Clone)]
+struct CommitRowRenderData {
+    summary: SharedString,
+    short_id: SharedString,
+    author_name: SharedString,
+    relative_time: SharedString,
+}
+
+#[derive(Clone)]
+struct CommitGraphDecoration {
+    graph: Arc<Graph>,
+    graph_col_width: f32,
+    has_uncommitted: bool,
+    colors: AppColors,
+}
+
 pub struct GraphPanel {
-    commits: Vec<CommitInfo>,
-    references: Vec<RefInfo>,
-    graph: Graph,
+    commits: Arc<[CommitInfo]>,
+    row_render_data: Arc<[CommitRowRenderData]>,
+    references: Arc<[RefInfo]>,
+    graph: Arc<Graph>,
     selection: GraphSelection,
     has_uncommitted: bool,
     scroll_handle: UniformListScrollHandle,
     branch_filter: Option<String>,
     filtered_indices: Vec<usize>,
     use_filtered: bool,
-    commit_index: std::collections::HashMap<String, usize>,
+    commit_index: HashMap<String, usize>,
+    refs_by_commit: Arc<HashMap<String, Arc<[RefInfo]>>>,
     graph_col_width: f32,
     graph_col_user_resized: bool,
     hash_col_width: f32,
     time_col_width: f32,
+    author_col_width: f32,
     active_resize: Option<HistoryColumnResize>,
 }
 
 impl GraphPanel {
     pub fn new() -> Self {
         Self {
-            commits: Vec::new(),
-            references: Vec::new(),
-            graph: Graph::new(),
+            commits: Arc::from([]),
+            row_render_data: Arc::from([]),
+            references: Arc::from([]),
+            graph: Arc::new(Graph::new()),
             selection: GraphSelection::None,
             has_uncommitted: false,
             scroll_handle: UniformListScrollHandle::default(),
             branch_filter: None,
             filtered_indices: Vec::new(),
             use_filtered: false,
-            commit_index: std::collections::HashMap::new(),
+            commit_index: HashMap::new(),
+            refs_by_commit: Arc::new(HashMap::new()),
             graph_col_width: layout::GRAPH_LANE_WIDTH,
             graph_col_user_resized: false,
             hash_col_width: HASH_COL,
             time_col_width: TIME_COL,
+            author_col_width: AUTHOR_COL,
             active_resize: None,
         }
     }
@@ -92,13 +119,24 @@ impl GraphPanel {
             self.commit_index.insert(c.id.clone(), i);
             self.commit_index.insert(c.short_id.clone(), i);
         }
+        self.row_render_data = commits
+            .iter()
+            .map(|commit| CommitRowRenderData {
+                summary: commit.summary.clone().into(),
+                short_id: commit.short_id.clone().into(),
+                author_name: commit.author_name.clone().into(),
+                relative_time: format_relative_time(&commit.author_date).into(),
+            })
+            .collect::<Vec<_>>()
+            .into();
+        self.refs_by_commit = Arc::new(build_refs_by_commit(&references));
         if !self.graph_col_user_resized {
             self.graph_col_width = auto_graph_col_width(&graph);
         }
 
-        self.commits = commits;
-        self.references = references;
-        self.graph = graph;
+        self.commits = commits.into();
+        self.references = references.into();
+        self.graph = Arc::new(graph);
         self.has_uncommitted = has_uncommitted;
         self.selection = GraphSelection::None;
         self.update_filtered_indices();
@@ -252,6 +290,7 @@ impl GraphPanel {
             HistoryColumn::Graph => self.graph_col_width,
             HistoryColumn::Sha => self.hash_col_width,
             HistoryColumn::Time => self.time_col_width,
+            HistoryColumn::Author => self.author_col_width,
         };
         self.active_resize = Some(HistoryColumnResize {
             column,
@@ -274,9 +313,10 @@ impl GraphPanel {
             ),
             HistoryColumn::Sha => (&mut self.hash_col_width, HASH_COL_MIN, HASH_COL_MAX),
             HistoryColumn::Time => (&mut self.time_col_width, TIME_COL_MIN, TIME_COL_MAX),
+            HistoryColumn::Author => (&mut self.author_col_width, AUTHOR_COL_MIN, AUTHOR_COL_MAX),
         };
         let signed_delta = match active_resize.column {
-            HistoryColumn::Time => -delta,
+            HistoryColumn::Time | HistoryColumn::Author => -delta,
             HistoryColumn::Graph | HistoryColumn::Sha => delta,
         };
         let next_width = (active_resize.start_width + signed_delta).clamp(min, max);
@@ -301,6 +341,10 @@ impl GraphPanel {
         &self,
         colors: &AppColors,
         show_checkpoint_refs: bool,
+        show_graph_col: bool,
+        show_sha_col: bool,
+        show_time_col: bool,
+        show_author_col: bool,
         entity: WeakEntity<super::app::GitForgeApp>,
     ) -> Div {
         let bg = rgba_to_hsla(colors.background);
@@ -349,16 +393,38 @@ impl GraphPanel {
                     .child(filter_label.to_string()),
             );
 
-        let graph_col_width = self.graph_col_width;
-        let hash_col_width = self.hash_col_width;
-        let time_col_width = self.time_col_width;
+        let graph_col_width = if show_graph_col {
+            self.graph_col_width
+        } else {
+            0.0
+        };
+        let hash_col_width = if show_sha_col {
+            self.hash_col_width
+        } else {
+            0.0
+        };
+        let time_col_width = if show_time_col {
+            self.time_col_width
+        } else {
+            0.0
+        };
+        let author_col_width = if show_author_col {
+            self.author_col_width
+        } else {
+            0.0
+        };
         let resize_events = render_resize_event_listener(entity.clone());
         let column_headers = render_column_headers(
             border,
             muted,
             entity.clone(),
+            show_graph_col,
             graph_col_width,
+            show_sha_col,
             hash_col_width,
+            show_author_col,
+            author_col_width,
+            show_time_col,
             time_col_width,
         );
 
@@ -378,17 +444,17 @@ impl GraphPanel {
         }
 
         let total_items = self.commits.len() + if self.has_uncommitted { 1 } else { 0 };
-        let commits = self.commits.clone();
-        let references = self.references.clone();
-        let graph = self.graph.clone();
+        let commits = Arc::clone(&self.commits);
+        let row_render_data = Arc::clone(&self.row_render_data);
+        let refs_by_commit = Arc::clone(&self.refs_by_commit);
+        let graph = Arc::clone(&self.graph);
         let selection = self.selection;
         let has_uncommitted = self.has_uncommitted;
         let cl = colors.clone();
-        let cl_canvas = cl.clone();
         let scroll_handle = self.scroll_handle.clone();
         let list_entity = entity.clone();
 
-        let list = uniform_list(
+        let mut list = uniform_list(
             "commit-list",
             total_items,
             move |visible_range: Range<usize>, _window: &mut Window, _cx: &mut App| {
@@ -404,7 +470,7 @@ impl GraphPanel {
                             rgba_to_hsla(cl_for_row.background)
                         };
                         let wip_entity = list_entity.clone();
-                        let row = div()
+                        let mut row = div()
                             .id("uncommitted-row")
                             .px_0()
                             .py_0()
@@ -419,7 +485,7 @@ impl GraphPanel {
                             .flex()
                             .flex_row()
                             .items_center()
-                            .h(px(ROW_HEIGHT))
+                            .h(graph_row_height())
                             .cursor_pointer()
                             .on_click(move |_ev, _window, cx| {
                                 if let Some(e) = wip_entity.upgrade() {
@@ -427,22 +493,36 @@ impl GraphPanel {
                                         this.select_uncommitted(cx);
                                     });
                                 }
-                            })
-                            .child(graph_spacer(graph_col_width))
-                            .child(resize_spacer())
-                            .child(div().w(px(hash_col_width)).flex_shrink_0())
-                            .child(resize_spacer())
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .pl_2()
-                                    .text_xs()
-                                    .font_weight(FontWeight::BOLD)
-                                    .text_color(rgba_to_hsla(cl_for_row.warning))
-                                    .child("Uncommitted Changes"),
-                            )
-                            .child(resize_spacer())
-                            .child(div().w(px(time_col_width)).flex_shrink_0());
+                            });
+                        if show_graph_col {
+                            row = row
+                                .child(graph_spacer(graph_col_width))
+                                .child(resize_spacer());
+                        }
+                        if show_sha_col {
+                            row = row
+                                .child(div().w(px(hash_col_width)).flex_shrink_0())
+                                .child(resize_spacer());
+                        }
+                        row = row.child(
+                            div()
+                                .flex_1()
+                                .pl_2()
+                                .text_xs()
+                                .font_weight(FontWeight::BOLD)
+                                .text_color(rgba_to_hsla(cl_for_row.warning))
+                                .child("Uncommitted Changes"),
+                        );
+                        if show_author_col {
+                            row = row
+                                .child(resize_spacer())
+                                .child(div().w(px(author_col_width)).flex_shrink_0());
+                        }
+                        if show_time_col {
+                            row = row
+                                .child(resize_spacer())
+                                .child(div().w(px(time_col_width)).flex_shrink_0());
+                        }
 
                         rows.push(row.into_any_element());
                         continue;
@@ -450,6 +530,7 @@ impl GraphPanel {
 
                     let commit_idx = if has_uncommitted { item_i - 1 } else { item_i };
                     let commit = &commits[commit_idx];
+                    let row_data = &row_render_data[commit_idx];
                     let is_selected = selection == GraphSelection::Commit(commit_idx);
                     let row_bg = if is_selected {
                         rgba_to_hsla(cl.sidebar_selected)
@@ -457,21 +538,17 @@ impl GraphPanel {
                         rgba_to_hsla(cl.background)
                     };
 
-                    let refs_for_commit: Vec<&RefInfo> = references
-                        .iter()
-                        .filter(|r| {
-                            r.target_commit_id == commit.id || r.target_commit_id == commit.short_id
-                        })
-                        .collect();
+                    let refs_for_commit = refs_by_commit.get(&commit.id);
 
-                    let summary = commit.summary.clone();
-                    let short_id = commit.short_id.clone();
+                    let summary = row_data.summary.clone();
+                    let short_id = row_data.short_id.clone();
+                    let author_name = row_data.author_name.clone();
+                    let time_label = row_data.relative_time.clone();
 
                     let click_entity = list_entity.clone();
-                    let ref_pills = render_ref_pills(&refs_for_commit, &cl);
-                    let time_label = format_relative_time(&commit.author_date);
+                    let ref_pills = render_ref_pills(refs_for_commit, &cl);
 
-                    let row = div()
+                    let mut row = div()
                         .id(ElementId::Name(format!("commit-row-{commit_idx}").into()))
                         .px_0()
                         .py_0()
@@ -486,7 +563,7 @@ impl GraphPanel {
                         .flex()
                         .flex_row()
                         .items_center()
-                        .h(px(ROW_HEIGHT))
+                        .h(graph_row_height())
                         .cursor_pointer()
                         .on_click(move |_ev, _window, cx| {
                             if let Some(e) = click_entity.upgrade() {
@@ -494,44 +571,62 @@ impl GraphPanel {
                                     this.select_commit(commit_idx, cx);
                                 });
                             }
-                        })
-                        .child(graph_spacer(graph_col_width))
-                        .child(resize_spacer())
-                        .child(
+                        });
+                    if show_graph_col {
+                        row = row
+                            .child(graph_spacer(graph_col_width))
+                            .child(resize_spacer());
+                    }
+                    if show_sha_col {
+                        row = row
+                            .child(
+                                div()
+                                    .w(px(hash_col_width))
+                                    .flex_shrink_0()
+                                    .pl_2()
+                                    .text_xs()
+                                    .font_family("monospace")
+                                    .text_color(rgba_to_hsla(cl.accent))
+                                    .child(short_id),
+                            )
+                            .child(resize_spacer());
+                    }
+                    row = row.child(
+                        div()
+                            .flex_1()
+                            .min_w(px(0.0))
+                            .text_sm()
+                            .pl_1()
+                            .pr_2()
+                            .text_color(rgba_to_hsla(cl.text))
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap_1()
+                            .overflow_hidden()
+                            .child(ref_pills)
+                            .child(
+                                div()
+                                    .min_w(px(0.0))
+                                    .overflow_hidden()
+                                    .text_ellipsis()
+                                    .child(summary),
+                            ),
+                    );
+                    if show_author_col {
+                        row = row.child(resize_spacer()).child(
                             div()
-                                .w(px(hash_col_width))
+                                .w(px(author_col_width))
                                 .flex_shrink_0()
-                                .pl_2()
                                 .text_xs()
-                                .font_family("monospace")
-                                .text_color(rgba_to_hsla(cl.accent))
-                                .child(short_id),
-                        )
-                        .child(resize_spacer())
-                        .child(
-                            div()
-                                .flex_1()
-                                .min_w(px(0.0))
-                                .text_sm()
-                                .pl_1()
-                                .pr_2()
-                                .text_color(rgba_to_hsla(cl.text))
-                                .flex()
-                                .flex_row()
-                                .items_center()
-                                .gap_1()
+                                .text_color(rgba_to_hsla(cl.text_muted))
                                 .overflow_hidden()
-                                .child(ref_pills)
-                                .child(
-                                    div()
-                                        .min_w(px(0.0))
-                                        .overflow_hidden()
-                                        .text_ellipsis()
-                                        .child(summary),
-                                ),
-                        )
-                        .child(resize_spacer())
-                        .child(
+                                .text_ellipsis()
+                                .child(author_name),
+                        );
+                    }
+                    if show_time_col {
+                        row = row.child(resize_spacer()).child(
                             div()
                                 .w(px(time_col_width))
                                 .flex_shrink_0()
@@ -541,6 +636,7 @@ impl GraphPanel {
                                 .text_align(TextAlign::Right)
                                 .child(time_label),
                         );
+                    }
 
                     rows.push(row.into_any_element());
                 }
@@ -551,51 +647,87 @@ impl GraphPanel {
         .h_full()
         .track_scroll(scroll_handle.clone());
 
-        let graph_canvas = canvas(
+        if show_graph_col {
+            list = list.with_decoration(CommitGraphDecoration {
+                graph,
+                graph_col_width,
+                has_uncommitted,
+                colors: colors.clone(),
+            });
+        }
+
+        let content_area = div()
+            .flex_1()
+            .h_full()
+            .overflow_hidden()
+            .relative()
+            .child(list);
+
+        history_panel_shell(bg, border)
+            .child(header)
+            .child(column_headers)
+            .child(content_area)
+            .child(resize_events)
+    }
+}
+
+impl UniformListDecoration for CommitGraphDecoration {
+    fn compute(
+        &self,
+        visible_range: Range<usize>,
+        _bounds: Bounds<Pixels>,
+        _scroll_offset: Point<Pixels>,
+        item_height: Pixels,
+        item_count: usize,
+        _window: &mut Window,
+        _cx: &mut App,
+    ) -> AnyElement {
+        let graph = Arc::clone(&self.graph);
+        let has_uncommitted = self.has_uncommitted;
+        let colors = self.colors.clone();
+        let content_height = item_height * item_count;
+
+        canvas(
             move |_bounds, _w, _cx| {},
             move |bounds: Bounds<Pixels>, _: (), window: &mut Window, _cx: &mut App| {
                 paint_graph_overlay(
                     bounds,
                     &graph,
                     has_uncommitted,
-                    total_items,
-                    selection,
-                    &scroll_handle,
-                    &cl_canvas,
+                    visible_range.clone(),
+                    item_height,
+                    &colors,
                     window,
                 );
             },
         )
-        .w(px(graph_col_width))
-        .h_full();
-
-        history_panel_shell(bg, border)
-            .child(header)
-            .child(column_headers)
-            .child(
-                div()
-                    .flex_1()
-                    .h_full()
-                    .overflow_hidden()
-                    .relative()
-                    .child(list)
-                    .child(
-                        div()
-                            .absolute()
-                            .left(px(0.0))
-                            .top(px(0.0))
-                            .w(px(graph_col_width))
-                            .h_full()
-                            .overflow_hidden()
-                            .child(graph_canvas),
-                    ),
-            )
-            .child(resize_events)
+        .w(px(self.graph_col_width))
+        .h(content_height)
+        .into_any_element()
     }
 }
 
 fn graph_spacer(width: f32) -> Div {
-    div().w(px(width)).h(px(ROW_HEIGHT)).flex_shrink_0()
+    div().w(px(width)).h(graph_row_height()).flex_shrink_0()
+}
+
+fn graph_row_height() -> Pixels {
+    px(ROW_HEIGHT)
+}
+
+fn build_refs_by_commit(references: &[RefInfo]) -> HashMap<String, Arc<[RefInfo]>> {
+    let mut grouped: HashMap<String, Vec<RefInfo>> = HashMap::new();
+    for rf in references {
+        grouped
+            .entry(rf.target_commit_id.clone())
+            .or_default()
+            .push(rf.clone());
+    }
+
+    grouped
+        .into_iter()
+        .map(|(commit_id, refs)| (commit_id, Arc::from(refs)))
+        .collect()
 }
 
 fn resize_spacer() -> Div {
@@ -633,15 +765,8 @@ fn lane_center_x(bounds: Bounds<Pixels>, lane: f32) -> Pixels {
     bounds.origin.x + px(LEFT_PADDING) + px(lane * LANE_WIDTH) + px(LANE_WIDTH / 2.0)
 }
 
-fn list_row_center_y(
-    list_row: usize,
-    first_visible_list_row: usize,
-    row_height: Pixels,
-    vertical_scroll_offset: Pixels,
-    bounds: Bounds<Pixels>,
-) -> Pixels {
-    let relative = list_row as f32 - first_visible_list_row as f32;
-    bounds.origin.y + relative as f32 * row_height + row_height / 2.0 - vertical_scroll_offset
+fn list_row_center_y(list_row: usize, row_height: Pixels, bounds: Bounds<Pixels>) -> Pixels {
+    bounds.origin.y + list_row as f32 * row_height + row_height / 2.0
 }
 
 fn graph_row_to_list_row(graph_row: usize, uncommitted_offset: usize) -> usize {
@@ -652,68 +777,38 @@ fn paint_graph_overlay(
     bounds: Bounds<Pixels>,
     graph: &Graph,
     has_uncommitted: bool,
-    total_list_items: usize,
-    _selection: GraphSelection,
-    scroll_handle: &UniformListScrollHandle,
+    visible_list_rows: Range<usize>,
+    row_height: Pixels,
     colors: &AppColors,
     window: &mut Window,
 ) {
-    if bounds.size.height <= px(0.) {
+    if bounds.size.height <= px(0.) || visible_list_rows.start >= visible_list_rows.end {
         return;
     }
 
-    let row_height = px(ROW_HEIGHT);
     let uncommitted_offset = usize::from(has_uncommitted);
-
-    let scroll_state = scroll_handle.0.borrow();
-    let viewport_height = scroll_state
-        .last_item_size
-        .map(|s| s.item.height)
-        .unwrap_or(bounds.size.height);
-    let content_height = row_height * total_list_items as f32;
-    let max_scroll = (content_height - viewport_height).max(px(0.));
-    let scroll_offset_y = (-scroll_state.base_handle.offset().y).clamp(px(0.), max_scroll);
-
-    let first_visible_list_row = (scroll_offset_y / row_height).floor() as usize;
-    let vertical_scroll_offset = scroll_offset_y - first_visible_list_row as f32 * row_height;
-    let visible_list_row_count = (viewport_height / row_height).ceil() as usize + 2;
-
-    let first_visible_graph_row = first_visible_list_row.saturating_sub(uncommitted_offset);
-    let last_visible_graph_row = first_visible_list_row
-        .saturating_add(visible_list_row_count)
-        .saturating_sub(uncommitted_offset);
+    let first_visible_graph_row = visible_list_rows.start.saturating_sub(uncommitted_offset);
+    let last_visible_graph_row_exclusive = visible_list_rows.end.saturating_sub(uncommitted_offset);
 
     // Commit dots for visible graph rows.
-    for (graph_row, node) in graph.nodes().iter().enumerate() {
+    let visible_node_start = first_visible_graph_row.min(graph.nodes().len());
+    let visible_node_end = last_visible_graph_row_exclusive.min(graph.nodes().len());
+    for (graph_row, node) in graph.nodes()[visible_node_start..visible_node_end]
+        .iter()
+        .enumerate()
+    {
+        let graph_row = visible_node_start + graph_row;
         let list_row = graph_row_to_list_row(graph_row, uncommitted_offset);
-        if list_row < first_visible_list_row
-            || list_row > first_visible_list_row + visible_list_row_count
-        {
-            continue;
-        }
-
         let x = lane_center_x(bounds, node.lane as f32);
-        let y = list_row_center_y(
-            list_row,
-            first_visible_list_row,
-            row_height,
-            vertical_scroll_offset,
-            bounds,
-        );
+        let y = list_row_center_y(list_row, row_height, bounds);
         let color = rgba_to_hsla(colors.graph_lane_color(node.lane));
         draw_commit_circle(x, y, color, node.is_merge, colors, window);
     }
 
     // Uncommitted changes indicator.
-    if has_uncommitted && first_visible_list_row == 0 {
+    if has_uncommitted && visible_list_rows.start == 0 {
         let x = lane_center_x(bounds, 0.0);
-        let y = list_row_center_y(
-            0,
-            first_visible_list_row,
-            row_height,
-            vertical_scroll_offset,
-            bounds,
-        );
+        let y = list_row_center_y(0, row_height, bounds);
         let r = px(COMMIT_CIRCLE_RADIUS);
         window.paint_quad(
             fill(
@@ -727,9 +822,15 @@ fn paint_graph_overlay(
     let desired_curve_height = row_height / 3.0;
     let desired_curve_width = px(LANE_WIDTH / 3.0);
 
-    for line in graph.lines() {
+    for line_idx in
+        graph.visible_line_indices(first_visible_graph_row..last_visible_graph_row_exclusive)
+    {
+        let Some(line) = graph.line_at(line_idx) else {
+            continue;
+        };
+
         if line.full_interval.end < first_visible_graph_row
-            || line.full_interval.start > last_visible_graph_row
+            || line.full_interval.start >= last_visible_graph_row_exclusive
         {
             continue;
         }
@@ -742,13 +843,8 @@ fn paint_graph_overlay(
 
         let line_x = lane_center_x(bounds, start_column as f32);
         let start_list_row = graph_row_to_list_row(line.full_interval.start, uncommitted_offset);
-        let from_y = list_row_center_y(
-            start_list_row,
-            first_visible_list_row,
-            row_height,
-            vertical_scroll_offset,
-            bounds,
-        ) + px(COMMIT_CIRCLE_RADIUS);
+        let from_y =
+            list_row_center_y(start_list_row, row_height, bounds) + px(COMMIT_CIRCLE_RADIUS);
 
         let mut current_row = from_y;
         let mut current_column = line_x;
@@ -764,13 +860,7 @@ fn paint_graph_overlay(
             match segment {
                 CommitLineSegment::Straight { to_row } => {
                     let list_row = graph_row_to_list_row(*to_row, uncommitted_offset);
-                    let mut dest_row = list_row_center_y(
-                        list_row,
-                        first_visible_list_row,
-                        row_height,
-                        vertical_scroll_offset,
-                        bounds,
-                    );
+                    let mut dest_row = list_row_center_y(list_row, row_height, bounds);
                     if is_last {
                         dest_row -= px(COMMIT_CIRCLE_RADIUS);
                     }
@@ -786,13 +876,7 @@ fn paint_graph_overlay(
                 } => {
                     let mut to_column_x = lane_center_x(bounds, *to_column as f32);
                     let list_row = graph_row_to_list_row(*on_row, uncommitted_offset);
-                    let mut to_row_y = list_row_center_y(
-                        list_row,
-                        first_visible_list_row,
-                        row_height,
-                        vertical_scroll_offset,
-                        bounds,
-                    );
+                    let mut to_row_y = list_row_center_y(list_row, row_height, bounds);
 
                     let going_right = to_column_x > current_column;
                     let column_shift = if going_right {
@@ -878,27 +962,16 @@ fn draw_commit_circle(
     window: &mut Window,
 ) {
     let radius = px(COMMIT_CIRCLE_RADIUS);
-    let mut builder = PathBuilder::fill();
-    builder.move_to(point(center_x + radius, center_y));
-    builder.arc_to(
-        point(radius, radius),
-        px(0.),
-        false,
-        true,
-        point(center_x - radius, center_y),
+    window.paint_quad(
+        fill(
+            Bounds::new(
+                point(center_x - radius, center_y - radius),
+                size(radius * 2.0, radius * 2.0),
+            ),
+            color,
+        )
+        .corner_radii(radius),
     );
-    builder.arc_to(
-        point(radius, radius),
-        px(0.),
-        false,
-        true,
-        point(center_x + radius, center_y),
-    );
-    builder.close();
-
-    if let Ok(path) = builder.build() {
-        window.paint_path(path, color);
-    }
 
     if is_merge {
         let inner_r = px(2.0);
@@ -975,11 +1048,16 @@ fn render_column_headers(
     border: Hsla,
     muted: Hsla,
     entity: WeakEntity<super::app::GitForgeApp>,
+    show_graph_col: bool,
     graph_col_width: f32,
+    show_sha_col: bool,
     hash_col_width: f32,
+    show_author_col: bool,
+    author_col_width: f32,
+    show_time_col: bool,
     time_col_width: f32,
 ) -> Div {
-    div()
+    let mut headers = div()
         .px_2()
         .py_1()
         .border_b_1()
@@ -988,41 +1066,69 @@ fn render_column_headers(
         .flex_row()
         .items_center()
         .text_xs()
-        .text_color(muted)
-        .child(
-            div()
-                .w(px(graph_col_width))
-                .flex_shrink_0()
-                .text_align(TextAlign::Center)
-                .child("GRAPH"),
-        )
-        .child(render_resize_handle(
-            HistoryColumn::Graph,
+        .text_color(muted);
+
+    if show_graph_col {
+        headers = headers
+            .child(
+                div()
+                    .w(px(graph_col_width))
+                    .flex_shrink_0()
+                    .text_align(TextAlign::Center)
+                    .child("GRAPH"),
+            )
+            .child(render_resize_handle(
+                HistoryColumn::Graph,
+                entity.clone(),
+                border,
+            ));
+    }
+    if show_sha_col {
+        headers = headers
+            .child(
+                div()
+                    .w(px(hash_col_width))
+                    .flex_shrink_0()
+                    .pl_2()
+                    .child("SHA"),
+            )
+            .child(render_resize_handle(
+                HistoryColumn::Sha,
+                entity.clone(),
+                border,
+            ));
+    }
+    headers = headers.child(div().flex_1().pl_1().child("DESCRIPTION"));
+    if show_author_col {
+        headers = headers
+            .child(render_resize_handle(
+                HistoryColumn::Author,
+                entity.clone(),
+                border,
+            ))
+            .child(
+                div()
+                    .w(px(author_col_width))
+                    .flex_shrink_0()
+                    .child("AUTHOR"),
+            );
+    }
+    if show_time_col {
+        headers = headers.child(render_resize_handle(
+            HistoryColumn::Time,
             entity.clone(),
             border,
-        ))
-        .child(
-            div()
-                .w(px(hash_col_width))
-                .flex_shrink_0()
-                .pl_2()
-                .child("SHA"),
-        )
-        .child(render_resize_handle(
-            HistoryColumn::Sha,
-            entity.clone(),
-            border,
-        ))
-        .child(div().flex_1().pl_1().child("DESCRIPTION"))
-        .child(render_resize_handle(HistoryColumn::Time, entity, border))
-        .child(
+        ));
+        headers = headers.child(
             div()
                 .w(px(time_col_width))
                 .flex_shrink_0()
                 .pr_2()
                 .text_align(TextAlign::Right)
                 .child("TIME"),
-        )
+        );
+    }
+    headers
 }
 
 fn render_resize_handle(
@@ -1051,13 +1157,17 @@ fn render_resize_handle(
         })
 }
 
-fn render_ref_pills(refs: &[&RefInfo], cl: &AppColors) -> Div {
+fn render_ref_pills(refs: Option<&Arc<[RefInfo]>>, cl: &AppColors) -> Div {
     let mut row = div()
         .flex()
         .flex_row()
         .items_center()
         .gap_1()
         .overflow_hidden();
+
+    let Some(refs) = refs else {
+        return row;
+    };
 
     for rf in refs.iter().take(VISIBLE_REF_PILLS) {
         row = row.child(render_ref_pill(rf, cl));

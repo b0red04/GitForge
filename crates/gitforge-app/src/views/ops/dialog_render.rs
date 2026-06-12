@@ -26,6 +26,7 @@ pub(crate) fn render_dialog_overlay(
     let title = match dialog {
         AppDialog::CreateBranch { .. } => "Create Branch",
         AppDialog::RenameBranch { .. } => "Rename Branch",
+        AppDialog::DeleteBranch { .. } => "Delete Branch",
         AppDialog::CreateTag { .. } => "Create Tag",
         AppDialog::StashPush => "Stash Changes",
         AppDialog::Push { .. } => "Push",
@@ -48,6 +49,9 @@ pub(crate) fn render_dialog_overlay(
     let placeholder = match dialog {
         AppDialog::CreateBranch { .. } => "Branch name",
         AppDialog::RenameBranch { .. } => "New branch name",
+        AppDialog::DeleteBranch { name, force } => {
+            return render_delete_branch_overlay(name, *force, colors, entity, input_focus);
+        }
         AppDialog::CreateTag { .. } => "Tag name",
         AppDialog::StashPush => "Stash message (optional)",
         AppDialog::Push { .. } => "Branch name (empty = current)",
@@ -539,6 +543,139 @@ fn render_fork_confirm_overlay(
                                                 .map(|a| a.provider.clone())
                                                 .unwrap_or_default();
                                             this.fork_repo(o, r, provider, cx);
+                                        });
+                                    }
+                                }),
+                        ),
+                ),
+        )
+}
+
+fn render_delete_branch_overlay(
+    name: &str,
+    force: bool,
+    colors: &AppColors,
+    entity: WeakEntity<GitForgeApp>,
+    input_focus: &FocusHandle,
+) -> Stateful<Div> {
+    let overlay_bg = rgba_to_hsla(colors.background).opacity(0.7);
+    let surface = rgba_to_hsla(colors.surface);
+    let border = rgba_to_hsla(colors.border);
+    let text_color = rgba_to_hsla(colors.text);
+    let muted = rgba_to_hsla(colors.text_muted);
+    let warning = rgba_to_hsla(colors.warning);
+
+    let ent_cancel = entity.clone();
+    let ent_confirm = entity.clone();
+    let branch_name = name.to_string();
+    let fh = input_focus.clone();
+    let ent_key_cancel = entity.clone();
+    let ent_key_confirm = entity.clone();
+    let branch_name_key = name.to_string();
+
+    div()
+        .id("dialog-overlay")
+        .absolute()
+        .top_0()
+        .left_0()
+        .size_full()
+        .bg(overlay_bg)
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(
+            div()
+                .id("dialog-box")
+                .track_focus(&fh)
+                .w(px(380.0))
+                .bg(surface)
+                .border_1()
+                .border_color(border)
+                .rounded(px(6.0))
+                .p_4()
+                .flex()
+                .flex_col()
+                .gap_3()
+                .on_click(move |_ev, window, _cx| {
+                    window.focus(&fh);
+                })
+                .on_key_down(move |ev: &KeyDownEvent, _window, cx| {
+                    match ev.keystroke.key.as_str() {
+                        "escape" => {
+                            if let Some(e) = ent_key_cancel.upgrade() {
+                                e.update(cx, |this, cx| {
+                                    this.cancel_dialog(cx);
+                                });
+                            }
+                        }
+                        "enter" => {
+                            if let Some(e) = ent_key_confirm.upgrade() {
+                                let name = branch_name_key.clone();
+                                e.update(cx, |this, cx| {
+                                    this.active_dialog = AppDialog::None;
+                                    this.delete_branch(name, force, cx);
+                                });
+                            }
+                        }
+                        _ => {}
+                    }
+                })
+                .child(
+                    div()
+                        .text_sm()
+                        .font_weight(FontWeight::BOLD)
+                        .text_color(text_color)
+                        .child("Delete Branch"),
+                )
+                .child(
+                    div()
+                        .text_sm()
+                        .text_color(text_color)
+                        .child(format!("Delete branch '{}'? This cannot be undone.", name)),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .gap_2()
+                        .justify_end()
+                        .child(
+                            div()
+                                .id("delete-branch-cancel")
+                                .px_3()
+                                .py_1()
+                                .border_1()
+                                .border_color(border)
+                                .rounded(px(3.0))
+                                .cursor_pointer()
+                                .text_xs()
+                                .text_color(muted)
+                                .child("Cancel")
+                                .on_click(move |_ev, _window, cx| {
+                                    if let Some(e) = ent_cancel.upgrade() {
+                                        e.update(cx, |this, cx| {
+                                            this.cancel_dialog(cx);
+                                        });
+                                    }
+                                }),
+                        )
+                        .child(
+                            div()
+                                .id("delete-branch-confirm")
+                                .px_3()
+                                .py_1()
+                                .border_1()
+                                .border_color(warning)
+                                .rounded(px(3.0))
+                                .cursor_pointer()
+                                .text_xs()
+                                .text_color(warning)
+                                .child("Delete")
+                                .on_click(move |_ev, _window, cx| {
+                                    if let Some(e) = ent_confirm.upgrade() {
+                                        let name = branch_name.clone();
+                                        e.update(cx, |this, cx| {
+                                            this.active_dialog = AppDialog::None;
+                                            this.delete_branch(name, force, cx);
                                         });
                                     }
                                 }),

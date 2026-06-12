@@ -49,6 +49,21 @@ impl SidebarState {
     pub fn dismiss_context_menu(&mut self) {
         self.context_menu = ContextMenuAction::None;
     }
+
+    pub fn seed_expanded_remotes(&mut self, repo_state: &RepoState) {
+        if !self.expanded_remotes.is_empty() {
+            return;
+        }
+        for rf in &repo_state.references {
+            if rf.kind == RefKind::RemoteBranch {
+                let remote = rf
+                    .remote_name
+                    .clone()
+                    .unwrap_or_else(|| "origin".to_string());
+                self.expanded_remotes.insert(remote);
+            }
+        }
+    }
 }
 
 pub fn render_sidebar(
@@ -244,18 +259,6 @@ pub fn render_sidebar(
                         .p_2()
                         .child(div().text_xs().text_color(muted).child("No matches")),
                 );
-            }
-
-            if state.context_menu != ContextMenuAction::None {
-                let menu_entity = entity.clone();
-                let menu_colors = colors.clone();
-                let menu_action = state.context_menu.clone();
-                sidebar = sidebar.child(render_context_menu_overlay(
-                    &menu_action,
-                    state.context_menu_pos,
-                    &menu_colors,
-                    menu_entity,
-                ));
             }
         }
         None => {
@@ -643,6 +646,7 @@ fn render_ref_item(
                             cx.notify();
                         });
                     }
+                    cx.stop_propagation();
                 }
             },
         )
@@ -781,7 +785,7 @@ fn render_ref_item(
                             if let Some(e) = ent_delete.upgrade() {
                                 let name = name_for_delete.clone();
                                 e.update(cx, |this, cx| {
-                                    this.delete_branch(name, false, cx);
+                                    this.open_delete_branch_dialog(name, false, cx);
                                 });
                             }
                         }),
@@ -911,7 +915,7 @@ fn render_create_branch_button(
         .child(div().text_xs().text_color(muted).child("New Branch"))
 }
 
-fn render_context_menu_overlay(
+pub(super) fn render_context_menu_overlay(
     action: &ContextMenuAction,
     pos: (f32, f32),
     colors: &AppColors,
@@ -958,7 +962,14 @@ fn render_context_menu_overlay(
         .border_color(border)
         .rounded(px(4.0))
         .min_w(px(160.0))
+        .on_mouse_down(MouseButton::Left, |_ev, _window, cx| {
+            cx.stop_propagation();
+        })
+        .on_mouse_down(MouseButton::Right, |_ev, _window, cx| {
+            cx.stop_propagation();
+        })
         .on_click(move |_ev, _window, cx| {
+            cx.stop_propagation();
             if let Some(e) = dismiss_ent.upgrade() {
                 e.update(cx, |this, cx| {
                     this.repo_session.sidebar_state.dismiss_context_menu();
@@ -992,7 +1003,7 @@ fn render_context_menu_overlay(
                                     this.checkout_branch(n.clone(), cx)
                                 }
                                 ContextMenuAction::DeleteBranch(n) => {
-                                    this.delete_branch(n.clone(), false, cx)
+                                    this.open_delete_branch_dialog(n.clone(), false, cx)
                                 }
                                 ContextMenuAction::RenameBranch(n) => {
                                     this.open_rename_branch_dialog(n.clone(), cx)

@@ -86,9 +86,7 @@ impl Repository {
             .args(args)
             .current_dir(&self.path)
             .output()
-            .map_err(|e| {
-                GitError::OperationFailed(format!("Failed to run git {}: {}", label, e))
-            })
+            .map_err(|e| GitError::OperationFailed(format!("Failed to run git {}: {}", label, e)))
     }
 
     pub(crate) fn run_git_with_combined_error(&self, args: &[&str]) -> GitResult<String> {

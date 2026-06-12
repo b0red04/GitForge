@@ -11,6 +11,7 @@ use crate::views::app::{
 };
 use crate::views::commands::{CommandAction, TitlebarMenu};
 use crate::views::settings_window::SettingsSection;
+use crate::views::sidebar::ContextMenuAction;
 
 impl GitForgeApp {
     pub fn toggle_toolbar_more(&mut self, cx: &mut Context<Self>) {
@@ -42,12 +43,14 @@ impl GitForgeApp {
         let changed = self.toolbar_more_open
             || self.local_branch_dropdown_open
             || self.titlebar_menus_visible
-            || self.active_titlebar_menu.is_some();
+            || self.active_titlebar_menu.is_some()
+            || self.repo_session.sidebar_state.context_menu != ContextMenuAction::None;
 
         self.toolbar_more_open = false;
         self.local_branch_dropdown_open = false;
         self.titlebar_menus_visible = false;
         self.active_titlebar_menu = None;
+        self.repo_session.sidebar_state.dismiss_context_menu();
 
         if changed {
             cx.notify();

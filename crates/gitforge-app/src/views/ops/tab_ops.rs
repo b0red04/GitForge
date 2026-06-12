@@ -126,6 +126,7 @@ impl GitForgeApp {
         self.save_settings();
         cx.notify();
         self.start_loading_repo_tab(id, cx);
+        self.restart_periodic_fetch(cx);
     }
 
     pub(crate) fn start_loading_repo_tab(&mut self, tab_id: u64, cx: &mut Context<Self>) {
@@ -204,6 +205,9 @@ impl GitForgeApp {
                 }
 
                 if is_active {
+                    self.repo_session
+                        .sidebar_state
+                        .seed_expanded_remotes(&repo_state);
                     self.repo_session.apply_active_repo_tab_to_view();
                 }
                 self.record_recent_repo(&repo_state.path);
@@ -227,6 +231,8 @@ impl GitForgeApp {
                 }
             }
         }
+        self.notify_settings_window(cx);
+        self.restart_periodic_fetch(cx);
         cx.notify();
     }
 
@@ -238,9 +244,21 @@ impl GitForgeApp {
         self.repo_session.active_repo_tab_id = Some(tab_id);
         self.repo_session.apply_active_repo_tab_to_view();
         self.repo_session.restore_snapshot_from_tab();
+        {
+            let repo_state = self
+                .repo_session
+                .active_tab()
+                .and_then(|tab| tab.repo_state.clone());
+            if let Some(ref repo_state) = repo_state {
+                self.repo_session
+                    .sidebar_state
+                    .seed_expanded_remotes(repo_state);
+            }
+        }
 
         self.save_settings();
         cx.notify();
+        self.restart_periodic_fetch(cx);
     }
 
     pub fn close_repo_tab(&mut self, tab_id: u64, cx: &mut Context<Self>) {
@@ -276,6 +294,7 @@ impl GitForgeApp {
 
         self.save_settings();
         cx.notify();
+        self.restart_periodic_fetch(cx);
     }
 
     pub(crate) fn push_closed_tab(&mut self, path: PathBuf) {
@@ -321,6 +340,11 @@ impl GitForgeApp {
     }
 
     pub fn settings_repo_data(&self) -> SettingsRepoData {
+        let active_path = self.repo_session.active_tab().map(|tab| tab.path.clone());
+        let active_settings = active_path
+            .as_ref()
+            .map(|path| self.settings.repo_settings_for_path(path))
+            .unwrap_or_default();
         SettingsRepoData {
             open_tabs: self
                 .repo_session
@@ -328,6 +352,8 @@ impl GitForgeApp {
                 .iter()
                 .map(|tab| (tab.id, tab.path.clone()))
                 .collect(),
+            active_path,
+            active_settings,
             recent_paths: self.settings.recent_repo_paths.clone(),
             closed_paths: self.repo_session.closed_repo_tabs.clone(),
         }

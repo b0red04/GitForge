@@ -1,4 +1,6 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::path::Path;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -21,10 +23,44 @@ pub struct AppSettings {
     pub show_checkpoint_refs: bool,
     #[serde(default = "default_commit_limit")]
     pub commit_limit: usize,
+    #[serde(default = "default_true")]
+    pub graph_show_graph_column: bool,
+    #[serde(default = "default_true")]
+    pub graph_show_sha_column: bool,
+    #[serde(default = "default_true")]
+    pub graph_show_time_column: bool,
+    #[serde(default = "default_true")]
+    pub graph_show_author_column: bool,
     #[serde(default)]
     pub tools: ToolSettings,
     #[serde(default)]
     pub custom_commands: Vec<CustomCommand>,
+    #[serde(default)]
+    pub repo_settings: HashMap<String, RepoBehaviorSettings>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RepoBehaviorSettings {
+    #[serde(default)]
+    pub periodic_fetch_enabled: bool,
+    #[serde(default = "default_fetch_interval_minutes")]
+    pub fetch_interval_minutes: u64,
+    #[serde(default)]
+    pub auto_push_on_commit: bool,
+}
+
+fn default_fetch_interval_minutes() -> u64 {
+    15
+}
+
+impl Default for RepoBehaviorSettings {
+    fn default() -> Self {
+        Self {
+            periodic_fetch_enabled: false,
+            fetch_interval_minutes: default_fetch_interval_minutes(),
+            auto_push_on_commit: false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -83,6 +119,10 @@ fn default_zai_endpoint() -> String {
 
 fn default_commit_limit() -> usize {
     1000
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -184,8 +224,13 @@ impl Default for AppSettings {
             ai: AiSettings::default(),
             show_checkpoint_refs: false,
             commit_limit: default_commit_limit(),
+            graph_show_graph_column: true,
+            graph_show_sha_column: true,
+            graph_show_time_column: true,
+            graph_show_author_column: true,
             tools: ToolSettings::default(),
             custom_commands: Vec::new(),
+            repo_settings: HashMap::new(),
         }
     }
 }
@@ -228,5 +273,24 @@ impl AppSettings {
         if let Ok(content) = serde_json::to_string_pretty(self) {
             let _ = std::fs::write(path, content);
         }
+    }
+
+    pub fn repo_settings_key(path: &Path) -> String {
+        std::fs::canonicalize(path)
+            .unwrap_or_else(|_| path.to_path_buf())
+            .to_string_lossy()
+            .to_string()
+    }
+
+    pub fn repo_settings_for_path(&self, path: &Path) -> RepoBehaviorSettings {
+        self.repo_settings
+            .get(&Self::repo_settings_key(path))
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    pub fn repo_settings_for_path_mut(&mut self, path: &Path) -> &mut RepoBehaviorSettings {
+        let key = Self::repo_settings_key(path);
+        self.repo_settings.entry(key).or_default()
     }
 }
