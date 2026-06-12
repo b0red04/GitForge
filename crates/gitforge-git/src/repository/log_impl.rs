@@ -90,10 +90,6 @@ impl Repository {
             commits.push(self.commit_info_from_gix(&commit)?);
         }
 
-        tracing::info!(
-            "[DIAG] commit_log_with_options({options:?}) returned {} commits",
-            commits.len()
-        );
         Ok(commits)
     }
 

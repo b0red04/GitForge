@@ -3,6 +3,8 @@ use crate::types::*;
 use std::collections::HashMap;
 use std::ops::Range;
 
+const VISIBLE_LINE_TILE_ROWS: usize = 64;
+
 #[derive(Debug, Clone)]
 pub struct Graph {
     nodes: Vec<GraphNode>,
@@ -10,7 +12,7 @@ pub struct Graph {
     rows: Vec<GraphRow>,
     commit_to_row: HashMap<CommitId, usize>,
     total_lanes: usize,
-    visible_lines_by_row: Vec<Vec<usize>>,
+    visible_line_tiles: Vec<Vec<usize>>,
 }
 
 impl Graph {
@@ -21,7 +23,7 @@ impl Graph {
             rows: Vec::new(),
             commit_to_row: HashMap::new(),
             total_lanes: 0,
-            visible_lines_by_row: Vec::new(),
+            visible_line_tiles: Vec::new(),
         }
     }
 
@@ -47,13 +49,15 @@ impl Graph {
     }
 
     fn rebuild_visible_line_index(&mut self) {
-        self.visible_lines_by_row = vec![Vec::new(); self.nodes.len()];
+        let num_rows = self.nodes.len();
+        let tile_count = num_rows.div_ceil(VISIBLE_LINE_TILE_ROWS);
+        self.visible_line_tiles = vec![Vec::new(); tile_count];
 
-        if self.visible_lines_by_row.is_empty() {
+        if num_rows == 0 {
             return;
         }
 
-        let max_row = self.visible_lines_by_row.len() - 1;
+        let max_row = num_rows - 1;
         for (line_idx, line) in self.lines.iter().enumerate() {
             let start = line.full_interval.start.min(max_row);
             let end = line.full_interval.end.min(max_row);
@@ -61,8 +65,10 @@ impl Graph {
                 continue;
             }
 
-            for row in start..=end {
-                self.visible_lines_by_row[row].push(line_idx);
+            let start_tile = start / VISIBLE_LINE_TILE_ROWS;
+            let end_tile = end / VISIBLE_LINE_TILE_ROWS;
+            for tile in start_tile..=end_tile {
+                self.visible_line_tiles[tile].push(line_idx);
             }
         }
     }
@@ -80,22 +86,28 @@ impl Graph {
     }
 
     pub fn visible_line_indices(&self, rows: Range<usize>) -> Vec<usize> {
-        if rows.start >= rows.end || self.visible_lines_by_row.is_empty() {
+        if rows.start >= rows.end || self.visible_line_tiles.is_empty() {
             return Vec::new();
         }
 
-        let start = rows.start.min(self.visible_lines_by_row.len());
-        let end = rows.end.min(self.visible_lines_by_row.len());
+        let start = rows.start.min(self.nodes.len());
+        let end = rows.end.min(self.nodes.len());
         if start >= end {
             return Vec::new();
         }
 
         let mut line_indices = Vec::new();
-        for row_lines in &self.visible_lines_by_row[start..end] {
-            line_indices.extend(row_lines.iter().copied());
+        let start_tile = start / VISIBLE_LINE_TILE_ROWS;
+        let end_tile = (end - 1) / VISIBLE_LINE_TILE_ROWS;
+        for tile_lines in &self.visible_line_tiles[start_tile..=end_tile] {
+            line_indices.extend(tile_lines.iter().copied());
         }
         line_indices.sort_unstable();
         line_indices.dedup();
+        line_indices.retain(|idx| {
+            let line = &self.lines[*idx];
+            line.full_interval.start < end && line.full_interval.end >= start
+        });
         line_indices
     }
 
@@ -144,6 +156,90 @@ mod tests {
 
     fn entry(id: &str, parents: &[&str]) -> CommitEntry {
         CommitEntry::new(cid(id), parents.iter().map(|s| cid(s)).collect())
+    }
+
+    fn linear_entries(count: usize) -> Vec<CommitEntry> {
+        (0..count)
+            .map(|idx| {
+                let id = format!("c{idx}");
+                let parents = if idx + 1 < count {
+                    vec![format!("c{}", idx + 1)]
+                } else {
+                    Vec::new()
+                };
+                CommitEntry::new(id, parents)
+            })
+            .collect()
+    }
+
+    fn branchy_entries(count: usize) -> Vec<CommitEntry> {
+        let branch_interval = 10;
+        (0..count)
+            .map(|idx| {
+                let id = format!("c{idx}");
+                let parents = if idx % branch_interval == 0
+                    && idx + branch_interval < count
+                    && idx + 1 < count
+                {
+                    vec![
+                        format!("c{}", idx + 1),
+                        format!("c{}", idx + branch_interval),
+                    ]
+                } else if idx + 1 < count {
+                    vec![format!("c{}", idx + 1)]
+                } else {
+                    Vec::new()
+                };
+                CommitEntry::new(id, parents)
+            })
+            .collect()
+    }
+
+    fn merge_heavy_entries(count: usize) -> Vec<CommitEntry> {
+        (0..count)
+            .map(|idx| {
+                let id = format!("c{idx}");
+                let parents = if idx + 3 < count && idx % 3 == 0 {
+                    vec![format!("c{}", idx + 1), format!("c{}", idx + 3)]
+                } else if idx + 1 < count {
+                    vec![format!("c{}", idx + 1)]
+                } else {
+                    Vec::new()
+                };
+                CommitEntry::new(id, parents)
+            })
+            .collect()
+    }
+
+    fn naive_visible_line_indices(graph: &Graph, rows: Range<usize>) -> Vec<usize> {
+        if rows.start >= rows.end {
+            return Vec::new();
+        }
+
+        let start = rows.start.min(graph.len());
+        let end = rows.end.min(graph.len());
+        if start >= end {
+            return Vec::new();
+        }
+
+        graph
+            .lines()
+            .iter()
+            .enumerate()
+            .filter(|(_, line)| line.full_interval.start < end && line.full_interval.end >= start)
+            .map(|(idx, _)| idx)
+            .collect()
+    }
+
+    fn assert_visible_matches_naive(entries: Vec<CommitEntry>, ranges: &[Range<usize>]) {
+        let graph = Graph::build(&entries);
+        for rows in ranges {
+            assert_eq!(
+                graph.visible_line_indices(rows.clone()),
+                naive_visible_line_indices(&graph, rows.clone()),
+                "visible lines diverged for range {rows:?}",
+            );
+        }
     }
 
     #[test]
@@ -319,6 +415,38 @@ mod tests {
         assert!(
             g.visible_line_indices(usize::MAX - 1..usize::MAX)
                 .is_empty()
+        );
+    }
+
+    #[test]
+    fn visible_line_indices_matches_naive_for_linear_history() {
+        assert_visible_matches_naive(
+            linear_entries(150),
+            &[0..1, 1..3, 40..80, 63..65, 120..150, 149..190],
+        );
+    }
+
+    #[test]
+    fn visible_line_indices_matches_naive_for_branchy_history() {
+        assert_visible_matches_naive(
+            branchy_entries(150),
+            &[0..40, 32..96, 63..65, 64..128, 100..140],
+        );
+    }
+
+    #[test]
+    fn visible_line_indices_matches_naive_for_merge_heavy_history() {
+        assert_visible_matches_naive(
+            merge_heavy_entries(150),
+            &[0..40, 40..80, 63..65, 80..130, 128..150],
+        );
+    }
+
+    #[test]
+    fn visible_line_indices_matches_naive_for_out_of_bounds_ranges() {
+        assert_visible_matches_naive(
+            branchy_entries(90),
+            &[0..usize::MAX, usize::MAX - 1..usize::MAX, 90..120],
         );
     }
 }

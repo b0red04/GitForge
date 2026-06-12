@@ -40,7 +40,7 @@ Use these forms on `#[gpui::test(arguments)]`:
 - `iterations = N`: runs sequential seeds starting at `0` by default.
 - `retries = N`: retries a failing run up to `N` times before surfacing the failure.
 - `on_failure = "path::to::function"`: calls the function after final failure, before resuming the panic.
-- `iterations` can be combined with explicit `seed` / `seeds`; explicit seeds are appended to the `0..iterations` range.
+- You can combine `iterations` with explicit `seed` / `seeds`; the explicit seeds are appended to the `0..iterations` range.
 - If the `SEED` environment variable is set, it takes precedence over explicit seeds.
 - With `SEED=N` and `ITERATIONS=M` or `iterations = M`, the harness runs seeds `N..N+M`.
 
@@ -121,8 +121,8 @@ Prefer env vars over editing the test when narrowing a reproduction.
 
 8. Validate the fix.
    - Run the fixed seed.
-   - Run a modest seed sweep, e.g. `ITERATIONS=20`, if the failure was scheduler-sensitive.
-   - Run the relevant crate's test filter or broader suite if the touched code has shared behavior.
+   - Execute a modest seed sweep, e.g. `ITERATIONS=20`, if the failure was scheduler-sensitive.
+   - Apply the relevant crate's test filter or broader suite if the touched code has shared behavior.
 
 ## Common diagnosis patterns
 

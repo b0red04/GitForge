@@ -54,6 +54,14 @@ struct CommitRowRenderData {
     relative_time: SharedString,
 }
 
+#[derive(Clone)]
+struct CommitGraphDecoration {
+    graph: Arc<Graph>,
+    graph_col_width: f32,
+    has_uncommitted: bool,
+    colors: AppColors,
+}
+
 pub struct GraphPanel {
     commits: Arc<[CommitInfo]>,
     row_render_data: Arc<[CommitRowRenderData]>,
@@ -443,11 +451,10 @@ impl GraphPanel {
         let selection = self.selection;
         let has_uncommitted = self.has_uncommitted;
         let cl = colors.clone();
-        let cl_canvas = cl.clone();
         let scroll_handle = self.scroll_handle.clone();
         let list_entity = entity.clone();
 
-        let list = uniform_list(
+        let mut list = uniform_list(
             "commit-list",
             total_items,
             move |visible_range: Range<usize>, _window: &mut Window, _cx: &mut App| {
@@ -640,49 +647,63 @@ impl GraphPanel {
         .h_full()
         .track_scroll(scroll_handle.clone());
 
-        let graph_canvas = canvas(
-            move |_bounds, _w, _cx| {},
-            move |bounds: Bounds<Pixels>, _: (), window: &mut Window, _cx: &mut App| {
-                paint_graph_overlay(
-                    bounds,
-                    &graph,
-                    has_uncommitted,
-                    total_items,
-                    selection,
-                    &scroll_handle,
-                    &cl_canvas,
-                    window,
-                );
-            },
-        )
-        .w(px(graph_col_width))
-        .h_full();
+        if show_graph_col {
+            list = list.with_decoration(CommitGraphDecoration {
+                graph,
+                graph_col_width,
+                has_uncommitted,
+                colors: colors.clone(),
+            });
+        }
 
-        let mut content_area = div()
+        let content_area = div()
             .flex_1()
             .h_full()
             .overflow_hidden()
             .relative()
             .child(list);
 
-        if show_graph_col {
-            content_area = content_area.child(
-                div()
-                    .absolute()
-                    .left(px(0.0))
-                    .top(px(0.0))
-                    .w(px(graph_col_width))
-                    .h_full()
-                    .overflow_hidden()
-                    .child(graph_canvas),
-            );
-        }
-
         history_panel_shell(bg, border)
             .child(header)
             .child(column_headers)
             .child(content_area)
             .child(resize_events)
+    }
+}
+
+impl UniformListDecoration for CommitGraphDecoration {
+    fn compute(
+        &self,
+        visible_range: Range<usize>,
+        _bounds: Bounds<Pixels>,
+        _scroll_offset: Point<Pixels>,
+        item_height: Pixels,
+        item_count: usize,
+        _window: &mut Window,
+        _cx: &mut App,
+    ) -> AnyElement {
+        let graph = Arc::clone(&self.graph);
+        let has_uncommitted = self.has_uncommitted;
+        let colors = self.colors.clone();
+        let content_height = item_height * item_count;
+
+        canvas(
+            move |_bounds, _w, _cx| {},
+            move |bounds: Bounds<Pixels>, _: (), window: &mut Window, _cx: &mut App| {
+                paint_graph_overlay(
+                    bounds,
+                    &graph,
+                    has_uncommitted,
+                    visible_range.clone(),
+                    item_height,
+                    &colors,
+                    window,
+                );
+            },
+        )
+        .w(px(self.graph_col_width))
+        .h(content_height)
+        .into_any_element()
     }
 }
 
@@ -744,15 +765,8 @@ fn lane_center_x(bounds: Bounds<Pixels>, lane: f32) -> Pixels {
     bounds.origin.x + px(LEFT_PADDING) + px(lane * LANE_WIDTH) + px(LANE_WIDTH / 2.0)
 }
 
-fn list_row_center_y(
-    list_row: usize,
-    first_visible_list_row: usize,
-    row_height: Pixels,
-    vertical_scroll_offset: Pixels,
-    bounds: Bounds<Pixels>,
-) -> Pixels {
-    let relative = list_row as f32 - first_visible_list_row as f32;
-    bounds.origin.y + relative as f32 * row_height + row_height / 2.0 - vertical_scroll_offset
+fn list_row_center_y(list_row: usize, row_height: Pixels, bounds: Bounds<Pixels>) -> Pixels {
+    bounds.origin.y + list_row as f32 * row_height + row_height / 2.0
 }
 
 fn graph_row_to_list_row(graph_row: usize, uncommitted_offset: usize) -> usize {
@@ -763,42 +777,22 @@ fn paint_graph_overlay(
     bounds: Bounds<Pixels>,
     graph: &Graph,
     has_uncommitted: bool,
-    total_list_items: usize,
-    _selection: GraphSelection,
-    scroll_handle: &UniformListScrollHandle,
+    visible_list_rows: Range<usize>,
+    row_height: Pixels,
     colors: &AppColors,
     window: &mut Window,
 ) {
-    if bounds.size.height <= px(0.) {
+    if bounds.size.height <= px(0.) || visible_list_rows.start >= visible_list_rows.end {
         return;
     }
 
-    let row_height = graph_row_height();
     let uncommitted_offset = usize::from(has_uncommitted);
-
-    let scroll_state = scroll_handle.0.borrow();
-    let viewport_height = scroll_state
-        .last_item_size
-        .map(|s| s.item.height)
-        .unwrap_or(bounds.size.height);
-    let content_height = row_height * total_list_items as f32;
-    let max_scroll = (content_height - viewport_height).max(px(0.));
-    let scroll_offset_y = (-scroll_state.base_handle.offset().y).clamp(px(0.), max_scroll);
-
-    let first_visible_list_row = (scroll_offset_y / row_height).floor() as usize;
-    let vertical_scroll_offset = scroll_offset_y - first_visible_list_row as f32 * row_height;
-    let visible_list_row_count = (viewport_height / row_height).ceil() as usize + 2;
-
-    let first_visible_graph_row = first_visible_list_row.saturating_sub(uncommitted_offset);
-    let last_visible_graph_row = first_visible_list_row
-        .saturating_add(visible_list_row_count)
-        .saturating_sub(uncommitted_offset);
+    let first_visible_graph_row = visible_list_rows.start.saturating_sub(uncommitted_offset);
+    let last_visible_graph_row_exclusive = visible_list_rows.end.saturating_sub(uncommitted_offset);
 
     // Commit dots for visible graph rows.
     let visible_node_start = first_visible_graph_row.min(graph.nodes().len());
-    let visible_node_end = last_visible_graph_row
-        .saturating_add(1)
-        .min(graph.nodes().len());
+    let visible_node_end = last_visible_graph_row_exclusive.min(graph.nodes().len());
     for (graph_row, node) in graph.nodes()[visible_node_start..visible_node_end]
         .iter()
         .enumerate()
@@ -806,27 +800,15 @@ fn paint_graph_overlay(
         let graph_row = visible_node_start + graph_row;
         let list_row = graph_row_to_list_row(graph_row, uncommitted_offset);
         let x = lane_center_x(bounds, node.lane as f32);
-        let y = list_row_center_y(
-            list_row,
-            first_visible_list_row,
-            row_height,
-            vertical_scroll_offset,
-            bounds,
-        );
+        let y = list_row_center_y(list_row, row_height, bounds);
         let color = rgba_to_hsla(colors.graph_lane_color(node.lane));
         draw_commit_circle(x, y, color, node.is_merge, colors, window);
     }
 
     // Uncommitted changes indicator.
-    if has_uncommitted && first_visible_list_row == 0 {
+    if has_uncommitted && visible_list_rows.start == 0 {
         let x = lane_center_x(bounds, 0.0);
-        let y = list_row_center_y(
-            0,
-            first_visible_list_row,
-            row_height,
-            vertical_scroll_offset,
-            bounds,
-        );
+        let y = list_row_center_y(0, row_height, bounds);
         let r = px(COMMIT_CIRCLE_RADIUS);
         window.paint_quad(
             fill(
@@ -840,14 +822,15 @@ fn paint_graph_overlay(
     let desired_curve_height = row_height / 3.0;
     let desired_curve_width = px(LANE_WIDTH / 3.0);
 
-    for line_idx in graph.visible_line_indices(first_visible_graph_row..last_visible_graph_row + 1)
+    for line_idx in
+        graph.visible_line_indices(first_visible_graph_row..last_visible_graph_row_exclusive)
     {
         let Some(line) = graph.line_at(line_idx) else {
             continue;
         };
 
         if line.full_interval.end < first_visible_graph_row
-            || line.full_interval.start > last_visible_graph_row
+            || line.full_interval.start >= last_visible_graph_row_exclusive
         {
             continue;
         }
@@ -860,13 +843,8 @@ fn paint_graph_overlay(
 
         let line_x = lane_center_x(bounds, start_column as f32);
         let start_list_row = graph_row_to_list_row(line.full_interval.start, uncommitted_offset);
-        let from_y = list_row_center_y(
-            start_list_row,
-            first_visible_list_row,
-            row_height,
-            vertical_scroll_offset,
-            bounds,
-        ) + px(COMMIT_CIRCLE_RADIUS);
+        let from_y =
+            list_row_center_y(start_list_row, row_height, bounds) + px(COMMIT_CIRCLE_RADIUS);
 
         let mut current_row = from_y;
         let mut current_column = line_x;
@@ -882,13 +860,7 @@ fn paint_graph_overlay(
             match segment {
                 CommitLineSegment::Straight { to_row } => {
                     let list_row = graph_row_to_list_row(*to_row, uncommitted_offset);
-                    let mut dest_row = list_row_center_y(
-                        list_row,
-                        first_visible_list_row,
-                        row_height,
-                        vertical_scroll_offset,
-                        bounds,
-                    );
+                    let mut dest_row = list_row_center_y(list_row, row_height, bounds);
                     if is_last {
                         dest_row -= px(COMMIT_CIRCLE_RADIUS);
                     }
@@ -904,13 +876,7 @@ fn paint_graph_overlay(
                 } => {
                     let mut to_column_x = lane_center_x(bounds, *to_column as f32);
                     let list_row = graph_row_to_list_row(*on_row, uncommitted_offset);
-                    let mut to_row_y = list_row_center_y(
-                        list_row,
-                        first_visible_list_row,
-                        row_height,
-                        vertical_scroll_offset,
-                        bounds,
-                    );
+                    let mut to_row_y = list_row_center_y(list_row, row_height, bounds);
 
                     let going_right = to_column_x > current_column;
                     let column_shift = if going_right {
