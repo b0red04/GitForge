@@ -325,7 +325,11 @@ impl DiffPanel {
             selected_file_idx: self.diff_state.as_ref().and_then(|d| d.selected_file_idx),
             view_mode_tag: self.view_mode_tag(),
             code_view_file: self.code_view_file.clone(),
-            blame_file: self.blame.as_ref().map(|b| b.file_path.clone()),
+            blame_file: if self.view_mode == DiffViewMode::Blame {
+                self.blame.as_ref().map(|b| b.file_path.clone())
+            } else {
+                None
+            },
             selection: self.selected_range(),
         }
     }
@@ -348,10 +352,14 @@ impl DiffPanel {
             view_mode: self.view_mode.clone(),
             code_view_file: self.code_view_file.clone(),
             code_view_content: self.code_view_content.clone(),
-            blame: self.blame.as_ref().map(|b| DiffBlameSnapshot {
-                lines: b.lines.clone(),
-                file_path: b.file_path.clone(),
-            }),
+            blame: if self.view_mode == DiffViewMode::Blame {
+                self.blame.as_ref().map(|b| DiffBlameSnapshot {
+                    lines: b.lines.clone(),
+                    file_path: b.file_path.clone(),
+                })
+            } else {
+                None
+            },
             selection: self.selected_range(),
             highlight: self.highlight.clone(),
             scroll_handle: self.scroll_handle.clone(),
