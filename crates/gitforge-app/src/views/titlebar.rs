@@ -328,6 +328,7 @@ fn menu_label_button(
     } else {
         gpui::transparent_black()
     };
+    let hover_entity = entity.clone();
 
     div()
         .id(menu.element_id())
@@ -349,7 +350,12 @@ fn menu_label_button(
                 });
             }
         })
-        .on_mouse_move(|_, _, cx| cx.stop_propagation())
+        .on_mouse_move(move |_, _, cx| {
+            cx.stop_propagation();
+            if let Some(e) = hover_entity.upgrade() {
+                e.update(cx, |app, cx| app.open_titlebar_menu(menu, cx));
+            }
+        })
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .child(menu.label())
 }
