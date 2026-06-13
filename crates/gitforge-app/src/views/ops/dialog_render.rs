@@ -7,6 +7,7 @@ pub(crate) fn render_dialog_overlay(
     dialog: &AppDialog,
     input_value: &str,
     input_value_2: &str,
+    dialog_force: bool,
     input_focus: &FocusHandle,
     colors: &AppColors,
     entity: WeakEntity<GitForgeApp>,
@@ -49,8 +50,14 @@ pub(crate) fn render_dialog_overlay(
     let placeholder = match dialog {
         AppDialog::CreateBranch { .. } => "Branch name",
         AppDialog::RenameBranch { .. } => "New branch name",
-        AppDialog::DeleteBranch { name, force } => {
-            return render_delete_branch_overlay(name, *force, colors, entity, input_focus);
+        AppDialog::DeleteBranch { name } => {
+            return render_delete_branch_overlay(
+                name,
+                dialog_force,
+                colors,
+                entity,
+                input_focus,
+            );
         }
         AppDialog::CreateTag { .. } => "Tag name",
         AppDialog::StashPush => "Stash message (optional)",
@@ -564,9 +571,11 @@ fn render_delete_branch_overlay(
     let text_color = rgba_to_hsla(colors.text);
     let muted = rgba_to_hsla(colors.text_muted);
     let warning = rgba_to_hsla(colors.warning);
+    let accent = rgba_to_hsla(colors.accent);
 
     let ent_cancel = entity.clone();
     let ent_confirm = entity.clone();
+    let ent_toggle = entity.clone();
     let branch_name = name.to_string();
     let fh = input_focus.clone();
     let ent_key_cancel = entity.clone();
@@ -632,6 +641,43 @@ fn render_delete_branch_overlay(
                         .text_sm()
                         .text_color(text_color)
                         .child(format!("Delete branch '{}'? This cannot be undone.", name)),
+                )
+                .child(
+                    div()
+                        .id("delete-branch-force")
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .cursor_pointer()
+                        .on_click(move |_ev, _window, cx| {
+                            if let Some(e) = ent_toggle.upgrade() {
+                                e.update(cx, |this, cx| {
+                                    this.toggle_dialog_force(cx);
+                                });
+                            }
+                        })
+                        .child(
+                            div()
+                                .w(px(14.0))
+                                .h(px(14.0))
+                                .flex_shrink_0()
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .rounded(px(2.0))
+                                .border_1()
+                                .border_color(if force { accent } else { border })
+                                .bg(if force { accent } else { surface })
+                                .text_color(gpui::hsla(0.0, 0.0, 1.0, 1.0))
+                                .text_xs()
+                                .child(if force { "\u{2713}" } else { "" }),
+                        )
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(muted)
+                                .child("Force delete (allows removing unmerged branches)"),
+                        ),
                 )
                 .child(
                     div()

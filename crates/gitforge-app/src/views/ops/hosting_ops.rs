@@ -52,9 +52,12 @@ impl GitForgeApp {
         cx.spawn(async move |this, cx| {
             let Some(p) = gitforge_hosting::get_provider(&provider_name) else {
                 this.update(cx, |this, cx| {
-                    this.repo_session.remote_status =
-                        format!("Unknown provider: {}", provider_name);
-                    cx.notify();
+                    this.repo_session.remote_status.clear();
+                    this.push_toast(
+                        crate::views::toasts::ToastKind::Error,
+                        format!("Unknown provider: {}", provider_name),
+                        cx,
+                    );
                 })
                 .ok();
                 return;
@@ -76,8 +79,8 @@ impl GitForgeApp {
                 }
                 Err(e) => {
                     this.update(cx, |this, cx| {
-                        this.repo_session.remote_status = format!("Authentication failed: {}", e);
-                        cx.notify();
+                        this.repo_session.remote_status.clear();
+                        this.report_op_error("Authentication", &e.to_string(), cx);
                     })
                     .ok();
                 }
@@ -121,9 +124,11 @@ impl GitForgeApp {
             let Some(account) = account else {
                 this.update(cx, |this, cx| {
                     this.hosting_repos_loading = false;
-                    this.repo_session.remote_status =
-                        format!("No {} account configured. Add one first.", provider_name);
-                    cx.notify();
+                    this.push_toast(
+                        crate::views::toasts::ToastKind::Warning,
+                        format!("No {} account configured. Add one first.", provider_name),
+                        cx,
+                    );
                 })
                 .ok();
                 return;
@@ -133,8 +138,11 @@ impl GitForgeApp {
             let Some(p) = gitforge_hosting::get_provider(&provider_name) else {
                 this.update(cx, |this, cx| {
                     this.hosting_repos_loading = false;
-                    this.repo_session.remote_status = "Unknown provider".to_string();
-                    cx.notify();
+                    this.push_toast(
+                        crate::views::toasts::ToastKind::Error,
+                        "Unknown provider".to_string(),
+                        cx,
+                    );
                 })
                 .ok();
                 return;
@@ -154,8 +162,8 @@ impl GitForgeApp {
                 Err(e) => {
                     this.update(cx, |this, cx| {
                         this.hosting_repos_loading = false;
-                        this.repo_session.remote_status = format!("Failed to list repos: {}", e);
-                        cx.notify();
+                        this.repo_session.remote_status.clear();
+                        this.report_op_error("List repos", &e.to_string(), cx);
                     })
                     .ok();
                 }
@@ -198,15 +206,15 @@ impl GitForgeApp {
                 }
                 Ok(Err(e)) => {
                     this.update(cx, |this, cx| {
-                        this.repo_session.remote_status = format!("Clone failed: {}", e);
-                        cx.notify();
+                        this.repo_session.remote_status.clear();
+                        this.report_op_error("Clone", &e.to_string(), cx);
                     })
                     .ok();
                 }
                 Err(e) => {
                     this.update(cx, |this, cx| {
-                        this.repo_session.remote_status = format!("Clone error: {}", e);
-                        cx.notify();
+                        this.repo_session.remote_status.clear();
+                        this.report_op_error("Clone", &e.to_string(), cx);
                     })
                     .ok();
                 }
@@ -232,9 +240,11 @@ impl GitForgeApp {
             let Some(account) = account else {
                 this.update(cx, |this, cx| {
                     this.hosting_repos_loading = false;
-                    this.repo_session.remote_status =
-                        format!("No {} account configured.", provider_name);
-                    cx.notify();
+                    this.push_toast(
+                        crate::views::toasts::ToastKind::Warning,
+                        format!("No {} account configured.", provider_name),
+                        cx,
+                    );
                 })
                 .ok();
                 return;
@@ -264,8 +274,8 @@ impl GitForgeApp {
                 Err(e) => {
                     this.update(cx, |this, cx| {
                         this.hosting_repos_loading = false;
-                        this.repo_session.remote_status = format!("Search failed: {}", e);
-                        cx.notify();
+                        this.repo_session.remote_status.clear();
+                        this.report_op_error("Search repos", &e.to_string(), cx);
                     })
                     .ok();
                 }
@@ -290,8 +300,12 @@ impl GitForgeApp {
         cx.spawn(async move |this, cx| {
             let Some(account) = account else {
                 this.update(cx, |this, cx| {
-                    this.repo_session.remote_status = "No account configured for fork".to_string();
-                    cx.notify();
+                    this.repo_session.remote_status.clear();
+                    this.push_toast(
+                        crate::views::toasts::ToastKind::Warning,
+                        "No account configured for fork".to_string(),
+                        cx,
+                    );
                 })
                 .ok();
                 return;
@@ -300,8 +314,12 @@ impl GitForgeApp {
             let provider_name = account.provider.clone();
             let Some(p) = gitforge_hosting::get_provider(&provider_name) else {
                 this.update(cx, |this, cx| {
-                    this.repo_session.remote_status = "Unknown provider for fork".to_string();
-                    cx.notify();
+                    this.repo_session.remote_status.clear();
+                    this.push_toast(
+                        crate::views::toasts::ToastKind::Error,
+                        "Unknown provider for fork".to_string(),
+                        cx,
+                    );
                 })
                 .ok();
                 return;
@@ -319,8 +337,8 @@ impl GitForgeApp {
                 }
                 Err(e) => {
                     this.update(cx, |this, cx| {
-                        this.repo_session.remote_status = format!("Fork failed: {}", e);
-                        cx.notify();
+                        this.repo_session.remote_status.clear();
+                        this.report_op_error("Fork", &e.to_string(), cx);
                     })
                     .ok();
                 }

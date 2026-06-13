@@ -27,17 +27,15 @@ impl GitForgeApp {
                 }
                 Ok(Err(e)) => {
                     this.update(cx, |this, cx| {
-                        this.repo_session.remote_status =
-                            format!("SSH key generation failed: {}", e);
-                        cx.notify();
+                        this.repo_session.remote_status.clear();
+                        this.report_op_error("SSH key generation", &e.to_string(), cx);
                     })
                     .ok();
                 }
                 Err(e) => {
                     this.update(cx, |this, cx| {
-                        this.repo_session.remote_status =
-                            format!("SSH key generation error: {}", e);
-                        cx.notify();
+                        this.repo_session.remote_status.clear();
+                        this.report_op_error("SSH key generation", &e.to_string(), cx);
                     })
                     .ok();
                 }
@@ -68,15 +66,15 @@ impl GitForgeApp {
                 }
                 Ok(Err(e)) => {
                     this.update(cx, |this, cx| {
-                        this.repo_session.remote_status = format!("SSH test failed: {}", e);
-                        cx.notify();
+                        this.repo_session.remote_status.clear();
+                        this.report_op_error("SSH test", &e.to_string(), cx);
                     })
                     .ok();
                 }
                 Err(e) => {
                     this.update(cx, |this, cx| {
-                        this.repo_session.remote_status = format!("SSH test error: {}", e);
-                        cx.notify();
+                        this.repo_session.remote_status.clear();
+                        this.report_op_error("SSH test", &e.to_string(), cx);
                     })
                     .ok();
                 }

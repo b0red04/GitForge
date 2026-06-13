@@ -25,12 +25,15 @@ impl GitForgeApp {
 
     pub fn open_delete_branch_dialog(&mut self, name: String, force: bool, cx: &mut Context<Self>) {
         if self.is_current_branch(&name) {
-            self.repo_session.remote_status =
-                format!("Cannot delete the currently checked-out branch '{}'.", name);
-            cx.notify();
+            self.push_toast(
+                crate::views::toasts::ToastKind::Warning,
+                format!("Cannot delete the currently checked-out branch '{}'.", name),
+                cx,
+            );
             return;
         }
-        self.active_dialog = AppDialog::DeleteBranch { name, force };
+        self.dialog_force = force;
+        self.active_dialog = AppDialog::DeleteBranch { name };
         self.dialog_input.clear();
         cx.notify();
     }
@@ -45,6 +48,7 @@ impl GitForgeApp {
         self.active_dialog = AppDialog::None;
         self.dialog_input.clear();
         self.dialog_input_2.clear();
+        self.dialog_force = false;
         cx.notify();
     }
 
@@ -61,10 +65,12 @@ impl GitForgeApp {
     pub fn confirm_dialog(&mut self, cx: &mut Context<Self>) {
         let input = self.dialog_input.trim().to_string();
         let input_2 = self.dialog_input_2.trim().to_string();
+        let dialog_force = self.dialog_force;
         let dialog = self.active_dialog.clone();
         self.active_dialog = AppDialog::None;
         self.dialog_input.clear();
         self.dialog_input_2.clear();
+        self.dialog_force = false;
 
         match dialog {
             AppDialog::CreateBranch { start_point } => {
@@ -79,8 +85,8 @@ impl GitForgeApp {
                 }
                 self.rename_branch(old_name, input, cx);
             }
-            AppDialog::DeleteBranch { name, force } => {
-                self.delete_branch(name, force, cx);
+            AppDialog::DeleteBranch { name } => {
+                self.delete_branch(name, dialog_force, cx);
             }
             AppDialog::CreateTag { target } => {
                 if input.is_empty() {
@@ -281,17 +287,13 @@ impl GitForgeApp {
                 }
                 Ok(Err(e)) => {
                     this.update(cx, |this, cx| {
-                        this.repo_session.remote_status =
-                            format!("Failed to store credential: {}", e);
-                        cx.notify();
+                        this.report_op_error("Store credential", &e.to_string(), cx);
                     })
                     .ok();
                 }
                 Err(e) => {
                     this.update(cx, |this, cx| {
-                        this.repo_session.remote_status =
-                            format!("Credential storage error: {}", e);
-                        cx.notify();
+                        this.report_op_error("Store credential", &e.to_string(), cx);
                     })
                     .ok();
                 }
