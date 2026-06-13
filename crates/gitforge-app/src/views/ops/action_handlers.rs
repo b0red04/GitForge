@@ -76,6 +76,9 @@ impl GitForgeApp {
     }
 
     pub fn open_titlebar_menu(&mut self, menu: TitlebarMenu, cx: &mut Context<Self>) {
+        if self.titlebar_menus_visible && self.active_titlebar_menu == Some(menu) {
+            return;
+        }
         self.titlebar_menus_visible = true;
         self.active_titlebar_menu = Some(menu);
         self.local_branch_dropdown_open = false;
