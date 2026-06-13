@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::ops::Range;
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DiffLineType {
@@ -31,7 +32,20 @@ pub struct DiffHunk {
 pub struct FileDiff {
     pub old_path: Option<String>,
     pub new_path: Option<String>,
-    pub lines: Vec<DiffLine>,
+    #[serde(
+        serialize_with = "serialize_lines",
+        deserialize_with = "deserialize_lines"
+    )]
+    pub lines: Arc<[DiffLine]>,
     pub hunks: Vec<DiffHunk>,
     pub is_binary: bool,
+}
+
+fn serialize_lines<S: serde::Serializer>(lines: &Arc<[DiffLine]>, s: S) -> Result<S::Ok, S::Error> {
+    serde::Serialize::serialize(&**lines, s)
+}
+
+fn deserialize_lines<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Arc<[DiffLine]>, D::Error> {
+    let vec: Vec<DiffLine> = serde::Deserialize::deserialize(d)?;
+    Ok(Arc::from(vec))
 }

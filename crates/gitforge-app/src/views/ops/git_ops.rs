@@ -954,11 +954,11 @@ impl GitForgeApp {
                     let file_diffs = gitforge_diff::parser::parse_unified_diff(&diff_text);
 
                     this.update(cx, |this, cx| {
-                        this.repo_session.diff_panel.set_diff(CommitDiffState {
-                            commit_id: id_for_state,
+                        this.repo_session.diff_panel.set_diff(CommitDiffState::new(
+                            id_for_state,
                             file_diffs,
-                            selected_file_idx: None,
-                        });
+                            None,
+                        ));
                         cx.notify();
                     })
                     .ok();

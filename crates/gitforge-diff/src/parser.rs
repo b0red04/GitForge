@@ -1,7 +1,9 @@
 use crate::types::{DiffHunk, DiffLine, DiffLineType, FileDiff};
+use std::sync::Arc;
 
 fn flush_hunk(
-    file: &mut FileDiff,
+    lines: &[DiffLine],
+    hunks: &mut Vec<DiffHunk>,
     start: Option<usize>,
     end: usize,
     old_start: u32,
@@ -12,7 +14,7 @@ fn flush_hunk(
         let old_count = range
             .clone()
             .filter_map(|i| {
-                let t = file.lines[i].line_type;
+                let t = lines[i].line_type;
                 if t == DiffLineType::Removed || t == DiffLineType::Context {
                     Some(1)
                 } else {
@@ -23,7 +25,7 @@ fn flush_hunk(
         let new_count = range
             .clone()
             .filter_map(|i| {
-                let t = file.lines[i].line_type;
+                let t = lines[i].line_type;
                 if t == DiffLineType::Added || t == DiffLineType::Context {
                     Some(1)
                 } else {
@@ -31,7 +33,7 @@ fn flush_hunk(
                 }
             })
             .sum::<u32>();
-        file.hunks.push(DiffHunk {
+        hunks.push(DiffHunk {
             old_start,
             old_count,
             new_start,
@@ -41,9 +43,39 @@ fn flush_hunk(
     }
 }
 
+struct FileBuilder {
+    old_path: Option<String>,
+    new_path: Option<String>,
+    lines: Vec<DiffLine>,
+    hunks: Vec<DiffHunk>,
+    is_binary: bool,
+}
+
+impl FileBuilder {
+    fn new() -> Self {
+        Self {
+            old_path: None,
+            new_path: None,
+            lines: Vec::new(),
+            hunks: Vec::new(),
+            is_binary: false,
+        }
+    }
+
+    fn build(self) -> FileDiff {
+        FileDiff {
+            old_path: self.old_path,
+            new_path: self.new_path,
+            lines: Arc::from(self.lines),
+            hunks: self.hunks,
+            is_binary: self.is_binary,
+        }
+    }
+}
+
 pub fn parse_unified_diff(raw: &str) -> Vec<FileDiff> {
     let mut files = Vec::new();
-    let mut current_file: Option<FileDiff> = None;
+    let mut current: Option<FileBuilder> = None;
     let mut old_line = 0u32;
     let mut new_line = 0u32;
     let mut hunk_start: Option<usize> = None;
@@ -52,25 +84,19 @@ pub fn parse_unified_diff(raw: &str) -> Vec<FileDiff> {
 
     for line in raw.lines() {
         if line.starts_with("diff --git") {
-            if let Some(mut f) = current_file.take() {
-                let len = f.lines.len();
-                flush_hunk(&mut f, hunk_start, len, hunk_old_start, hunk_new_start);
-                files.push(f);
+            if let Some(mut b) = current.take() {
+                let len = b.lines.len();
+                flush_hunk(&b.lines, &mut b.hunks, hunk_start, len, hunk_old_start, hunk_new_start);
+                files.push(b.build());
             }
-            current_file = Some(FileDiff {
-                old_path: None,
-                new_path: None,
-                lines: Vec::new(),
-                hunks: Vec::new(),
-                is_binary: false,
-            });
+            current = Some(FileBuilder::new());
             old_line = 0;
             new_line = 0;
             hunk_start = None;
             continue;
         }
 
-        let file = match &mut current_file {
+        let file = match &mut current {
             Some(f) => f,
             None => continue,
         };
@@ -87,7 +113,7 @@ pub fn parse_unified_diff(raw: &str) -> Vec<FileDiff> {
 
         if line.starts_with("@@") {
             let len = file.lines.len();
-            flush_hunk(file, hunk_start, len, hunk_old_start, hunk_new_start);
+            flush_hunk(&file.lines, &mut file.hunks, hunk_start, len, hunk_old_start, hunk_new_start);
 
             if let Some((ol, nl)) = parse_hunk_header(line) {
                 old_line = ol;
@@ -152,10 +178,10 @@ pub fn parse_unified_diff(raw: &str) -> Vec<FileDiff> {
         }
     }
 
-    if let Some(mut f) = current_file.take() {
-        let len = f.lines.len();
-        flush_hunk(&mut f, hunk_start, len, hunk_old_start, hunk_new_start);
-        files.push(f);
+    if let Some(mut b) = current.take() {
+        let len = b.lines.len();
+        flush_hunk(&b.lines, &mut b.hunks, hunk_start, len, hunk_old_start, hunk_new_start);
+        files.push(b.build());
     }
 
     files

@@ -557,12 +557,6 @@ fn render_ref_item(
         rgba_to_hsla(colors.text_muted)
     };
     let bg = rgba_to_hsla(colors.sidebar_background);
-    let pill_color = match rf.kind {
-        RefKind::Branch => rgba_to_hsla(colors.ref_branch),
-        RefKind::RemoteBranch => rgba_to_hsla(colors.ref_remote),
-        RefKind::Tag => rgba_to_hsla(colors.ref_tag),
-        _ => rgba_to_hsla(colors.text_muted),
-    };
 
     let display_name = if rf.kind == RefKind::RemoteBranch {
         rf.name
@@ -584,28 +578,18 @@ fn render_ref_item(
     };
     let elem_id = format!("sidebar-ref-{}-{}", kind_str, rf.name);
 
-    let name_for_checkout = rf.name.clone();
-    let name_for_checkout2 = rf.name.clone();
     let name_for_checkout3 = rf.name.clone();
-    let name_for_delete = rf.name.clone();
     let name_for_delete2 = rf.name.clone();
-    let name_for_rename = rf.name.clone();
-    let name_for_merge = rf.name.clone();
 
     let ent_navigate = entity.clone();
     let ent_context = entity.clone();
-    let ent_checkout = entity.clone();
-    let ent_checkout2 = entity.clone();
-    let ent_delete = entity.clone();
-    let ent_rename = entity.clone();
-    let ent_merge = entity.clone();
 
     let is_branch = rf.kind == RefKind::Branch;
     let is_remote = rf.kind == RefKind::RemoteBranch;
     let is_tag = rf.kind == RefKind::Tag;
     let is_head = rf.is_head;
 
-    let mut row = div()
+    let row = div()
         .id(ElementId::Name(elem_id.into()))
         .w_full()
         .h(px(ROW_HEIGHT))
@@ -655,211 +639,7 @@ fn render_ref_item(
                 .text_sm()
                 .text_color(text_color)
                 .child(format!("{}{}", prefix, display_name)),
-        )
-        .child(div().flex_1())
-        .child(div().w(px(6.0)).h(px(6.0)).rounded(px(3.0)).bg(pill_color));
-
-    if is_branch && !is_head {
-        let action_text = rgba_to_hsla(colors.text_muted);
-        let action_hover_bg = rgba_to_hsla(colors.surface_high);
-        let border = rgba_to_hsla(colors.border);
-
-        let name_for_filter = rf.name.clone();
-        let ent_filter = entity.clone();
-
-        row = row.child(
-            div()
-                .flex()
-                .gap_0()
-                .ml_1()
-                .child(
-                    div()
-                        .id(ElementId::Name(
-                            format!("sidebar-filter-{}", rf.name).into(),
-                        ))
-                        .px_1()
-                        .py_0()
-                        .rounded(px(2.0))
-                        .border_1()
-                        .border_color(border)
-                        .text_xs()
-                        .text_color(action_text)
-                        .cursor_pointer()
-                        .hover(|s| s.bg(action_hover_bg))
-                        .child("F")
-                        .on_click(move |_ev, _window, cx| {
-                            if let Some(e) = ent_filter.upgrade() {
-                                let name = name_for_filter.clone();
-                                e.update(cx, |this, cx| {
-                                    this.set_branch_filter(Some(name), cx);
-                                });
-                            }
-                        }),
-                )
-                .child(
-                    div()
-                        .id(ElementId::Name(
-                            format!("sidebar-checkout-{}", rf.name).into(),
-                        ))
-                        .px_1()
-                        .py_0()
-                        .rounded(px(2.0))
-                        .border_1()
-                        .border_color(border)
-                        .text_xs()
-                        .text_color(action_text)
-                        .cursor_pointer()
-                        .hover(|s| s.bg(action_hover_bg))
-                        .child("co")
-                        .on_click(move |_ev, _window, cx| {
-                            if let Some(e) = ent_checkout.upgrade() {
-                                let name = name_for_checkout.clone();
-                                e.update(cx, |this, cx| {
-                                    this.checkout_branch(name, cx);
-                                });
-                            }
-                        }),
-                )
-                .child(
-                    div()
-                        .id(ElementId::Name(format!("sidebar-merge-{}", rf.name).into()))
-                        .px_1()
-                        .py_0()
-                        .rounded(px(2.0))
-                        .border_1()
-                        .border_color(border)
-                        .text_xs()
-                        .text_color(action_text)
-                        .cursor_pointer()
-                        .hover(|s| s.bg(action_hover_bg))
-                        .child("M")
-                        .on_click(move |_ev, _window, cx| {
-                            if let Some(e) = ent_merge.upgrade() {
-                                let name = name_for_merge.clone();
-                                e.update(cx, |this, cx| {
-                                    this.merge_branch(name, false, cx);
-                                });
-                            }
-                        }),
-                )
-                .child(
-                    div()
-                        .id(ElementId::Name(
-                            format!("sidebar-rename-{}", rf.name).into(),
-                        ))
-                        .px_1()
-                        .py_0()
-                        .rounded(px(2.0))
-                        .border_1()
-                        .border_color(border)
-                        .text_xs()
-                        .text_color(action_text)
-                        .cursor_pointer()
-                        .hover(|s| s.bg(action_hover_bg))
-                        .child("R")
-                        .on_click(move |_ev, _window, cx| {
-                            if let Some(e) = ent_rename.upgrade() {
-                                let name = name_for_rename.clone();
-                                e.update(cx, |this, cx| {
-                                    this.open_rename_branch_dialog(name, cx);
-                                });
-                            }
-                        }),
-                )
-                .child(
-                    div()
-                        .id(ElementId::Name(
-                            format!("sidebar-delete-{}", rf.name).into(),
-                        ))
-                        .px_1()
-                        .py_0()
-                        .rounded(px(2.0))
-                        .border_1()
-                        .border_color(border)
-                        .text_xs()
-                        .text_color(rgba_to_hsla(colors.warning))
-                        .cursor_pointer()
-                        .hover(|s| s.bg(action_hover_bg))
-                        .child("\u{00d7}")
-                        .on_click(move |_ev, _window, cx| {
-                            if let Some(e) = ent_delete.upgrade() {
-                                let name = name_for_delete.clone();
-                                e.update(cx, |this, cx| {
-                                    this.open_delete_branch_dialog(name, false, cx);
-                                });
-                            }
-                        }),
-                ),
         );
-    }
-
-    if is_remote {
-        let action_text = rgba_to_hsla(colors.text_muted);
-        let action_hover_bg = rgba_to_hsla(colors.surface_high);
-        let border = rgba_to_hsla(colors.border);
-
-        row = row.child(
-            div().flex().gap_0().ml_1().child(
-                div()
-                    .id(ElementId::Name(
-                        format!("sidebar-checkout-{}", rf.name).into(),
-                    ))
-                    .px_1()
-                    .py_0()
-                    .rounded(px(2.0))
-                    .border_1()
-                    .border_color(border)
-                    .text_xs()
-                    .text_color(action_text)
-                    .cursor_pointer()
-                    .hover(|s| s.bg(action_hover_bg))
-                    .child("co")
-                    .on_click(move |_ev, _window, cx| {
-                        if let Some(e) = ent_checkout2.upgrade() {
-                            let name = name_for_checkout2.clone();
-                            e.update(cx, |this, cx| {
-                                this.checkout_branch(name, cx);
-                            });
-                        }
-                    }),
-            ),
-        );
-    }
-
-    if is_tag {
-        let action_text = rgba_to_hsla(colors.warning);
-        let action_hover_bg = rgba_to_hsla(colors.surface_high);
-        let border = rgba_to_hsla(colors.border);
-        let tag_name = rf.name.clone();
-        let ent_del_tag = entity.clone();
-
-        row = row.child(
-            div().flex().gap_0().ml_1().child(
-                div()
-                    .id(ElementId::Name(
-                        format!("sidebar-delete-tag-{}", rf.name).into(),
-                    ))
-                    .px_1()
-                    .py_0()
-                    .rounded(px(2.0))
-                    .border_1()
-                    .border_color(border)
-                    .text_xs()
-                    .text_color(action_text)
-                    .cursor_pointer()
-                    .hover(|s| s.bg(action_hover_bg))
-                    .child("×")
-                    .on_click(move |_ev, _window, cx| {
-                        if let Some(e) = ent_del_tag.upgrade() {
-                            let name = tag_name.clone();
-                            e.update(cx, |this, cx| {
-                                this.delete_tag(name, cx);
-                            });
-                        }
-                    }),
-            ),
-        );
-    }
 
     row
 }

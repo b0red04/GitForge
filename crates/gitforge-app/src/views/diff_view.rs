@@ -162,7 +162,7 @@ pub fn render_diff_empty_state(colors: &AppColors) -> Div {
 }
 
 pub fn render_diff_lines(
-    lines: &[DiffLine],
+    lines: Arc<[DiffLine]>,
     file_path: &str,
     colors: &AppColors,
     scroll_handle: UniformListScrollHandle,
@@ -185,7 +185,7 @@ pub fn render_diff_lines(
     let hunk_header_bg = rgba_to_hsla(colors.diff_hunk_header);
 
     let total_lines = lines.len();
-    let lines_data = lines.to_vec();
+    let lines_data = lines;
     let cl = colors.clone();
     let path_for_hl = file_path.to_string();
 
