@@ -76,10 +76,11 @@ impl Render for CommitMessageTooltip {
             None => (self.message.to_string(), String::new()),
         };
         let mut tip = div()
+            .id("commit-message-tooltip")
             .p_2()
             .max_w(px(440.0))
             .max_h(px(320.0))
-            .overflow_hidden()
+            .overflow_y_scroll()
             .bg(rgba_to_hsla(cl.background))
             .border_1()
             .border_color(rgba_to_hsla(cl.border))
