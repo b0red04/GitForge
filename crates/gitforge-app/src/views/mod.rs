@@ -14,6 +14,7 @@ pub mod settings_window;
 pub mod sidebar;
 pub mod status_panel;
 pub mod titlebar;
+pub mod toasts;
 pub mod toolbar;
 pub mod window_chrome;
 

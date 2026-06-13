@@ -309,9 +309,17 @@ impl GitForgeApp {
                 }
                 Ok(Err(e)) => {
                     tracing::error!("Commit failed: {}", e);
+                    this.update(cx, |this, cx| {
+                        this.report_op_error("Commit", &e.to_string(), cx);
+                    })
+                    .ok();
                 }
                 Err(e) => {
                     tracing::error!("Commit task panicked: {}", e);
+                    this.update(cx, |this, cx| {
+                        this.report_op_error("Commit", &e.to_string(), cx);
+                    })
+                    .ok();
                 }
             }
         })
@@ -489,8 +497,20 @@ impl GitForgeApp {
                     })
                     .ok();
                 }
-                Ok(Err(e)) => tracing::error!("{} failed: {}", label_owned, e),
-                Err(e) => tracing::error!("{} task panicked: {}", label_owned, e),
+                Ok(Err(e)) => {
+                    tracing::error!("{} failed: {}", label_owned, e);
+                    this.update(cx, |this, cx| {
+                        this.report_op_error(&label_owned, &e.to_string(), cx);
+                    })
+                    .ok();
+                }
+                Err(e) => {
+                    tracing::error!("{} task panicked: {}", label_owned, e);
+                    this.update(cx, |this, cx| {
+                        this.report_op_error(&label_owned, &e.to_string(), cx);
+                    })
+                    .ok();
+                }
             }
         })
         .detach();
@@ -535,16 +555,16 @@ impl GitForgeApp {
                 Ok(Err(e)) => {
                     tracing::error!("{} failed: {}", label_owned, e);
                     this.update(cx, |this, cx| {
-                        this.repo_session.remote_status = format!("{} failed: {}", label_owned, e);
-                        cx.notify();
+                        this.repo_session.remote_status.clear();
+                        this.report_op_error(&label_owned, &e.to_string(), cx);
                     })
                     .ok();
                 }
                 Err(e) => {
                     tracing::error!("{} error: {}", label_owned, e);
                     this.update(cx, |this, cx| {
-                        this.repo_session.remote_status = format!("{} error: {}", label_owned, e);
-                        cx.notify();
+                        this.repo_session.remote_status.clear();
+                        this.report_op_error(&label_owned, &e.to_string(), cx);
                     })
                     .ok();
                 }
@@ -566,9 +586,11 @@ impl GitForgeApp {
 
     pub fn delete_branch(&mut self, name: String, force: bool, cx: &mut Context<Self>) {
         if self.is_current_branch(&name) {
-            self.repo_session.remote_status =
-                format!("Cannot delete the currently checked-out branch '{}'.", name);
-            cx.notify();
+            self.push_toast(
+                crate::views::toasts::ToastKind::Warning,
+                format!("Cannot delete the currently checked-out branch '{}'.", name),
+                cx,
+            );
             return;
         }
         self.run_git_op("Delete branch", cx, move |repo| {
@@ -750,16 +772,16 @@ impl GitForgeApp {
                 Ok(Err(e)) => {
                     tracing::error!("Clone failed: {}", e);
                     this.update(cx, |this, cx| {
-                        this.repo_session.remote_status = format!("Clone failed: {}", e);
-                        cx.notify();
+                        this.repo_session.remote_status.clear();
+                        this.report_op_error("Clone", &e.to_string(), cx);
                     })
                     .ok();
                 }
                 Err(e) => {
                     tracing::error!("Clone task panicked: {}", e);
                     this.update(cx, |this, cx| {
-                        this.repo_session.remote_status = format!("Clone error: {}", e);
-                        cx.notify();
+                        this.repo_session.remote_status.clear();
+                        this.report_op_error("Clone", &e.to_string(), cx);
                     })
                     .ok();
                 }

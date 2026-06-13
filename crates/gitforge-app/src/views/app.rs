@@ -71,7 +71,6 @@ pub enum AppDialog {
     },
     DeleteBranch {
         name: String,
-        force: bool,
     },
     CreateTag {
         target: Option<String>,
@@ -119,6 +118,9 @@ pub struct GitForgeApp {
     pub(crate) dialog_input: String,
     pub(crate) dialog_input_2: String,
     pub(crate) dialog_input_focus: FocusHandle,
+    /// Live, toggleable value for the delete-branch dialog's "Force delete"
+    /// checkbox. Seeded when the dialog opens; the overlay mutates it.
+    pub(crate) dialog_force: bool,
     pub(crate) settings: AppSettings,
     pub(crate) ssh_keys: Vec<gitforge_git::SshKey>,
     pub(crate) ssh_agent_status: Option<gitforge_git::SshAgentStatus>,
@@ -135,6 +137,7 @@ pub struct GitForgeApp {
     pub(crate) settings_window: Option<WindowHandle<SettingsWindow>>,
     pub(crate) quit_requested: bool,
     pub(crate) periodic_fetch_generation: u64,
+    pub(crate) toasts: super::toasts::Toasts,
 }
 
 impl Focusable for GitForgeApp {
@@ -160,6 +163,7 @@ impl GitForgeApp {
             dialog_input: String::new(),
             dialog_input_2: String::new(),
             dialog_input_focus: cx.focus_handle(),
+            dialog_force: false,
             settings,
             ssh_keys: Vec::new(),
             ssh_agent_status: None,
@@ -176,6 +180,7 @@ impl GitForgeApp {
             settings_window: None,
             quit_requested: false,
             periodic_fetch_generation: 0,
+            toasts: super::toasts::Toasts::new(),
         };
         app.load_ssh_state();
         app.load_hosting_accounts();
@@ -259,6 +264,54 @@ impl GitForgeApp {
                 cx.notify();
             });
         });
+    }
+
+    /// Pushes a transient toast notification and schedules its auto-dismissal.
+    pub(crate) fn push_toast(
+        &mut self,
+        kind: super::toasts::ToastKind,
+        message: impl Into<String>,
+        cx: &mut Context<Self>,
+    ) {
+        let secs = kind.auto_dismiss_secs();
+        let id = self.toasts.push(kind, message.into());
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            tokio::time::sleep(std::time::Duration::from_secs(secs)).await;
+            this.update(cx, |this, cx| {
+                this.toasts.dismiss(id);
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    pub(crate) fn dismiss_toast(&mut self, id: u64, cx: &mut Context<Self>) {
+        self.toasts.dismiss(id);
+        cx.notify();
+    }
+
+    /// Reports a failed git/hosting operation as an error toast, cleaning the
+    /// raw error down to its first meaningful line.
+    pub(crate) fn report_op_error(
+        &mut self,
+        label: &str,
+        err: &str,
+        cx: &mut Context<Self>,
+    ) {
+        let detail = super::toasts::clean_error_message(err);
+        let message = if detail.is_empty() {
+            format!("{label} failed")
+        } else {
+            format!("{label}: {detail}")
+        };
+        self.push_toast(super::toasts::ToastKind::Error, message, cx);
+    }
+
+    pub(crate) fn toggle_dialog_force(&mut self, cx: &mut Context<Self>) {
+        self.dialog_force = !self.dialog_force;
+        cx.notify();
     }
 }
 
@@ -436,6 +489,7 @@ impl Render for GitForgeApp {
                 &self.active_dialog,
                 &self.dialog_input,
                 &self.dialog_input_2,
+                self.dialog_force,
                 &self.dialog_input_focus,
                 &self.colors,
                 entity.clone(),
@@ -473,6 +527,14 @@ impl Render for GitForgeApp {
             inner = inner.child(super::sidebar::render_context_menu_overlay(
                 &self.repo_session.sidebar_state.context_menu,
                 self.repo_session.sidebar_state.context_menu_pos,
+                &self.colors,
+                entity.clone(),
+            ));
+        }
+
+        if !self.toasts.is_empty() {
+            inner = inner.child(super::toasts::render_toasts(
+                &self.toasts,
                 &self.colors,
                 entity.clone(),
             ));
