@@ -202,7 +202,6 @@ impl RepoSession {
         }
     }
 
-    #[allow(dead_code)]
     pub(crate) fn apply_repo_state(&mut self, repo_state_data: RepoState) {
         self.apply_repo_state_to_panels(&repo_state_data);
         if let Some(tab) = self.active_tab_mut() {

@@ -1,5 +1,4 @@
 use gitforge_git::RepoState;
-use gitforge_graph::{CommitEntry, Graph};
 use gpui::*;
 
 use crate::views::app::{GitForgeApp, MainViewMode};
@@ -7,60 +6,6 @@ use crate::views::diff_panel::CommitDiffState;
 use crate::views::status_panel::StatusFileSection;
 
 impl GitForgeApp {
-    pub(crate) fn apply_repo_state_to_panels(&mut self, repo_state_data: &RepoState) {
-        let has_uncommitted = repo_state_data.status.has_changes();
-
-        let commit_count = repo_state_data.commits.len();
-        let start = std::time::Instant::now();
-
-        let commit_entries: Vec<CommitEntry> = repo_state_data
-            .commits
-            .iter()
-            .map(|c| CommitEntry::new(c.id.clone(), c.parent_ids.clone()))
-            .collect();
-        let built_graph = Graph::build(&commit_entries);
-
-        let elapsed = start.elapsed();
-        tracing::info!(
-            "Graph::build: {} commits in {:.2}ms ({:.0} commits/ms)",
-            commit_count,
-            elapsed.as_secs_f64() * 1000.0,
-            commit_count as f64 / elapsed.as_secs_f64().max(0.001) / 1000.0,
-        );
-
-        self.repo_session.graph_panel.set_data(
-            repo_state_data.commits.clone(),
-            repo_state_data.references.clone(),
-            built_graph,
-            has_uncommitted,
-        );
-        let in_history = self.repo_session.view_mode == MainViewMode::CommitHistory;
-        let preserve_staging = in_history && self.repo_session.status_panel.is_graph_staging();
-        self.repo_session
-            .status_panel
-            .set_status(repo_state_data.status.clone(), preserve_staging);
-        self.repo_session.diff_panel.clear();
-
-        if has_uncommitted {
-            self.repo_session.graph_panel.select_uncommitted();
-            if in_history {
-                self.repo_session.status_panel.enter_graph_staging();
-            }
-        } else {
-            self.repo_session.graph_panel.clear_selection();
-        }
-    }
-
-    pub(crate) fn apply_repo_state(&mut self, repo_state_data: RepoState) {
-        self.apply_repo_state_to_panels(&repo_state_data);
-        if let Some(tab) = self.repo_session.active_tab_mut() {
-            tab.path = repo_state_data.path.clone();
-            tab.repo_state = Some(repo_state_data.clone());
-            tab.loading = false;
-            tab.last_error = None;
-        }
-    }
-
     pub fn select_uncommitted(&mut self, cx: &mut Context<Self>) {
         self.repo_session.view_mode = MainViewMode::CommitHistory;
         self.repo_session.graph_panel.select_uncommitted();
@@ -902,7 +847,7 @@ impl GitForgeApp {
             match result {
                 Ok(Ok(repo_state)) => {
                     this.update(cx, |this, cx| {
-                        this.apply_repo_state(repo_state);
+                        this.repo_session.apply_repo_state(repo_state);
                         cx.notify();
                     })
                     .ok();
