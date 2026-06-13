@@ -54,6 +54,62 @@ struct CommitRowRenderData {
     relative_time: SharedString,
 }
 
+struct CommitMessageTooltip {
+    message: SharedString,
+    colors: AppColors,
+}
+
+impl CommitMessageTooltip {
+    fn new(message: SharedString, colors: AppColors) -> Self {
+        Self { message, colors }
+    }
+}
+
+impl Render for CommitMessageTooltip {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        let cl = self.colors.clone();
+        let (summary, body) = match self.message.find("\n\n") {
+            Some(idx) => (
+                self.message[..idx].to_string(),
+                self.message[idx + 2..].trim().to_string(),
+            ),
+            None => (self.message.to_string(), String::new()),
+        };
+        let mut tip = div()
+            .p_2()
+            .max_w(px(440.0))
+            .max_h(px(320.0))
+            .overflow_hidden()
+            .bg(rgba_to_hsla(cl.background))
+            .border_1()
+            .border_color(rgba_to_hsla(cl.border))
+            .rounded(px(6.0))
+            .shadow(vec![BoxShadow {
+                color: black(),
+                offset: point(px(0.0), px(4.0)),
+                blur_radius: px(12.0),
+                spread_radius: px(0.0),
+            }])
+            .child(
+                div()
+                    .text_sm()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(rgba_to_hsla(cl.text))
+                    .child(summary),
+            );
+        if !body.is_empty() {
+            tip = tip.child(
+                div()
+                    .mt_1()
+                    .text_xs()
+                    .text_color(rgba_to_hsla(cl.text_muted))
+                    .child(body),
+            );
+        }
+        tip
+    }
+}
+
 #[derive(Clone)]
 struct CommitGraphDecoration {
     graph: Arc<Graph>,
@@ -548,6 +604,10 @@ impl GraphPanel {
                     let click_entity = list_entity.clone();
                     let ref_pills = render_ref_pills(refs_for_commit, &cl);
 
+                    let has_body = commit.message != commit.summary && !commit.message.is_empty();
+                    let tip_message: SharedString = commit.message.clone().into();
+                    let tip_colors = cl.clone();
+
                     let mut row = div()
                         .id(ElementId::Name(format!("commit-row-{commit_idx}").into()))
                         .px_0()
@@ -605,13 +665,27 @@ impl GraphPanel {
                             .gap_1()
                             .overflow_hidden()
                             .child(ref_pills)
-                            .child(
-                                div()
+                            .child({
+                                let mut desc = div()
                                     .min_w(px(0.0))
                                     .overflow_hidden()
                                     .text_ellipsis()
-                                    .child(summary),
-                            ),
+                                    .id(ElementId::Name(
+                                        format!("commit-desc-{commit_idx}").into(),
+                                    ));
+                                if has_body {
+                                    desc = desc.tooltip(move |_window, cx| {
+                                        cx.new(|_cx| {
+                                            CommitMessageTooltip::new(
+                                                tip_message.clone(),
+                                                tip_colors.clone(),
+                                            )
+                                        })
+                                        .into()
+                                    });
+                                }
+                                desc.child(summary)
+                            }),
                     );
                     if show_author_col {
                         row = row.child(resize_spacer()).child(
