@@ -120,7 +120,8 @@ impl HostingProvider for GitLabProvider {
         let response = client
             .get(format!(
                 "{}/projects?search={}&per_page=30&order_by=updated_at",
-                self.base_url, query
+                self.base_url,
+                http::url_encode_query(query)
             ))
             .send()
             .await?;
@@ -296,7 +297,7 @@ fn json_to_remote_repo(project: &serde_json::Value) -> RemoteRepo {
         clone_url: http_url,
         ssh_url,
         html_url: web_url,
-        is_fork: false,
+        is_fork: project["forked_from_project"].is_object(),
         is_private: project["visibility"].as_str() == Some("private"),
         default_branch: project["default_branch"].as_str().map(|s| s.to_string()),
         stars: project["star_count"].as_u64().unwrap_or(0),

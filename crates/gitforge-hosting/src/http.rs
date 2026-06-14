@@ -14,7 +14,21 @@ pub fn make_client(headers: reqwest::header::HeaderMap) -> reqwest::Client {
         .user_agent("gitforge")
         .default_headers(headers)
         .build()
-        .unwrap_or_default()
+        .expect("reqwest client build only fails for invalid builder config; user-agent 'gitforge' and pre-parsed headers are always valid")
+}
+
+/// Percent-encode a free-form string for use as a single URL query-parameter
+/// value. Encodes the characters that would otherwise alter query structure
+/// (`&`, `=`, `#`, `?`), the `+`/space ambiguity, and `%` itself (encoded
+/// first to avoid double-escaping).
+pub fn url_encode_query(s: &str) -> String {
+    s.replace('%', "%25")
+        .replace('&', "%26")
+        .replace('=', "%3D")
+        .replace('#', "%23")
+        .replace('?', "%3F")
+        .replace('+', "%2B")
+        .replace(' ', "%20")
 }
 
 /// Returns `Ok(response)` on 2xx, otherwise reads the body and bails with a
