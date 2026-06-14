@@ -1,5 +1,9 @@
 use gitforge_hosting::RemoteRepo;
-use gitforge_ui::{AppColors, rgba_to_hsla};
+use gitforge_ui::{
+    AppColors, TextInput, TextInputEvent, TextInputMode, TextInputRenderOpts, parse_key_event,
+    render_text_input,
+    rgba_to_hsla,
+};
 use gpui::*;
 
 use super::app::GitForgeApp;
@@ -25,8 +29,8 @@ pub struct CreatePrState {
     pub from_branch: String,
     pub to_repo: String,
     pub to_branch: String,
-    pub title: String,
-    pub description: String,
+    pub title_input: TextInput,
+    pub description_input: TextInput,
     pub draft: bool,
     pub repos: Vec<RemoteRepo>,
     pub from_branches: Vec<String>,
@@ -37,8 +41,6 @@ pub struct CreatePrState {
     pub generating_ai: bool,
     pub open_dropdown: CreatePrDropdown,
     pub active_field: CreatePrActiveField,
-    pub title_focus: FocusHandle,
-    pub description_focus: FocusHandle,
 }
 
 impl CreatePrState {
@@ -49,8 +51,9 @@ impl CreatePrState {
             from_branch: String::new(),
             to_repo: String::new(),
             to_branch: String::new(),
-            title: String::new(),
-            description: String::new(),
+            title_input: TextInput::new("Pull request title", cx),
+            description_input: TextInput::new("Pull request description", cx)
+                .with_mode(TextInputMode::MULTILINE),
             draft: false,
             repos: Vec::new(),
             from_branches: Vec::new(),
@@ -61,8 +64,6 @@ impl CreatePrState {
             generating_ai: false,
             open_dropdown: CreatePrDropdown::None,
             active_field: CreatePrActiveField::Title,
-            title_focus: cx.focus_handle(),
-            description_focus: cx.focus_handle(),
         }
     }
 
@@ -75,7 +76,7 @@ impl CreatePrState {
     }
 
     pub fn can_submit(&self) -> bool {
-        !self.title.trim().is_empty()
+        !self.title_input.text().trim().is_empty()
             && !self.from_repo.is_empty()
             && !self.to_repo.is_empty()
             && !self.from_branch.is_empty()
@@ -137,48 +138,94 @@ pub fn render_create_pr_overlay(
         );
     }
 
-    let title_focused = state.title_focus.is_focused(window);
-    let desc_focused = state.description_focus.is_focused(window);
-
-    let title_display = if state.title.is_empty() && !title_focused {
-        "Pull request title".to_string()
-    } else {
-        let mut t = state.title.clone();
-        if title_focused {
-            t.push('\u{2502}');
+    let title_field = render_text_input(
+        &state.title_input,
+        colors,
+        window,
+        &TextInputRenderOpts::new(ElementId::Name("create-pr-title".into()))
+            .background(rgba_to_hsla(colors.background)),
+        |_| {},
+    )
+    .on_key_down({
+        let ent_title = entity.clone();
+        let ent_title2 = entity.clone();
+        let ent_title3 = entity.clone();
+        let fh_desc = state.description_input.focus_handle().clone();
+        move |ev, window, cx| {
+            match parse_key_event(ev) {
+                TextInputEvent::Escape => {
+                    if let Some(e) = ent_title.upgrade() {
+                        e.update(cx, |this, cx| this.cancel_create_pr_dialog(cx));
+                    }
+                }
+                TextInputEvent::Enter { .. } => {
+                    window.focus(&fh_desc);
+                    if let Some(e) = ent_title2.upgrade() {
+                        e.update(cx, |this, cx| {
+                            this.create_pr.active_field = CreatePrActiveField::Description;
+                            cx.notify();
+                        });
+                    }
+                }
+                TextInputEvent::Backspace => {
+                    if let Some(e) = ent_title3.upgrade() {
+                        e.update(cx, |this, cx| this.edit_create_pr_title(None, cx));
+                    }
+                }
+                TextInputEvent::Typed(c) => {
+                    if let Some(e) = ent_title3.upgrade() {
+                        e.update(cx, |this, cx| this.edit_create_pr_title(Some(&c), cx));
+                    }
+                }
+                _ => {}
+            }
         }
-        t
-    };
-    let title_color = if state.title.is_empty() && !title_focused {
-        muted
-    } else {
-        text_color
-    };
+    });
 
-    let desc_display = if state.description.is_empty() && !desc_focused {
-        "Pull request description".to_string()
-    } else {
-        let mut t = state.description.clone();
-        if desc_focused {
-            t.push('\u{2502}');
+    let description_field = render_text_input(
+        &state.description_input,
+        colors,
+        window,
+        &TextInputRenderOpts::new(ElementId::Name("create-pr-description".into()))
+            .min_h(px(96.0))
+            .max_h(px(200.0))
+            .overflow_y_scroll()
+            .overflow_x_hidden()
+            .background(rgba_to_hsla(colors.background)),
+        |_| {},
+    )
+    .on_key_down({
+        let ent_desc = entity.clone();
+        let ent_desc2 = entity.clone();
+        let ent_desc3 = entity.clone();
+        move |ev, _window, cx| {
+            match parse_key_event(ev) {
+                TextInputEvent::Escape => {
+                    if let Some(e) = ent_desc.upgrade() {
+                        e.update(cx, |this, cx| this.cancel_create_pr_dialog(cx));
+                    }
+                }
+                TextInputEvent::Backspace => {
+                    if let Some(e) = ent_desc2.upgrade() {
+                        e.update(cx, |this, cx| this.edit_create_pr_description(None, cx));
+                    }
+                }
+                TextInputEvent::Typed(c) => {
+                    if let Some(e) = ent_desc3.upgrade() {
+                        e.update(cx, |this, cx| this.edit_create_pr_description(Some(&c), cx));
+                    }
+                }
+                TextInputEvent::Enter { .. } => {
+                    if let Some(e) = ent_desc3.upgrade() {
+                        e.update(cx, |this, cx| {
+                            this.edit_create_pr_description(Some("\n"), cx);
+                        });
+                    }
+                }
+                _ => {}
+            }
         }
-        t
-    };
-    let desc_color = if state.description.is_empty() && !desc_focused {
-        muted
-    } else {
-        text_color
-    };
-
-    let ent_title = entity.clone();
-    let ent_title2 = entity.clone();
-    let ent_title3 = entity.clone();
-    let ent_desc = entity.clone();
-    let ent_desc2 = entity.clone();
-    let ent_desc3 = entity.clone();
-    let fh_title = state.title_focus.clone();
-    let fh_desc = state.description_focus.clone();
-    let fh_desc_for_title = state.description_focus.clone();
+    });
 
     let from_repo_label = if state.from_repo.is_empty() {
         "Select...".to_string()
@@ -395,133 +442,14 @@ pub fn render_create_pr_overlay(
                         }),
                 ),
         )
-        .child(
-            div()
-                .id(ElementId::Name("create-pr-title".into()))
-                .track_focus(&fh_title)
-                .px_2()
-                .py_1()
-                .border_1()
-                .border_color(if title_focused { accent } else { border })
-                .rounded(px(3.0))
-                .bg(rgba_to_hsla(colors.background))
-                .cursor_pointer()
-                .on_click(move |_ev, window, _cx| {
-                    window.focus(&fh_title);
-                })
-                .on_key_down(move |ev: &KeyDownEvent, window, cx| {
-                    match ev.keystroke.key.as_str() {
-                        "escape" => {
-                            if let Some(e) = ent_title.upgrade() {
-                                e.update(cx, |this, cx| {
-                                    this.cancel_create_pr_dialog(cx);
-                                });
-                            }
-                        }
-                        "enter" => {
-                            window.focus(&fh_desc_for_title);
-                            if let Some(e) = ent_title2.upgrade() {
-                                e.update(cx, |this, cx| {
-                                    this.create_pr.active_field = CreatePrActiveField::Description;
-                                    cx.notify();
-                                });
-                            }
-                        }
-                        "backspace" => {
-                            if let Some(e) = ent_title3.upgrade() {
-                                e.update(cx, |this, cx| {
-                                    this.edit_create_pr_title(None, cx);
-                                });
-                            }
-                        }
-                        _ => {
-                            if let Some(ch) = ev.keystroke.key_char.clone() {
-                                if !ev.keystroke.modifiers.platform
-                                    && !ev.keystroke.modifiers.control
-                                    && !ev.keystroke.modifiers.alt
-                                {
-                                    if let Some(e) = ent_title3.upgrade() {
-                                        let c = ch;
-                                        e.update(cx, |this, cx| {
-                                            this.edit_create_pr_title(Some(&c), cx);
-                                        });
-                                    }
-                                }
-                            }
-                        }
-                    }
-                })
-                .child(
-                    div()
-                        .text_sm()
-                        .text_color(title_color)
-                        .child(title_display),
-                ),
-        )
+        .child(title_field)
         .child(
             div()
                 .text_xs()
                 .text_color(muted)
                 .child("Description"),
         )
-        .child(
-            div()
-                .id(ElementId::Name("create-pr-description".into()))
-                .track_focus(&fh_desc)
-                .px_2()
-                .py_1()
-                .min_h(px(96.0))
-                .max_h(px(200.0))
-                .overflow_y_scroll()
-                .overflow_x_hidden()
-                .border_1()
-                .border_color(if desc_focused { accent } else { border })
-                .rounded(px(3.0))
-                .bg(rgba_to_hsla(colors.background))
-                .cursor_pointer()
-                .on_click(move |_ev, window, _cx| {
-                    window.focus(&fh_desc);
-                })
-                .on_key_down(move |ev: &KeyDownEvent, _window, cx| {
-                    match ev.keystroke.key.as_str() {
-                        "escape" => {
-                            if let Some(e) = ent_desc.upgrade() {
-                                e.update(cx, |this, cx| {
-                                    this.cancel_create_pr_dialog(cx);
-                                });
-                            }
-                        }
-                        "backspace" => {
-                            if let Some(e) = ent_desc2.upgrade() {
-                                e.update(cx, |this, cx| {
-                                    this.edit_create_pr_description(None, cx);
-                                });
-                            }
-                        }
-                        _ => {
-                            if let Some(ch) = ev.keystroke.key_char.clone() {
-                                if !ev.keystroke.modifiers.platform
-                                    && !ev.keystroke.modifiers.control
-                                    && !ev.keystroke.modifiers.alt
-                                {
-                                    if let Some(e) = ent_desc3.upgrade() {
-                                        let c = ch;
-                                        e.update(cx, |this, cx| {
-                                            this.edit_create_pr_description(Some(&c), cx);
-                                        });
-                                    }
-                                }
-                            }
-                        }
-                    }
-                })
-                .child(
-                    div()
-                        .text_sm()
-                        .text_color(desc_color)
-                        .child(desc_display),
-                ),
-        )
+        .child(description_field)
         .child(
             div()
                 .id("create-pr-draft")

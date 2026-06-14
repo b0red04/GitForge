@@ -175,8 +175,8 @@ impl GitForgeApp {
         self.create_pr.from_branch = from_branch;
         self.create_pr.to_repo = full_name;
         self.create_pr.to_branch = to_branch;
-        self.create_pr.title.clear();
-        self.create_pr.description.clear();
+        self.create_pr.title_input.clear();
+        self.create_pr.description_input.clear();
         self.create_pr.draft = false;
         self.create_pr.open_dropdown = CreatePrDropdown::None;
         self.create_pr.reset();
@@ -192,8 +192,8 @@ impl GitForgeApp {
     pub fn cancel_create_pr_dialog(&mut self, cx: &mut Context<Self>) {
         self.active_dialog = AppDialog::None;
         self.create_pr.reset();
-        self.create_pr.title.clear();
-        self.create_pr.description.clear();
+        self.create_pr.title_input.clear();
+        self.create_pr.description_input.clear();
         cx.notify();
     }
 
@@ -248,22 +248,12 @@ impl GitForgeApp {
     }
 
     pub fn edit_create_pr_title(&mut self, typed_char: Option<&str>, cx: &mut Context<Self>) {
-        match typed_char {
-            Some(ch) => self.create_pr.title.push_str(ch),
-            None => {
-                self.create_pr.title.pop();
-            }
-        }
+        self.create_pr.title_input.edit(typed_char);
         cx.notify();
     }
 
     pub fn edit_create_pr_description(&mut self, typed_char: Option<&str>, cx: &mut Context<Self>) {
-        match typed_char {
-            Some(ch) => self.create_pr.description.push_str(ch),
-            None => {
-                self.create_pr.description.pop();
-            }
-        }
+        self.create_pr.description_input.edit(typed_char);
         cx.notify();
     }
 
@@ -522,8 +512,8 @@ impl GitForgeApp {
                 Ok((title, body)) => {
                     this.update(cx, |this, cx| {
                         this.create_pr.generating_ai = false;
-                        this.create_pr.title = title;
-                        this.create_pr.description = body;
+                        this.create_pr.title_input.set_text(title);
+                        this.create_pr.description_input.set_text(body);
                         cx.notify();
                     })
                     .ok();
@@ -542,7 +532,7 @@ impl GitForgeApp {
     }
 
     pub fn submit_create_pr(&mut self, cx: &mut Context<Self>) {
-        if self.create_pr.title.trim().is_empty() {
+        if self.create_pr.title_input.text().trim().is_empty() {
             self.push_toast(
                 crate::views::toasts::ToastKind::Warning,
                 "A title is required to create a pull request",
@@ -598,8 +588,8 @@ impl GitForgeApp {
         let req = CreatePullRequestRequest {
             owner: to_owner.to_string(),
             repo: to_repo.to_string(),
-            title: self.create_pr.title.trim().to_string(),
-            body: self.create_pr.description.clone(),
+            title: self.create_pr.title_input.text().trim().to_string(),
+            body: self.create_pr.description_input.text().to_string(),
             head_owner,
             head_branch: self.create_pr.from_branch.clone(),
             base_branch: self.create_pr.to_branch.clone(),

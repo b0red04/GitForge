@@ -1,5 +1,8 @@
 use gitforge_git::{RefInfo, RefKind, RepoState, WorktreeInfo};
-use gitforge_ui::{AppColors, rgba_to_hsla};
+use gitforge_ui::{
+    AppColors, TextInput, TextInputEvent, TextInputRenderOpts, parse_key_event, render_text_input,
+    rgba_to_hsla,
+};
 use gpui::*;
 use std::collections::HashSet;
 
@@ -26,8 +29,7 @@ pub struct SidebarState {
     pub worktrees_expanded: bool,
     pub pull_requests_expanded: bool,
     pub expanded_remotes: HashSet<String>,
-    pub search_filter: String,
-    pub filter_focus: FocusHandle,
+    pub filter_input: TextInput,
     pub context_menu: ContextMenuAction,
     pub context_menu_pos: (f32, f32),
 }
@@ -41,8 +43,7 @@ impl SidebarState {
             worktrees_expanded: true,
             pull_requests_expanded: true,
             expanded_remotes: HashSet::new(),
-            search_filter: String::new(),
-            filter_focus: cx.focus_handle(),
+            filter_input: TextInput::new("Filter...", cx),
             context_menu: ContextMenuAction::None,
             context_menu_pos: (0.0, 0.0),
         }
@@ -115,7 +116,7 @@ pub fn render_sidebar(
 
     match repo_state {
         Some(repo) => {
-            let filter = state.search_filter.to_lowercase();
+            let filter = state.filter_input.text().to_lowercase();
 
             let branches: Vec<&RefInfo> = repo
                 .references
@@ -138,8 +139,7 @@ pub fn render_sidebar(
 
             sidebar = sidebar.child(render_search_bar(
                 colors,
-                &state.search_filter,
-                &state.filter_focus,
+                &state.filter_input,
                 entity.clone(),
                 window,
             ));
@@ -302,8 +302,7 @@ pub fn render_sidebar(
         None => {
             sidebar = sidebar.child(render_search_bar(
                 colors,
-                &state.search_filter,
-                &state.filter_focus,
+                &state.filter_input,
                 entity.clone(),
                 window,
             ));
@@ -433,100 +432,43 @@ pub fn render_sidebar(
 
 fn render_search_bar(
     colors: &AppColors,
-    current_value: &str,
-    focus_handle: &FocusHandle,
+    filter_input: &TextInput,
     entity: WeakEntity<super::app::GitForgeApp>,
     window: &mut Window,
-) -> Stateful<Div> {
+) -> impl IntoElement {
     let border = rgba_to_hsla(colors.border);
-    let muted = rgba_to_hsla(colors.text_muted);
     let surface = rgba_to_hsla(colors.surface);
-    let text_color = rgba_to_hsla(colors.text);
-    let is_focused = focus_handle.is_focused(window);
-
-    let display_text = if current_value.is_empty() && !is_focused {
-        String::from("Filter...")
-    } else {
-        let mut t = current_value.to_string();
-        if is_focused {
-            t.push('\u{2502}');
-        }
-        t
-    };
-    let display_color = if current_value.is_empty() && !is_focused {
-        muted
-    } else {
-        text_color
-    };
-
     let ent = entity.clone();
-    let border_color = if is_focused {
-        rgba_to_hsla(colors.accent)
-    } else {
-        border
-    };
-    let fh = focus_handle.clone();
+    let opts = TextInputRenderOpts::new(ElementId::Name("sidebar-filter".into()))
+        .text_xs()
+        .background(surface);
+
+    let input = render_text_input(
+        filter_input,
+        colors,
+        window,
+        &opts,
+        |_| {},
+    )
+    .on_key_down(move |ev, _window, cx| {
+        if let Some(e) = ent.upgrade() {
+            e.update(cx, |this, cx| {
+                match parse_key_event(ev) {
+                    TextInputEvent::Backspace => this.update_sidebar_filter(None, cx),
+                    TextInputEvent::Escape => this.clear_sidebar_filter(cx),
+                    TextInputEvent::Typed(c) => this.update_sidebar_filter(Some(&c), cx),
+                    _ => {}
+                }
+            });
+        }
+    });
 
     div()
-        .id(ElementId::Name("sidebar-filter".into()))
-        .track_focus(focus_handle)
         .px_2()
         .py_1()
         .border_b_1()
         .border_color(border)
-        .on_click(move |_ev, window, _cx| {
-            window.focus(&fh);
-        })
-        .on_key_down(move |ev: &KeyDownEvent, _window, cx| {
-            let key = &ev.keystroke.key;
-            match key.as_str() {
-                "backspace" => {
-                    if let Some(e) = ent.upgrade() {
-                        e.update(cx, |this, cx| {
-                            this.update_sidebar_filter(None, cx);
-                        });
-                    }
-                }
-                "escape" => {
-                    if let Some(e) = ent.upgrade() {
-                        e.update(cx, |this, cx| {
-                            this.clear_sidebar_filter(cx);
-                        });
-                    }
-                }
-                _ => {
-                    let ch = ev.keystroke.key_char.clone();
-                    if let Some(typed) = ch {
-                        if !ev.keystroke.modifiers.platform {
-                            if let Some(e) = ent.upgrade() {
-                                let c = typed;
-                                e.update(cx, |this, cx| {
-                                    this.update_sidebar_filter(Some(&c), cx);
-                                });
-                            }
-                        }
-                    }
-                }
-            }
-        })
-        .child(
-            div()
-                .w_full()
-                .px_2()
-                .py_1()
-                .rounded(px(3.0))
-                .border_1()
-                .border_color(border_color)
-                .bg(surface)
-                .flex()
-                .items_center()
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(display_color)
-                        .child(display_text),
-                ),
-        )
+        .child(input)
 }
 
 #[allow(dead_code)]

@@ -1,4 +1,7 @@
-use gitforge_ui::{AppColors, rgba_to_hsla};
+use gitforge_ui::{
+    AppColors, TextInput, TextInputEvent, TextInputRenderOpts, parse_key_event, render_text_input,
+    rgba_to_hsla,
+};
 use gpui::*;
 
 use crate::views::app::{AppDialog, GitForgeApp};
@@ -19,10 +22,9 @@ fn dialog_overlay_root(overlay_bg: Hsla) -> Stateful<Div> {
 
 pub(crate) fn render_dialog_overlay(
     dialog: &AppDialog,
-    input_value: &str,
-    input_value_2: &str,
+    dialog_input: &TextInput,
+    dialog_input_2: &TextInput,
     dialog_force: bool,
-    input_focus: &FocusHandle,
     colors: &AppColors,
     entity: WeakEntity<GitForgeApp>,
     window: &mut Window,
@@ -34,7 +36,7 @@ pub(crate) fn render_dialog_overlay(
     let surface = rgba_to_hsla(colors.surface);
     let border = rgba_to_hsla(colors.border);
     let text_color = rgba_to_hsla(colors.text);
-    let accent = rgba_to_hsla(colors.accent);
+    let _accent = rgba_to_hsla(colors.accent);
     let muted = rgba_to_hsla(colors.text_muted);
     let warning = rgba_to_hsla(colors.warning);
 
@@ -70,7 +72,7 @@ pub(crate) fn render_dialog_overlay(
                 dialog_force,
                 colors,
                 entity,
-                input_focus,
+                dialog_input.focus_handle(),
             );
         }
         AppDialog::CreateTag { .. } => "Tag name",
@@ -89,9 +91,8 @@ pub(crate) fn render_dialog_overlay(
         }
         AppDialog::CreateWorktree => {
             return render_create_worktree_overlay(
-                input_value,
-                input_value_2,
-                input_focus,
+                dialog_input,
+                dialog_input_2,
                 colors,
                 entity,
                 window,
@@ -108,8 +109,6 @@ pub(crate) fn render_dialog_overlay(
     if matches!(dialog, AppDialog::CloneFromHosting { .. }) {
         return render_hosting_repos_overlay(
             dialog,
-            input_value,
-            input_focus,
             colors,
             entity,
             window,
@@ -118,11 +117,11 @@ pub(crate) fn render_dialog_overlay(
         );
     }
 
-    if matches!(dialog, AppDialog::SearchHosting { .. }) {
+    if matches!(dialog, AppDialog::SearchHosting { .. })
+        && (hosting_repos_loading || !hosting_repos.is_empty())
+    {
         return render_hosting_repos_overlay(
             dialog,
-            input_value,
-            input_focus,
             colors,
             entity,
             window,
@@ -130,30 +129,50 @@ pub(crate) fn render_dialog_overlay(
             hosting_repos_loading,
         );
     }
-
-    let is_focused = input_focus.is_focused(window);
-    let display_text = if input_value.is_empty() && !is_focused {
-        placeholder.to_string()
-    } else {
-        let mut t = input_value.to_string();
-        if is_focused {
-            t.push('\u{2502}');
-        }
-        t
-    };
-    let display_color = if input_value.is_empty() && !is_focused {
-        muted
-    } else {
-        text_color
-    };
-    let border_focus_color = if is_focused { accent } else { border };
 
     let ent_cancel = entity.clone();
     let ent_cancel2 = entity.clone();
     let ent_confirm = entity.clone();
     let ent_confirm2 = entity.clone();
     let ent_input = entity.clone();
-    let fh = input_focus.clone();
+
+    let input_opts = TextInputRenderOpts::new(ElementId::Name("dialog-input".into()))
+        .placeholder(placeholder);
+
+    let dialog_input_field = render_text_input(
+        dialog_input,
+        colors,
+        window,
+        &input_opts,
+        |_| {},
+    )
+    .on_key_down({
+        let ent_confirm = ent_confirm.clone();
+        let ent_cancel = ent_cancel.clone();
+        let ent_input = ent_input.clone();
+        move |ev, _window, cx| {
+            if let Some(e) = ent_confirm.upgrade() {
+                e.update(cx, |this, cx| match parse_key_event(ev) {
+                    TextInputEvent::Enter { .. } => this.confirm_dialog(cx),
+                    TextInputEvent::Escape => this.cancel_dialog(cx),
+                    TextInputEvent::Backspace => this.edit_dialog_input(None, cx),
+                    TextInputEvent::Typed(c) => this.edit_dialog_input(Some(&c), cx),
+                    _ => {}
+                });
+            } else if let Some(e) = ent_cancel.upgrade() {
+                e.update(cx, |this, cx| match parse_key_event(ev) {
+                    TextInputEvent::Escape => this.cancel_dialog(cx),
+                    _ => {}
+                });
+            } else if let Some(e) = ent_input.upgrade() {
+                e.update(cx, |this, cx| match parse_key_event(ev) {
+                    TextInputEvent::Backspace => this.edit_dialog_input(None, cx),
+                    TextInputEvent::Typed(c) => this.edit_dialog_input(Some(&c), cx),
+                    _ => {}
+                });
+            }
+        }
+    });
 
     let mut dialog_box = div()
         .id("dialog-box")
@@ -174,66 +193,7 @@ pub(crate) fn render_dialog_overlay(
                 .child(title.to_string()),
         );
 
-    dialog_box = dialog_box
-        .child(
-            div()
-                .id(ElementId::Name("dialog-input".into()))
-                .track_focus(&fh)
-                .px_2()
-                .py_1()
-                .border_1()
-                .border_color(border_focus_color)
-                .rounded(px(3.0))
-                .bg(rgba_to_hsla(colors.background))
-                .cursor_pointer()
-                .on_click(move |_ev, window, _cx| {
-                    window.focus(&fh);
-                })
-                .on_key_down(move |ev: &KeyDownEvent, _window, cx| {
-                    let key = &ev.keystroke.key;
-                    match key.as_str() {
-                        "enter" => {
-                            if let Some(e) = ent_confirm.upgrade() {
-                                e.update(cx, |this, cx| {
-                                    this.confirm_dialog(cx);
-                                });
-                            }
-                        }
-                        "escape" => {
-                            if let Some(e) = ent_cancel.upgrade() {
-                                e.update(cx, |this, cx| {
-                                    this.cancel_dialog(cx);
-                                });
-                            }
-                        }
-                        "backspace" => {
-                            if let Some(e) = ent_input.upgrade() {
-                                e.update(cx, |this, cx| {
-                                    this.edit_dialog_input(None, cx);
-                                });
-                            }
-                        }
-                        _ => {
-                            if let Some(ch) = ev.keystroke.key_char.clone() {
-                                if !ev.keystroke.modifiers.platform {
-                                    if let Some(e) = ent_input.upgrade() {
-                                        let c = ch;
-                                        e.update(cx, |this, cx| {
-                                            this.edit_dialog_input(Some(&c), cx);
-                                        });
-                                    }
-                                }
-                            }
-                        }
-                    }
-                })
-                .child(
-                    div()
-                        .text_sm()
-                        .text_color(display_color)
-                        .child(display_text),
-                ),
-        )
+    dialog_box = dialog_box.child(dialog_input_field)
         .child(
             div()
                 .flex()
@@ -286,8 +246,6 @@ pub(crate) fn render_dialog_overlay(
 
 fn render_hosting_repos_overlay(
     dialog: &AppDialog,
-    _input_value: &str,
-    _input_focus: &FocusHandle,
     colors: &AppColors,
     entity: WeakEntity<GitForgeApp>,
     _window: &mut Window,
@@ -705,9 +663,8 @@ fn render_delete_branch_overlay(
 }
 
 fn render_create_worktree_overlay(
-    input_value: &str,
-    input_value_2: &str,
-    input_focus: &FocusHandle,
+    dialog_input: &TextInput,
+    dialog_input_2: &TextInput,
     colors: &AppColors,
     entity: WeakEntity<GitForgeApp>,
     window: &mut Window,
@@ -716,38 +673,8 @@ fn render_create_worktree_overlay(
     let surface = rgba_to_hsla(colors.surface);
     let border = rgba_to_hsla(colors.border);
     let text_color = rgba_to_hsla(colors.text);
-    let accent = rgba_to_hsla(colors.accent);
     let muted = rgba_to_hsla(colors.text_muted);
     let warning = rgba_to_hsla(colors.warning);
-
-    let fh = input_focus.clone();
-    let is_focused = input_focus.is_focused(window);
-    let display_text = if input_value.is_empty() && !is_focused {
-        "Directory path (relative or absolute)".to_string()
-    } else {
-        let mut t = input_value.to_string();
-        if is_focused {
-            t.push('\u{2502}');
-        }
-        t
-    };
-    let display_color = if input_value.is_empty() && !is_focused {
-        muted
-    } else {
-        text_color
-    };
-    let border_focus = if is_focused { accent } else { border };
-
-    let display_text_2 = if input_value_2.is_empty() {
-        "Branch/tag/commit (optional)".to_string()
-    } else {
-        input_value_2.to_string()
-    };
-    let display_color_2 = if input_value_2.is_empty() {
-        muted
-    } else {
-        text_color
-    };
 
     let ent_cancel = entity.clone();
     let ent_cancel2 = entity.clone();
@@ -755,10 +682,78 @@ fn render_create_worktree_overlay(
     let ent_confirm = entity.clone();
     let ent_confirm2 = entity.clone();
     let ent_confirm3 = entity.clone();
-    let ent_input = entity.clone();
-    let ent_input2 = entity.clone();
-    let fh1 = fh.clone();
-    let fh2 = fh.clone();
+
+    let path_field = render_text_input(
+        dialog_input,
+        colors,
+        window,
+        &TextInputRenderOpts::new(ElementId::Name("dialog-input".into()))
+            .placeholder("Directory path (relative or absolute)"),
+        |_| {},
+    )
+    .on_key_down({
+        let ent_confirm = ent_confirm.clone();
+        let ent_cancel = ent_cancel.clone();
+        let ent_input = entity.clone();
+        move |ev, _window, cx| {
+            if let Some(e) = ent_confirm.upgrade() {
+                e.update(cx, |this, cx| match parse_key_event(ev) {
+                    TextInputEvent::Enter { .. } => this.confirm_dialog(cx),
+                    TextInputEvent::Escape => this.cancel_dialog(cx),
+                    TextInputEvent::Backspace => this.edit_dialog_input(None, cx),
+                    TextInputEvent::Typed(c) => this.edit_dialog_input(Some(&c), cx),
+                    _ => {}
+                });
+            } else if let Some(e) = ent_cancel.upgrade() {
+                e.update(cx, |this, cx| match parse_key_event(ev) {
+                    TextInputEvent::Escape => this.cancel_dialog(cx),
+                    _ => {}
+                });
+            } else if let Some(e) = ent_input.upgrade() {
+                e.update(cx, |this, cx| match parse_key_event(ev) {
+                    TextInputEvent::Backspace => this.edit_dialog_input(None, cx),
+                    TextInputEvent::Typed(c) => this.edit_dialog_input(Some(&c), cx),
+                    _ => {}
+                });
+            }
+        }
+    });
+
+    let ref_field = render_text_input(
+        dialog_input_2,
+        colors,
+        window,
+        &TextInputRenderOpts::new(ElementId::Name("dialog-input-2".into()))
+            .placeholder("Branch/tag/commit (optional)"),
+        |_| {},
+    )
+    .on_key_down({
+        let ent_confirm = ent_confirm2.clone();
+        let ent_cancel = ent_cancel2.clone();
+        let ent_input = entity.clone();
+        move |ev, _window, cx| {
+            if let Some(e) = ent_confirm.upgrade() {
+                e.update(cx, |this, cx| match parse_key_event(ev) {
+                    TextInputEvent::Enter { .. } => this.confirm_dialog(cx),
+                    TextInputEvent::Escape => this.cancel_dialog(cx),
+                    TextInputEvent::Backspace => this.edit_dialog_input_2(None, cx),
+                    TextInputEvent::Typed(c) => this.edit_dialog_input_2(Some(&c), cx),
+                    _ => {}
+                });
+            } else if let Some(e) = ent_cancel.upgrade() {
+                e.update(cx, |this, cx| match parse_key_event(ev) {
+                    TextInputEvent::Escape => this.cancel_dialog(cx),
+                    _ => {}
+                });
+            } else if let Some(e) = ent_input.upgrade() {
+                e.update(cx, |this, cx| match parse_key_event(ev) {
+                    TextInputEvent::Backspace => this.edit_dialog_input_2(None, cx),
+                    TextInputEvent::Typed(c) => this.edit_dialog_input_2(Some(&c), cx),
+                    _ => {}
+                });
+            }
+        }
+    });
 
     let dialog_box = div()
         .id("dialog-box")
@@ -779,130 +774,14 @@ fn render_create_worktree_overlay(
                 .child("Create Worktree"),
         )
         .child(div().text_xs().text_color(muted).child("Target directory:"))
-        .child(
-            div()
-                .id(ElementId::Name("dialog-input".into()))
-                .track_focus(&fh1)
-                .px_2()
-                .py_1()
-                .border_1()
-                .border_color(border_focus)
-                .rounded(px(3.0))
-                .bg(rgba_to_hsla(colors.background))
-                .cursor_pointer()
-                .on_click(move |_ev, window, _cx| {
-                    window.focus(&fh1);
-                })
-                .on_key_down(move |ev: &KeyDownEvent, _window, cx| {
-                    match ev.keystroke.key.as_str() {
-                        "enter" => {
-                            if let Some(e) = ent_confirm.upgrade() {
-                                e.update(cx, |this, cx| {
-                                    this.confirm_dialog(cx);
-                                });
-                            }
-                        }
-                        "escape" => {
-                            if let Some(e) = ent_cancel.upgrade() {
-                                e.update(cx, |this, cx| {
-                                    this.cancel_dialog(cx);
-                                });
-                            }
-                        }
-                        "backspace" => {
-                            if let Some(e) = ent_input.upgrade() {
-                                e.update(cx, |this, cx| {
-                                    this.edit_dialog_input(None, cx);
-                                });
-                            }
-                        }
-                        _ => {
-                            if let Some(ch) = ev.keystroke.key_char.clone() {
-                                if !ev.keystroke.modifiers.platform {
-                                    if let Some(e) = ent_input.upgrade() {
-                                        let c = ch;
-                                        e.update(cx, |this, cx| {
-                                            this.edit_dialog_input(Some(&c), cx);
-                                        });
-                                    }
-                                }
-                            }
-                        }
-                    }
-                })
-                .child(
-                    div()
-                        .text_sm()
-                        .text_color(display_color)
-                        .child(display_text),
-                ),
-        )
+        .child(path_field)
         .child(
             div()
                 .text_xs()
                 .text_color(muted)
                 .child("Checkout ref (branch, tag, or commit):"),
         )
-        .child(
-            div()
-                .id(ElementId::Name("dialog-input-2".into()))
-                .track_focus(&fh2)
-                .px_2()
-                .py_1()
-                .border_1()
-                .border_color(border)
-                .rounded(px(3.0))
-                .bg(rgba_to_hsla(colors.background))
-                .cursor_pointer()
-                .on_click(move |_ev, window, _cx| {
-                    window.focus(&fh2);
-                })
-                .on_key_down(move |ev: &KeyDownEvent, _window, cx| {
-                    match ev.keystroke.key.as_str() {
-                        "enter" => {
-                            if let Some(e) = ent_confirm2.upgrade() {
-                                e.update(cx, |this, cx| {
-                                    this.confirm_dialog(cx);
-                                });
-                            }
-                        }
-                        "escape" => {
-                            if let Some(e) = ent_cancel2.upgrade() {
-                                e.update(cx, |this, cx| {
-                                    this.cancel_dialog(cx);
-                                });
-                            }
-                        }
-                        "backspace" => {
-                            if let Some(e) = ent_input2.upgrade() {
-                                e.update(cx, |this, cx| {
-                                    this.dialog_input_2.pop();
-                                    cx.notify();
-                                });
-                            }
-                        }
-                        _ => {
-                            if let Some(ch) = ev.keystroke.key_char.clone() {
-                                if !ev.keystroke.modifiers.platform {
-                                    if let Some(e) = ent_input2.upgrade() {
-                                        let c = ch;
-                                        e.update(cx, |this, cx| {
-                                            this.dialog_input_2.push_str(&c);
-                                            cx.notify();
-                                        });
-                                    }
-                                }
-                            }
-                        }
-                    }
-                })
-                .child(
-                    div()
-                        .text_sm()
-                        .text_color(display_color_2)
-                        .child(display_text_2),
-                ),
-        )
+        .child(ref_field)
         .child(
             div()
                 .flex()

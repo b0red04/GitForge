@@ -49,22 +49,34 @@ impl GitForgeApp {
         self.dialog_input.clear();
         self.dialog_input_2.clear();
         self.dialog_force = false;
+        self.hosting_repos.clear();
+        self.hosting_repos_loading = false;
         cx.notify();
     }
 
     pub fn edit_dialog_input(&mut self, typed_char: Option<&str>, cx: &mut Context<Self>) {
-        match typed_char {
-            Some(ch) => self.dialog_input.push_str(ch),
-            None => {
-                self.dialog_input.pop();
-            }
-        }
+        self.dialog_input.edit(typed_char);
+        cx.notify();
+    }
+
+    pub fn edit_dialog_input_2(&mut self, typed_char: Option<&str>, cx: &mut Context<Self>) {
+        self.dialog_input_2.edit(typed_char);
         cx.notify();
     }
 
     pub fn confirm_dialog(&mut self, cx: &mut Context<Self>) {
-        let input = self.dialog_input.trim().to_string();
-        let input_2 = self.dialog_input_2.trim().to_string();
+        if let AppDialog::SearchHosting { provider } = self.active_dialog.clone() {
+            let input = self.dialog_input.text().trim().to_string();
+            if input.is_empty() {
+                return;
+            }
+            self.dialog_input.clear();
+            self.search_hosting_repos(input, provider, cx);
+            return;
+        }
+
+        let input = self.dialog_input.text().trim().to_string();
+        let input_2 = self.dialog_input_2.text().trim().to_string();
         let dialog_force = self.dialog_force;
         let dialog = self.active_dialog.clone();
         self.active_dialog = AppDialog::None;
@@ -167,12 +179,7 @@ impl GitForgeApp {
                 self.add_credential(parts[0].to_string(), parts[1].to_string(), password, cx);
             }
             AppDialog::CloneFromHosting { .. } => {}
-            AppDialog::SearchHosting { provider } => {
-                if input.is_empty() {
-                    return;
-                }
-                self.search_hosting_repos(input, provider, cx);
-            }
+            AppDialog::SearchHosting { .. } => {}
             AppDialog::ForkRepo {
                 owner,
                 repo,
@@ -326,7 +333,7 @@ impl GitForgeApp {
             let parent = std::path::PathBuf::from(folder.path());
             this.update(cx, |this, cx| {
                 this.active_dialog = AppDialog::InitRepo { parent };
-                this.dialog_input = "new-repo".to_string();
+                this.dialog_input.set_text("new-repo");
                 cx.notify();
             })
             .ok();

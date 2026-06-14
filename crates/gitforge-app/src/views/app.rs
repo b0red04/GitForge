@@ -1,5 +1,5 @@
 use gitforge_git::{CommitLogOptions, RepoLoadOptions};
-use gitforge_ui::{AppColors, Theme, rgba_to_hsla};
+use gitforge_ui::{AppColors, TextInput, Theme, rgba_to_hsla};
 use gpui::*;
 
 use std::path::PathBuf;
@@ -115,9 +115,8 @@ pub struct GitForgeApp {
     pub(crate) colors: AppColors,
     pub(crate) repo_session: RepoSession,
     pub(crate) active_dialog: AppDialog,
-    pub(crate) dialog_input: String,
-    pub(crate) dialog_input_2: String,
-    pub(crate) dialog_input_focus: FocusHandle,
+    pub(crate) dialog_input: TextInput,
+    pub(crate) dialog_input_2: TextInput,
     /// Live, toggleable value for the delete-branch dialog's "Force delete"
     /// checkbox. Seeded when the dialog opens; the overlay mutates it.
     pub(crate) dialog_force: bool,
@@ -162,9 +161,8 @@ impl GitForgeApp {
             colors,
             repo_session,
             active_dialog: AppDialog::None,
-            dialog_input: String::new(),
-            dialog_input_2: String::new(),
-            dialog_input_focus: cx.focus_handle(),
+            dialog_input: TextInput::new("", cx),
+            dialog_input_2: TextInput::new("", cx),
             dialog_force: false,
             settings,
             ssh_keys: Vec::new(),
@@ -512,7 +510,6 @@ impl Render for GitForgeApp {
                     &self.dialog_input,
                     &self.dialog_input_2,
                     self.dialog_force,
-                    &self.dialog_input_focus,
                     &self.colors,
                     entity.clone(),
                     window,
