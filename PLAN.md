@@ -15,56 +15,24 @@ Candidate refactors that turn shallow modules into deep ones. Each is evaluated 
 - **`tab_ops.rs` delegation facade** — done (uncommitted). Deleted 12 one-line forwarders to `RepoSession` (the 11 listed plus `push_closed_tab`, which was hidden by `#[allow(dead_code)]` and surfaced on removal). Investigation corrected the scope: the codebase had already migrated to direct `self.repo_session.X()` calls, so only `active_repo_state` still had callers (4 sites in `git_ops.rs`/`dialog_ops.rs`), rewritten direct; `normalize_repo_path` had 2 internal callers repointed to `RepoSession::`. `tab_ops.rs` now holds only tab lifecycle logic (+9/−327).
 - **Dialog system refactor** — done. Pragmatic phased approach (kept `AppDialog` enum as router, not `Box<dyn Dialog>`). Shared primitives in `gitforge-ui/src/dialog.rs` (`DialogColors`, `dialog_overlay`, `dialog_surface`, `dialog_actions`, `attach_dialog_input_keys`). Per-dialog modules under `views/dialogs/` (`simple_input.rs` metadata table for 11 single-input dialogs, plus `credential_add`, `delete_branch`, `fork_confirm`, `worktree`, `remove_worktree`, `hosting_browse`, `create_pr`). `dialog_ops.rs` and `dialog_render.rs` are thin routers (~30 lines each). Create PR overlay moved from `create_pr_panel.rs` to `dialogs/create_pr.rs` with `TextInput` for title/description; unified dispatch in `app.rs`. Overlap with item #1: all dialog text inputs now use shared `TextInput` + `attach_dialog_input_keys`.
 - **TextInput extraction** — done (PR stack #13–#15). `gitforge-ui/src/text_input.rs` owns focus, cursor, placeholder, masked display, and rendering. Migrated: dialogs, command palette, commit editor, sidebar filter, settings window. Added `render_static_text_input` for draft-owned fields. Deleted dead `components.rs`.
+- **DiffViewer extraction** — done in PR #16. `views/diff_viewer.rs` owns `DiffViewer` with shared Diff/Code/Blame rendering, line selection, scroll handles, and binary/LFS handling. `DiffPanel` and `StatusPanel` embed it; duplicated path resolution and render scaffolding removed. `file_diff_path_or_empty` deduplicates path labels in stage/unstage ops.
+- **Dead code cleanup** — done in PR #17. Removed `GitError::Io`, `extract_hunk_patch`, dead `HostingProvider` methods (`list_org_repos`, `file_url`, `commit_url`), `find_account`, and `gitforge-ui/src/components.rs`.
 
 ---
 
 ## Active candidates
 
-### 3. Diff Rendering Split Across Two Panels
-
-**Files:** `diff_panel.rs:764-999` (`render_diff_content`), `status_panel.rs:652-770` (`render_selected_diff`), `diff_view.rs` (350 lines, shared utility)
-
-**Problem:** Both panels independently own diff display state (scroll handle, line selection, view mode). Both repeat the path-label resolution `diff.new_path.as_deref().or(diff.old_path.as_deref()).unwrap_or("(unknown)")` (and `diff_panel.rs:419-422` has a third copy). Both build near-identical `on_click` closures and file-header scaffolds. The shared `diff_view.rs` covers only the line list and empty state — not headers, mode toggle, or per-panel action buttons.
-
-**Corrections to the prior claim:** "View File"/"Blame" buttons and binary/LFS detection exist **only in `DiffPanel`**; `StatusPanel` has "Stage/Unstage Lines" instead and renders binary/LFS files as raw lines (a real bug). Syntax highlighting is passed `Some(...)` by `DiffPanel` and `None` by `StatusPanel` — same `render_diff_lines` call, different behaviour. `StatusViewMode::Code` is a placeholder (`status_panel.rs:234-236`), unimplemented. The cached mirror (`DiffViewMirror`) wraps `DiffPanel` only; `StatusPanel` re-renders every frame.
-
-**Solution:** Extract a `DiffViewer` module owning `FileDiff`, `DiffLineSelection`, `DiffViewMode`, scroll handles, and the full rendering pipeline. Both panels embed a `DiffViewer`. Interface: `set_diff(FileDiff)`, `select_line()`, `selected_range()`, `render(colors, entity)`.
-
-**Benefits:**
-- **Locality** — diff display bugs fixed once; binary/LFS handling reaches the status panel.
-- **Leverage** — improvements to diff rendering (syntax highlighting, expand-context) apply everywhere diffs are shown.
-
----
-
 ### 4. gitforge-git Error Type — Single String Variant
 
-**Files:** `gitforge-git/src/error.rs` (3 variants), used across all `*_impl.rs` files
+**Files:** `gitforge-git/src/error.rs` (2 variants), used across all `*_impl.rs` files
 
-**Problem:** `GitError` has 3 variants: `RepositoryNotFound(String)`, `OperationFailed(String)`, `Io(#[from] std::io::Error)`. `OperationFailed` absorbs **99%** of constructions (98/99 across 12 files). Structured gix error info is discarded via `.map_err(|e| GitError::OperationFailed(e.to_string()))` — 29 exact-form occurrences plus 22 more `format!`-wrapped variants. The `Io` variant is **dead** — no `?`-triggering call site exists. (Note: the prior claim that `InvalidReference` and `MergeConflict` variants exist-but-unused was wrong — those variants were never defined. They are candidates to add, not delete.)
+**Problem:** `GitError` has 2 variants: `RepositoryNotFound(String)`, `OperationFailed(String)`. `OperationFailed` absorbs **99%** of constructions (98/99 across 12 files). Structured gix error info is discarded via `.map_err(|e| GitError::OperationFailed(e.to_string()))` — 29 exact-form occurrences plus 22 more `format!`-wrapped variants. (Note: the prior claim that `InvalidReference` and `MergeConflict` variants exist-but-unused was wrong — those variants were never defined. They are candidates to add, not delete.)
 
-**Solution:** Introduce domain-specific variants: `MergeConflict { paths: Vec<String> }`, `AuthenticationFailed { remote: String }`, `NetworkError { source: String }`, `IndexLock { path: PathBuf }`, `EmptyCommit`, `BranchNotFound { name: String }`, plus the missing `InvalidReference`. gix error mapping preserves structured cause. Delete the dead `Io` variant.
+**Solution:** Introduce domain-specific variants: `MergeConflict { paths: Vec<String> }`, `AuthenticationFailed { remote: String }`, `NetworkError { source: String }`, `IndexLock { path: PathBuf }`, `EmptyCommit`, `BranchNotFound { name: String }`, plus the missing `InvalidReference`. gix error mapping preserves structured cause.
 
 **Benefits:**
 - **Leverage** — app shows "Merge conflict in 3 files" instead of "Operation failed: ...git merge...exit status 1".
 - **Locality** — error classification concentrates in `gitforge-git` instead of being parsed from strings in the app layer.
-
----
-
-### 5. Dead Code — Multiple Sites
-
-**Files:** Multiple across crates
-
-**Problem:** Several types and modules add cognitive overhead without earning their keep:
-- `gitforge-git` — `GitError::Io` variant (dead — see candidate 4).
-- `gitforge-diff/src/patch.rs:86-135` — `extract_hunk_patch` has zero callers; re-exported from `lib.rs:5`.
-- `gitforge-hosting/src/provider.rs:12, 21, 22` — `list_org_repos`, `file_url`, `commit_url` trait methods implemented in all 3 providers but called from nowhere in the app (9 dead bodies).
-- `gitforge-hosting/src/lib.rs:23` — `find_account` has zero callers (the app has its own `find_hosting_account`).
-- `gitforge-ui/src/components.rs` — dead file referencing nonexistent submodules (`sidebar`, `graph_panel`, etc.); not declared in `lib.rs`, not compiled.
-
-**Solution:** Delete unused code. If a variant is planned for future use, add a comment and a tracking issue.
-
-**Benefits:**
-- **Locality** — less code to read means faster understanding. The deletion test confirms these concentrate no complexity elsewhere.
 
 ---
 
@@ -97,16 +65,16 @@ Candidate refactors that turn shallow modules into deep ones. Each is evaluated 
 
 ---
 
-### 9. `HostingProvider` trait — dead surface + 3 parallel implementations
+### 9. `HostingProvider` trait — 3 parallel implementations
 
-**Files:** `gitforge-hosting/src/provider.rs:6-23` (trait, 8 methods), `github.rs` (247 lines), `gitlab.rs` (248), `codeberg.rs` (214)
+**Files:** `gitforge-hosting/src/provider.rs:6-20` (trait, 6 methods), `github.rs`, `gitlab.rs`, `codeberg.rs`
 
-**Problem:** Only 6 of 8 trait methods are exercised by the app (`name`, `authenticate`, `list_repos`, `search_repos`, `create_fork`, `repo_url` once). `list_org_repos`, `file_url`, `commit_url` are implemented in all 3 providers but called from nowhere — 9 dead method bodies. Separately, the 3 implementations are near-parallel copies: each has its own `make_client` (only auth header differs — `Bearer`/`PRIVATE-TOKEN`/`token`), paginated `list_repos` loop (only URL/page size differs — 100/100/50), `json_to_remote_repo` (only JSON keys differ — e.g. GitLab's `last_activity_at` vs GitHub's `updated_at`, Codeberg's `data` envelope), and identical `create_fork` error-extractor.
+**Problem:** The 3 implementations are near-parallel copies: each has its own `make_client` (only auth header differs — `Bearer`/`PRIVATE-TOKEN`/`token`), paginated `list_repos` loop (only URL/page size differs — 100/100/50), `json_to_remote_repo` (only JSON keys differ — e.g. GitLab's `last_activity_at` vs GitHub's `updated_at`, Codeberg's `data` envelope), and identical `create_fork` error-extractor.
 
-**Solution:** Delete the 3 dead trait methods. Lift the shared "authenticate, paginate, map JSON" shape into a generic helper that takes per-provider string templates. Each provider becomes a thin adapter of templates + JSON key mappings.
+**Solution:** Lift the shared "authenticate, paginate, map JSON" shape into a generic helper that takes per-provider string templates. Each provider becomes a thin adapter of templates + JSON key mappings.
 
 **Benefits:**
-- Dead methods fail the deletion test cleanly. Providers individually pass (provider-specific JSON quirks), so this is "the trait promised more than callers need, and the shared shape was never lifted out."
+- Providers individually pass (provider-specific JSON quirks), so this is "the shared shape was never lifted out."
 
 ---
 
@@ -114,7 +82,7 @@ Candidate refactors that turn shallow modules into deep ones. Each is evaluated 
 
 **Files:** `gitforge-diff/src/patch.rs:3-84` (`extract_patch_from_selection`), `ops/git_ops.rs:448-474` (`stage_selected_lines`), `:476-502` (`unstage_selected_lines`)
 
-**Problem:** The two call sites are 25 lines each and differ in exactly 3 tokens (function name, label string `"Stage lines"`/`"Unstage lines"`, final boolean to `apply_patch`). The other 22 lines (fetch current diff, clone, get selected indices, extract path, build `--- a/{}\n+++ b/{}\n{}` header, call `run_git_op`) are duplicated verbatim. (`extract_hunk_patch` in the same file is dead — covered by candidate 5.)
+**Problem:** The two call sites are 25 lines each and differ in exactly 3 tokens (function name, label string `"Stage lines"`/`"Unstage lines"`, final boolean to `apply_patch`). The other 22 lines (fetch current diff, clone, get selected indices, extract path, build `--- a/{}\n+++ b/{}\n{}` header, call `run_git_op`) are duplicated verbatim.
 
 **Solution:** Extract the shared preamble into a helper that takes the per-operation bits (label, the underlying `Repository::stage_lines`/`unstage_lines` selector, the boolean).
 
@@ -127,5 +95,5 @@ Candidate refactors that turn shallow modules into deep ones. Each is evaluated 
 
 - **Missing ADR** — `CONTEXT.md` references `docs/adr/0001-diff-panel-cached-mirror.md`, but the file does not exist and the directory is empty. Either write the ADR (documenting the `DiffViewMirror` / `DiffSnapshot` / `DiffViewKey` caching layer at `diff_panel.rs:102-176`) or remove the reference.
 - **Palette gap** — `FetchAll`, `PushCurrent`, `PullCurrent` are bound to keys, have `.on_action` handlers, and have `git_ops` implementations, but are absent from the `CommandAction` enum — so they don't reach the command palette or menus.
-- **Placeholder view mode** — `StatusViewMode::Code` is a render placeholder (`status_panel.rs:234-236`); either implement it or remove it.
+- **Placeholder view mode** — `StatusViewMode::Code` may still be a thin wrapper over `DiffViewer`; verify whether it adds value or should be removed.
 - **Pre-existing clippy error** — `graph_panel.rs:154` has a logic bug in branch-name matching (`r.name == *branch_name || (r.kind == RefKind::RemoteBranch && r.name == *branch_name)` — the second clause is redundant). Unrelated to any candidate but blocks `-D warnings`.
