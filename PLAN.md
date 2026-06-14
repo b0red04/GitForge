@@ -11,6 +11,7 @@ Candidate refactors that turn shallow modules into deep ones. Each is evaluated 
 - **UTF-8 diff truncation** — fixed in `0290776`.
 - **Command dispatch** — already typed. `CommandAction` is an enum (`commands.rs:56-91`), `CommandEntry.action: CommandAction`, dispatch via `.on_action(cx.listener(...))`. The earlier "string-typed" claim was wrong; typos are compile errors. (Note: `FetchAll`, `PushCurrent`, `PullCurrent` are bound and handled but missing from the `CommandAction` enum, so they don't reach the palette/menu — a small consistency gap, not a deepening issue.)
 - **i18n removal + syntax simplification** — done in `56f7c5d`.
+- **`tab_ops.rs` delegation facade** — done (uncommitted). Deleted 12 one-line forwarders to `RepoSession` (the 11 listed plus `push_closed_tab`, which was hidden by `#[allow(dead_code)]` and surfaced on removal). Investigation corrected the scope: the codebase had already migrated to direct `self.repo_session.X()` calls, so only `active_repo_state` still had callers (4 sites in `git_ops.rs`/`dialog_ops.rs`), rewritten direct; `normalize_repo_path` had 2 internal callers repointed to `RepoSession::`. `tab_ops.rs` now holds only tab lifecycle logic (+9/−327).
 
 ---
 
@@ -101,19 +102,6 @@ Candidate refactors that turn shallow modules into deep ones. Each is evaluated 
 ---
 
 ## New candidates
-
-### 6. `tab_ops.rs` — 11-method delegation facade
-
-**Files:** `ops/tab_ops.rs:15-57` (forwarders) vs `:59-360` (real lifecycle logic)
-
-**Problem:** Eleven one-line forwarders (`active_tab`, `active_tab_mut`, `active_repo_state`, `active_repo_handle`, `require_active_repo_handle`, `repo_tab_views`, `normalize_repo_path`, `find_tab_by_path`, `clear_repo_panels`, `clear_active_repo_view`, `apply_active_repo_tab_to_view`) whose bodies are literally `self.repo_session.X()`. Reached ~60× across the codebase. They dilute `tab_ops.rs`'s actual purpose (tab lifecycle: `start_loading_repo_tab`, `finish_repo_tab_load`, `activate_repo_tab`, `close_repo_tab`).
-
-**Solution:** Delete the forwarders; callers write `self.repo_session.active_tab()` etc. directly. Keep the lifecycle methods.
-
-**Benefits:**
-- **Deletion test** — forwarders fail cleanly. Deleting them concentrates no complexity; the call gets one token longer and loses one layer of indirection.
-
----
 
 ### 7. Sidebar state ownership has no home — mutations scattered across 3 files
 

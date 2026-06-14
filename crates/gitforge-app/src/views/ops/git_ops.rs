@@ -271,6 +271,7 @@ impl GitForgeApp {
         };
         let behavior = self.active_repo_behavior_settings();
         let branch_to_push = self
+            .repo_session
             .active_repo_state()
             .and_then(|state| state.head_branch.clone());
 
@@ -599,10 +600,11 @@ impl GitForgeApp {
     }
 
     pub(crate) fn is_current_branch(&self, name: &str) -> bool {
-        self.active_repo_state()
+        self.repo_session
+            .active_repo_state()
             .and_then(|state| state.head_branch.as_deref())
             == Some(name)
-            || self.active_repo_state().is_some_and(|state| {
+            || self.repo_session.active_repo_state().is_some_and(|state| {
                 state.references.iter().any(|reference| {
                     reference.kind == gitforge_git::RefKind::Branch
                         && reference.is_head

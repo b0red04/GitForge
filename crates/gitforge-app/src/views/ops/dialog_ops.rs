@@ -99,7 +99,7 @@ impl GitForgeApp {
             }
             AppDialog::Push { .. } => {
                 let branch = if input.is_empty() {
-                    match self.active_repo_state() {
+                    match self.repo_session.active_repo_state() {
                         Some(rs) => rs
                             .references
                             .iter()

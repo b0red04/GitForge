@@ -1,4 +1,4 @@
-use gitforge_git::{RepoState, Repository};
+use gitforge_git::RepoState;
 use gpui::*;
 
 use parking_lot::Mutex;
@@ -6,56 +6,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::views::app::GitForgeApp;
-use crate::views::repo_session::OpenRepoTab;
-use crate::views::repo_tabs::RepoTabView;
+use crate::views::repo_session::{OpenRepoTab, RepoSession};
 use crate::views::settings_window::SettingsRepoData;
 
-#[allow(dead_code)]
 impl GitForgeApp {
-    pub(crate) fn active_tab(&self) -> Option<&OpenRepoTab> {
-        self.repo_session.active_tab()
-    }
-
-    pub(crate) fn active_tab_mut(&mut self) -> Option<&mut OpenRepoTab> {
-        self.repo_session.active_tab_mut()
-    }
-
-    pub(crate) fn active_repo_state(&self) -> Option<&RepoState> {
-        self.repo_session.active_repo_state()
-    }
-
-    pub(crate) fn active_repo_handle(&self) -> Option<Arc<Mutex<Option<Repository>>>> {
-        self.repo_session.active_repo_handle()
-    }
-
-    pub(crate) fn require_active_repo_handle(&mut self) -> Option<Arc<Mutex<Option<Repository>>>> {
-        self.repo_session.require_active_repo_handle()
-    }
-
-    pub(crate) fn repo_tab_views(&self) -> Vec<RepoTabView> {
-        self.repo_session.repo_tab_views()
-    }
-
-    pub(crate) fn normalize_repo_path(path: &Path) -> PathBuf {
-        crate::views::repo_session::RepoSession::normalize_repo_path(path)
-    }
-
-    pub(crate) fn find_tab_by_path(&self, path: &Path) -> Option<u64> {
-        self.repo_session.find_tab_by_path(path)
-    }
-
-    pub(crate) fn clear_repo_panels(&mut self) {
-        self.repo_session.clear_repo_panels();
-    }
-
-    pub(crate) fn clear_active_repo_view(&mut self) {
-        self.repo_session.clear_active_repo_view();
-    }
-
-    pub(crate) fn apply_active_repo_tab_to_view(&mut self) {
-        self.repo_session.apply_active_repo_tab_to_view();
-    }
-
     pub fn restore_open_repo_tabs(&mut self, cx: &mut Context<Self>) {
         let paths = self.settings.open_repo_paths.clone();
         if paths.is_empty() {
@@ -72,7 +26,7 @@ impl GitForgeApp {
             let repo = Arc::new(Mutex::new(None));
             self.repo_session.open_repo_tabs.push(OpenRepoTab {
                 id,
-                path: Self::normalize_repo_path(&path_buf),
+                path: RepoSession::normalize_repo_path(&path_buf),
                 repo,
                 repo_state: None,
                 loading: true,
@@ -94,7 +48,7 @@ impl GitForgeApp {
     }
 
     pub(crate) fn open_or_activate_repo_tab(&mut self, path: PathBuf, cx: &mut Context<Self>) {
-        let normalized = Self::normalize_repo_path(&path);
+        let normalized = RepoSession::normalize_repo_path(&path);
         if let Some(tab_id) = self.repo_session.find_tab_by_path(&normalized) {
             self.activate_repo_tab(tab_id, cx);
             let should_retry = self
@@ -295,10 +249,6 @@ impl GitForgeApp {
         self.save_settings();
         cx.notify();
         self.restart_periodic_fetch(cx);
-    }
-
-    pub(crate) fn push_closed_tab(&mut self, path: PathBuf) {
-        self.repo_session.push_closed_tab(path);
     }
 
     pub(crate) fn record_recent_repo(&mut self, path: &Path) {
