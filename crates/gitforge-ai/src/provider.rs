@@ -3,7 +3,8 @@ use async_trait::async_trait;
 
 use crate::config::CommitMessageConfig;
 use crate::prompt::{
-    build_commit_message_prompt, build_multi_commit_message_prompt, truncate_diff,
+    build_commit_message_prompt, build_multi_commit_message_prompt, build_pull_request_prompt,
+    truncate_diff,
 };
 
 #[async_trait]
@@ -42,6 +43,28 @@ pub trait AiProvider: Send + Sync {
             Ok(vec![raw.trim().to_string()])
         } else {
             Ok(messages)
+        }
+    }
+
+    async fn generate_pull_request_content(
+        &self,
+        diff: &str,
+        max_diff_chars: usize,
+    ) -> Result<(String, String)> {
+        let diff = truncate_diff(diff, max_diff_chars);
+        let prompt = build_pull_request_prompt(&diff);
+        let system = Some(
+            "You are an expert at writing pull request titles and descriptions. \
+             Output only the title on the first line, a blank line, then the markdown body.",
+        );
+        let raw = self.generate(&prompt, system).await?;
+        let trimmed = raw.trim();
+        if let Some((title, body)) = trimmed.split_once("\n\n") {
+            Ok((title.trim().to_string(), body.trim().to_string()))
+        } else if let Some((title, body)) = trimmed.split_once('\n') {
+            Ok((title.trim().to_string(), body.trim().to_string()))
+        } else {
+            Ok((trimmed.to_string(), String::new()))
         }
     }
 }

@@ -2,12 +2,12 @@ use gpui::*;
 
 use crate::views::app::{
     AddRemote, AppDialog, BackToDiff, CloneFromGithub, CloneFromGitlab, CloneRepo, CloseDialog,
-    CloseTab, CreateBranch, CreateWorktree, FetchAll, GitForgeApp, InitRepo, MainViewMode,
-    ManageAccounts, NewTab, OpenAiSettings, OpenInBrowser, OpenInEditor, OpenInFileManager,
-    OpenInTerminal, OpenRepoManagement, OpenRepository, OpenSshKey, Preferences, PullCurrent,
-    PushCurrent, QuitApp, RefreshRepository, ReopenClosedTab, SelectNextCommit, SelectPrevCommit,
-    ShowCommandPalette, ShowHistory, ShowStatusPanel, SoftReset, StashPop, StashPush, ToggleTheme,
-    ViewFileAtCommit,
+    CloseTab, CreateBranch, CreatePullRequest, CreateWorktree, FetchAll, GitForgeApp, InitRepo,
+    MainViewMode, ManageAccounts, NewTab, OpenAiSettings, OpenInBrowser, OpenInEditor,
+    OpenInFileManager, OpenInTerminal, OpenRepoManagement, OpenRepository, OpenSshKey, Preferences,
+    PullCurrent, PushCurrent, QuitApp, RefreshRepository, ReopenClosedTab, SelectNextCommit,
+    SelectPrevCommit, ShowCommandPalette, ShowHistory, ShowStatusPanel, SoftReset, StashPop,
+    StashPush, ToggleTheme, ViewFileAtCommit,
 };
 use crate::views::commands::{CommandAction, TitlebarMenu};
 use crate::views::settings_window::SettingsSection;
@@ -204,7 +204,9 @@ impl GitForgeApp {
         cx: &mut Context<Self>,
     ) {
         self.close_toolbar_more(cx);
-        if self.active_dialog != AppDialog::None {
+        if matches!(self.active_dialog, AppDialog::CreatePullRequest) {
+            self.cancel_create_pr_dialog(cx);
+        } else if self.active_dialog != AppDialog::None {
             self.active_dialog = AppDialog::None;
             cx.notify();
         } else if self.command_palette.is_visible() {
@@ -341,6 +343,15 @@ impl GitForgeApp {
         cx: &mut Context<Self>,
     ) {
         self.open_pull_dialog(cx);
+    }
+
+    pub(crate) fn handle_create_pull_request(
+        &mut self,
+        _action: &CreatePullRequest,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_create_pr_dialog(cx);
     }
 
     pub fn back_to_diff(

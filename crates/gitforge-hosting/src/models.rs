@@ -29,6 +29,30 @@ impl HostingAccount {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreatePullRequestRequest {
+    pub owner: String,
+    pub repo: String,
+    pub title: String,
+    pub body: String,
+    pub head_owner: String,
+    pub head_branch: String,
+    pub base_branch: String,
+    pub draft: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PullRequest {
+    pub number: u64,
+    pub title: String,
+    pub html_url: String,
+    pub state: String,
+    #[serde(default)]
+    pub head_branch: Option<String>,
+    #[serde(default)]
+    pub draft: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RemoteRepo {
     pub name: String,
     pub full_name: String,

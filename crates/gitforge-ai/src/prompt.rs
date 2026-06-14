@@ -124,6 +124,20 @@ fn wrap_instruction(body_wrap_at: u32) -> String {
     }
 }
 
+pub fn build_pull_request_prompt(diff: &str) -> String {
+    format!(
+        "Analyze the following diff between branches and generate a pull request title and description.\n\n\
+         Rules:\n\
+         - Output the title on the first line (no prefix like \"Title:\")\n\
+         - Leave a blank line after the title\n\
+         - Then write a markdown description summarizing the changes\n\
+         - Focus on what changed and why it matters\n\
+         - Do not wrap the title in quotes\n\
+         - Do not include any other text before or after\n\n\
+         Diff:\n```\n{diff}\n```"
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

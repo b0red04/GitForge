@@ -1,4 +1,4 @@
-use crate::models::{HostingAccount, RemoteRepo};
+use crate::models::{CreatePullRequestRequest, HostingAccount, PullRequest, RemoteRepo};
 use crate::provider::HostingProvider;
 use anyhow::Result;
 use async_trait::async_trait;
@@ -220,6 +220,144 @@ impl HostingProvider for GitHubProvider {
 
     fn repo_url(&self, repo_full_name: &str) -> String {
         format!("{}/{}", self.web_url, repo_full_name)
+    }
+
+    async fn create_pull_request(
+        &self,
+        account: &HostingAccount,
+        req: &CreatePullRequestRequest,
+    ) -> Result<PullRequest> {
+        let token = account.token()?;
+        let client = make_client(&token);
+
+        let head = if req.head_owner == req.owner {
+            req.head_branch.clone()
+        } else {
+            format!("{}:{}", req.head_owner, req.head_branch)
+        };
+
+        let body = serde_json::json!({
+            "title": req.title,
+            "body": req.body,
+            "head": head,
+            "base": req.base_branch,
+            "draft": req.draft,
+        });
+
+        let response = client
+            .post(format!(
+                "{}/repos/{}/{}/pulls",
+                self.base_url, req.owner, req.repo
+            ))
+            .json(&body)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let text = response.text().await.unwrap_or_default();
+            anyhow::bail!("Failed to create pull request: {} - {}", status, text);
+        }
+
+        let pr: serde_json::Value = response.json().await?;
+        Ok(json_to_pull_request(&pr))
+    }
+
+    async fn list_pull_requests(
+        &self,
+        account: &HostingAccount,
+        owner: &str,
+        repo: &str,
+    ) -> Result<Vec<PullRequest>> {
+        let token = account.token()?;
+        let client = make_client(&token);
+        let mut all_prs = Vec::new();
+        let mut page = 1;
+
+        loop {
+            let response = client
+                .get(format!(
+                    "{}/repos/{}/{}/pulls?state=open&page={}&per_page=100",
+                    self.base_url, owner, repo, page
+                ))
+                .send()
+                .await?;
+
+            if !response.status().is_success() {
+                anyhow::bail!("Failed to list pull requests: {}", response.status());
+            }
+
+            let prs: Vec<serde_json::Value> = response.json().await?;
+            if prs.is_empty() {
+                break;
+            }
+
+            for pr in &prs {
+                all_prs.push(json_to_pull_request(pr));
+            }
+
+            page += 1;
+            if prs.len() < 100 {
+                break;
+            }
+        }
+
+        Ok(all_prs)
+    }
+
+    async fn list_branches(
+        &self,
+        account: &HostingAccount,
+        owner: &str,
+        repo: &str,
+    ) -> Result<Vec<String>> {
+        let token = account.token()?;
+        let client = make_client(&token);
+        let mut all_branches = Vec::new();
+        let mut page = 1;
+
+        loop {
+            let response = client
+                .get(format!(
+                    "{}/repos/{}/{}/branches?page={}&per_page=100",
+                    self.base_url, owner, repo, page
+                ))
+                .send()
+                .await?;
+
+            if !response.status().is_success() {
+                anyhow::bail!("Failed to list branches: {}", response.status());
+            }
+
+            let branches: Vec<serde_json::Value> = response.json().await?;
+            if branches.is_empty() {
+                break;
+            }
+
+            for branch in &branches {
+                if let Some(name) = branch["name"].as_str() {
+                    all_branches.push(name.to_string());
+                }
+            }
+
+            page += 1;
+            if branches.len() < 100 {
+                break;
+            }
+        }
+
+        Ok(all_branches)
+    }
+}
+
+fn json_to_pull_request(pr: &serde_json::Value) -> PullRequest {
+    PullRequest {
+        number: pr["number"].as_u64().unwrap_or(0),
+        title: pr["title"].as_str().unwrap_or("").to_string(),
+        html_url: pr["html_url"].as_str().unwrap_or("").to_string(),
+        state: pr["state"].as_str().unwrap_or("open").to_string(),
+        head_branch: pr["head"]["ref"].as_str().map(|s| s.to_string()),
+        draft: pr["draft"].as_bool().unwrap_or(false),
     }
 }
 

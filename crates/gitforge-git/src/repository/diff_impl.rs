@@ -106,6 +106,24 @@ impl Repository {
     }
 
     /// Spawns a `git` subprocess.
+    pub fn unified_diff_between_refs(&self, base_ref: &str, head_ref: &str) -> GitResult<String> {
+        let range = format!("{}..{}", base_ref, head_ref);
+        let output = Command::new("git")
+            .args(["diff", "--no-color", &range])
+            .current_dir(&self.path)
+            .output()
+            .map_err(|e| GitError::OperationFailed(format!("Failed to run git diff: {}", e)))?;
+
+        if !output.status.success() {
+            return Err(GitError::OperationFailed(
+                String::from_utf8_lossy(&output.stderr).to_string(),
+            ));
+        }
+
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    }
+
+    /// Spawns a `git` subprocess.
     pub fn unified_diff_for_commit(&self, commit_id: &str) -> GitResult<String> {
         let output = Command::new("git")
             .args(["diff-tree", "-p", "--no-color", commit_id])

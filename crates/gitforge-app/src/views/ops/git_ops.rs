@@ -129,6 +129,12 @@ impl GitForgeApp {
         cx.notify();
     }
 
+    pub fn toggle_sidebar_pull_requests(&mut self, cx: &mut Context<Self>) {
+        self.repo_session.sidebar_state.pull_requests_expanded =
+            !self.repo_session.sidebar_state.pull_requests_expanded;
+        cx.notify();
+    }
+
     pub fn toggle_sidebar_remote(&mut self, remote: String, cx: &mut Context<Self>) {
         if self
             .repo_session
@@ -870,6 +876,7 @@ impl GitForgeApp {
                 Ok(Ok(repo_state)) => {
                     this.update(cx, |this, cx| {
                         this.repo_session.apply_repo_state(repo_state);
+                        this.refresh_pull_requests(cx);
                         cx.notify();
                     })
                     .ok();

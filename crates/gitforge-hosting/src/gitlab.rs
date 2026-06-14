@@ -1,4 +1,4 @@
-use crate::models::{HostingAccount, RemoteRepo};
+use crate::models::{CreatePullRequestRequest, HostingAccount, PullRequest, RemoteRepo};
 use crate::provider::HostingProvider;
 use anyhow::Result;
 use async_trait::async_trait;
@@ -211,6 +211,141 @@ impl HostingProvider for GitLabProvider {
 
     fn repo_url(&self, repo_full_name: &str) -> String {
         format!("{}/{}", self.web_url, url_encode(repo_full_name))
+    }
+
+    async fn create_pull_request(
+        &self,
+        account: &HostingAccount,
+        req: &CreatePullRequestRequest,
+    ) -> Result<PullRequest> {
+        let token = account.token()?;
+        let client = make_client(&token);
+        let project_path = url_encode(&format!("{}/{}", req.owner, req.repo));
+
+        let body = serde_json::json!({
+            "source_branch": req.head_branch,
+            "target_branch": req.base_branch,
+            "title": req.title,
+            "description": req.body,
+            "draft": req.draft,
+        });
+
+        let response = client
+            .post(format!(
+                "{}/projects/{}/merge_requests",
+                self.base_url, project_path
+            ))
+            .json(&body)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let text = response.text().await.unwrap_or_default();
+            anyhow::bail!("Failed to create merge request: {} - {}", status, text);
+        }
+
+        let mr: serde_json::Value = response.json().await?;
+        Ok(json_to_pull_request(&mr))
+    }
+
+    async fn list_pull_requests(
+        &self,
+        account: &HostingAccount,
+        owner: &str,
+        repo: &str,
+    ) -> Result<Vec<PullRequest>> {
+        let token = account.token()?;
+        let client = make_client(&token);
+        let project_path = url_encode(&format!("{}/{}", owner, repo));
+        let mut all_prs = Vec::new();
+        let mut page = 1;
+
+        loop {
+            let response = client
+                .get(format!(
+                    "{}/projects/{}/merge_requests?state=opened&page={}&per_page=100",
+                    self.base_url, project_path, page
+                ))
+                .send()
+                .await?;
+
+            if !response.status().is_success() {
+                anyhow::bail!("Failed to list merge requests: {}", response.status());
+            }
+
+            let mrs: Vec<serde_json::Value> = response.json().await?;
+            if mrs.is_empty() {
+                break;
+            }
+
+            for mr in &mrs {
+                all_prs.push(json_to_pull_request(mr));
+            }
+
+            page += 1;
+            if mrs.len() < 100 {
+                break;
+            }
+        }
+
+        Ok(all_prs)
+    }
+
+    async fn list_branches(
+        &self,
+        account: &HostingAccount,
+        owner: &str,
+        repo: &str,
+    ) -> Result<Vec<String>> {
+        let token = account.token()?;
+        let client = make_client(&token);
+        let project_path = url_encode(&format!("{}/{}", owner, repo));
+        let mut all_branches = Vec::new();
+        let mut page = 1;
+
+        loop {
+            let response = client
+                .get(format!(
+                    "{}/projects/{}/repository/branches?page={}&per_page=100",
+                    self.base_url, project_path, page
+                ))
+                .send()
+                .await?;
+
+            if !response.status().is_success() {
+                anyhow::bail!("Failed to list branches: {}", response.status());
+            }
+
+            let branches: Vec<serde_json::Value> = response.json().await?;
+            if branches.is_empty() {
+                break;
+            }
+
+            for branch in &branches {
+                if let Some(name) = branch["name"].as_str() {
+                    all_branches.push(name.to_string());
+                }
+            }
+
+            page += 1;
+            if branches.len() < 100 {
+                break;
+            }
+        }
+
+        Ok(all_branches)
+    }
+}
+
+fn json_to_pull_request(mr: &serde_json::Value) -> PullRequest {
+    PullRequest {
+        number: mr["iid"].as_u64().unwrap_or(0),
+        title: mr["title"].as_str().unwrap_or("").to_string(),
+        html_url: mr["web_url"].as_str().unwrap_or("").to_string(),
+        state: mr["state"].as_str().unwrap_or("opened").to_string(),
+        head_branch: mr["source_branch"].as_str().map(|s| s.to_string()),
+        draft: mr["draft"].as_bool().unwrap_or(false),
     }
 }
 

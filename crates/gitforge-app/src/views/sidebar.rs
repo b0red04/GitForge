@@ -24,6 +24,7 @@ pub struct SidebarState {
     pub remotes_expanded: bool,
     pub tags_expanded: bool,
     pub worktrees_expanded: bool,
+    pub pull_requests_expanded: bool,
     pub expanded_remotes: HashSet<String>,
     pub search_filter: String,
     pub filter_focus: FocusHandle,
@@ -38,6 +39,7 @@ impl SidebarState {
             remotes_expanded: true,
             tags_expanded: true,
             worktrees_expanded: true,
+            pull_requests_expanded: true,
             expanded_remotes: HashSet::new(),
             search_filter: String::new(),
             filter_focus: cx.focus_handle(),
@@ -74,6 +76,9 @@ pub fn render_sidebar(
     entity: WeakEntity<super::app::GitForgeApp>,
     window: &mut Window,
     hosting_accounts: &[gitforge_hosting::HostingAccount],
+    pull_requests: &[gitforge_hosting::PullRequest],
+    pull_requests_loading: bool,
+    pull_request_hint: Option<super::ops::pr_ops::PullRequestSidebarHint>,
 ) -> Div {
     let sidebar_bg = rgba_to_hsla(colors.sidebar_background);
     let border = rgba_to_hsla(colors.border);
@@ -206,6 +211,38 @@ pub fn render_sidebar(
 
             sidebar = sidebar.child(render_add_remote_button(colors, entity.clone()));
 
+            let filtered_prs: Vec<&gitforge_hosting::PullRequest> = pull_requests
+                .iter()
+                .filter(|pr| {
+                    filter.is_empty()
+                        || pr.title.to_lowercase().contains(&filter)
+                        || pr.number.to_string().contains(&filter)
+                })
+                .collect();
+
+            sidebar = sidebar.child(render_pull_requests_header(
+                pull_requests.len(),
+                state.pull_requests_expanded,
+                colors,
+                entity.clone(),
+            ));
+
+            if state.pull_requests_expanded {
+                if pull_requests_loading {
+                    sidebar = sidebar.child(render_empty_hint("Loading...", muted));
+                } else if let Some(hint) = pull_request_hint {
+                    sidebar = sidebar.child(render_pull_request_hint(hint, muted));
+                } else if filtered_prs.is_empty() {
+                    sidebar =
+                        sidebar.child(render_empty_hint("No open pull requests", muted));
+                } else {
+                    for pr in &filtered_prs {
+                        sidebar =
+                            sidebar.child(render_pr_item(pr, colors, entity.clone()));
+                    }
+                }
+            }
+
             if !tags.is_empty() || !filter.is_empty() {
                 let tags_expanded = state.tags_expanded;
                 sidebar = sidebar.child(render_collapsible_section(
@@ -253,6 +290,7 @@ pub fn render_sidebar(
                 && branches.is_empty()
                 && remote_branches.is_empty()
                 && tags.is_empty()
+                && filtered_prs.is_empty()
             {
                 sidebar = sidebar.child(
                     div()
@@ -912,6 +950,138 @@ fn render_remote_group_header(
                     }
                 }),
         )
+}
+
+fn render_pull_requests_header(
+    count: usize,
+    expanded: bool,
+    colors: &AppColors,
+    entity: WeakEntity<super::app::GitForgeApp>,
+) -> Stateful<Div> {
+    let border = rgba_to_hsla(colors.border);
+    let muted = rgba_to_hsla(colors.text_muted);
+    let accent = rgba_to_hsla(colors.accent);
+    let surface_high = rgba_to_hsla(colors.surface_high);
+    let arrow = if expanded { "▾" } else { "▸" };
+    let ent_toggle = entity.clone();
+    let ent_create = entity;
+
+    div()
+        .id("sidebar-pull-requests")
+        .px_2()
+        .py_1()
+        .border_b_1()
+        .border_color(border)
+        .bg(surface_high)
+        .flex()
+        .items_center()
+        .gap_1()
+        .cursor_pointer()
+        .on_click(move |_ev, _window, cx| {
+            if let Some(e) = ent_toggle.upgrade() {
+                e.update(cx, |this, cx| {
+                    this.toggle_sidebar_pull_requests(cx);
+                });
+            }
+        })
+        .child(div().text_xs().text_color(muted).child(arrow))
+        .child(
+            div()
+                .text_xs()
+                .font_weight(FontWeight::BOLD)
+                .text_color(muted)
+                .child(format!("PULL REQUESTS ({count})")),
+        )
+        .child(div().flex_1())
+        .child(
+            div()
+                .id("sidebar-create-pr")
+                .px_1()
+                .cursor_pointer()
+                .text_xs()
+                .text_color(accent)
+                .child("+")
+                .on_click(move |ev, _window, cx| {
+                    cx.stop_propagation();
+                    if let Some(e) = ent_create.upgrade() {
+                        e.update(cx, |this, cx| {
+                            this.open_create_pr_dialog(cx);
+                        });
+                    }
+                    let _ = ev;
+                }),
+        )
+}
+
+fn render_pull_request_hint(
+    hint: super::ops::pr_ops::PullRequestSidebarHint,
+    muted: Hsla,
+) -> Div {
+    let text = match hint {
+        super::ops::pr_ops::PullRequestSidebarHint::NoOrigin => "No supported origin remote",
+        super::ops::pr_ops::PullRequestSidebarHint::UnsupportedProvider => {
+            "No supported origin remote"
+        }
+        super::ops::pr_ops::PullRequestSidebarHint::NoAccount => {
+            "Connect a GitHub, GitLab, or Codeberg account"
+        }
+    };
+    render_empty_hint(text, muted)
+}
+
+fn render_pr_item(
+    pr: &gitforge_hosting::PullRequest,
+    colors: &AppColors,
+    entity: WeakEntity<super::app::GitForgeApp>,
+) -> Stateful<Div> {
+    let text_color = rgba_to_hsla(colors.text);
+    let muted = rgba_to_hsla(colors.text_muted);
+    let bg = rgba_to_hsla(colors.sidebar_background);
+    let url = pr.html_url.clone();
+    let mut label = format!("#{} {}", pr.number, pr.title);
+    if pr.draft {
+        label.push_str(" (draft)");
+    }
+    let branch_suffix = pr.head_branch.clone();
+
+        let entity_click = entity.clone();
+        let mut row = div()
+        .id(ElementId::Name(format!("sidebar-pr-{}", pr.number).into()))
+        .px_2()
+        .h(px(ROW_HEIGHT))
+        .flex()
+        .items_center()
+        .gap_1()
+        .bg(bg)
+        .cursor_pointer()
+        .hover(|s| s.bg(rgba_to_hsla(colors.sidebar_hover)))
+        .on_click(move |_ev, _window, cx| {
+            if let Some(e) = entity_click.upgrade() {
+                e.update(cx, |this, _cx| {
+                    this.open_in_browser(url.clone());
+                });
+            }
+        })
+        .child(
+            div()
+                .text_xs()
+                .text_color(text_color)
+                .overflow_hidden()
+                .text_ellipsis()
+                .child(label),
+        );
+
+    if let Some(branch) = branch_suffix {
+        row = row.child(
+            div()
+                .text_xs()
+                .text_color(muted)
+                .flex_shrink_0()
+                .child(branch),
+        );
+    }
+
+    row
 }
 
 fn render_add_remote_button(

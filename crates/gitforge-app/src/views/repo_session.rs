@@ -25,6 +25,8 @@ pub(crate) struct OpenRepoTab {
     pub(crate) loading: bool,
     pub(crate) last_error: Option<String>,
     pub(crate) panel_snapshot: Option<TabSnapshot>,
+    pub(crate) pull_requests: Vec<gitforge_hosting::PullRequest>,
+    pub(crate) pull_requests_loading: bool,
 }
 
 #[derive(Debug, Clone)]

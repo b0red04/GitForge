@@ -3,6 +3,20 @@ use gpui::*;
 
 use crate::views::app::{AppDialog, GitForgeApp};
 
+fn dialog_overlay_root(overlay_bg: Hsla) -> Stateful<Div> {
+    div()
+        .id("dialog-overlay")
+        .absolute()
+        .top_0()
+        .left_0()
+        .size_full()
+        .bg(overlay_bg)
+        .occlude()
+        .flex()
+        .items_center()
+        .justify_center()
+}
+
 pub(crate) fn render_dialog_overlay(
     dialog: &AppDialog,
     input_value: &str,
@@ -38,12 +52,12 @@ pub(crate) fn render_dialog_overlay(
         AppDialog::SshTestConnection => "Test SSH Connection",
         AppDialog::CredentialAdd => "Add Credential",
         AppDialog::CloneFromHosting { .. } => "Clone from Hosting",
-        AppDialog::AddAccount { .. } => "Add Account",
         AppDialog::SearchHosting { .. } => "Search Repositories",
         AppDialog::ForkRepo { .. } => "Fork Repository",
         AppDialog::CreateWorktree => "Create Worktree",
         AppDialog::RemoveWorktree { .. } => "Remove Worktree",
         AppDialog::InitRepo { .. } => "Init Repository",
+        AppDialog::CreatePullRequest => "Create Pull Request",
         AppDialog::None => "",
     };
 
@@ -69,7 +83,6 @@ pub(crate) fn render_dialog_overlay(
         AppDialog::SshTestConnection => "Host (e.g. github.com)",
         AppDialog::CredentialAdd => "host username",
         AppDialog::CloneFromHosting { .. } => "Search repos...",
-        AppDialog::AddAccount { .. } => "Personal Access Token",
         AppDialog::SearchHosting { .. } => "Search query...",
         AppDialog::ForkRepo { owner, repo, .. } => {
             return render_fork_confirm_overlay(owner, repo, colors, entity);
@@ -88,6 +101,7 @@ pub(crate) fn render_dialog_overlay(
             return render_remove_worktree_overlay(path, colors, entity);
         }
         AppDialog::InitRepo { .. } => "Repository name",
+        AppDialog::CreatePullRequest => "",
         AppDialog::None => "",
     };
 
@@ -267,17 +281,7 @@ pub(crate) fn render_dialog_overlay(
                 ),
         );
 
-    div()
-        .id("dialog-overlay")
-        .absolute()
-        .top_0()
-        .left_0()
-        .size_full()
-        .bg(overlay_bg)
-        .flex()
-        .items_center()
-        .justify_center()
-        .child(dialog_box)
+    dialog_overlay_root(overlay_bg).child(dialog_box)
 }
 
 fn render_hosting_repos_overlay(
@@ -436,17 +440,7 @@ fn render_hosting_repos_overlay(
         content = content.child(list);
     }
 
-    div()
-        .id("dialog-overlay")
-        .absolute()
-        .top_0()
-        .left_0()
-        .size_full()
-        .bg(overlay_bg)
-        .flex()
-        .items_center()
-        .justify_center()
-        .child(content)
+    dialog_overlay_root(overlay_bg).child(content)
 }
 
 fn render_fork_confirm_overlay(
@@ -467,17 +461,7 @@ fn render_fork_confirm_overlay(
     let owner_owned = owner.to_string();
     let repo_owned = repo.to_string();
 
-    div()
-        .id("dialog-overlay")
-        .absolute()
-        .top_0()
-        .left_0()
-        .size_full()
-        .bg(overlay_bg)
-        .flex()
-        .items_center()
-        .justify_center()
-        .child(
+    dialog_overlay_root(overlay_bg).child(
             div()
                 .id("dialog-box")
                 .w(px(360.0))
@@ -582,17 +566,7 @@ fn render_delete_branch_overlay(
     let ent_key_confirm = entity.clone();
     let branch_name_key = name.to_string();
 
-    div()
-        .id("dialog-overlay")
-        .absolute()
-        .top_0()
-        .left_0()
-        .size_full()
-        .bg(overlay_bg)
-        .flex()
-        .items_center()
-        .justify_center()
-        .child(
+    dialog_overlay_root(overlay_bg).child(
             div()
                 .id("dialog-box")
                 .track_focus(&fh)
@@ -976,17 +950,7 @@ fn render_create_worktree_overlay(
                 ),
         );
 
-    div()
-        .id("dialog-overlay")
-        .absolute()
-        .top_0()
-        .left_0()
-        .size_full()
-        .bg(overlay_bg)
-        .flex()
-        .items_center()
-        .justify_center()
-        .child(dialog_box)
+    dialog_overlay_root(overlay_bg).child(dialog_box)
 }
 
 fn render_remove_worktree_overlay(
@@ -1075,15 +1039,5 @@ fn render_remove_worktree_overlay(
                 ),
         );
 
-    div()
-        .id("dialog-overlay")
-        .absolute()
-        .top_0()
-        .left_0()
-        .size_full()
-        .bg(overlay_bg)
-        .flex()
-        .items_center()
-        .justify_center()
-        .child(dialog_box)
+    dialog_overlay_root(overlay_bg).child(dialog_box)
 }

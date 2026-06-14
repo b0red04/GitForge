@@ -167,12 +167,6 @@ impl GitForgeApp {
                 self.add_credential(parts[0].to_string(), parts[1].to_string(), password, cx);
             }
             AppDialog::CloneFromHosting { .. } => {}
-            AppDialog::AddAccount { provider } => {
-                if input.is_empty() {
-                    return;
-                }
-                self.add_hosting_account(provider, input, cx);
-            }
             AppDialog::SearchHosting { provider } => {
                 if input.is_empty() {
                     return;
@@ -208,6 +202,7 @@ impl GitForgeApp {
                 }
                 self.init_repository(parent, name, cx);
             }
+            AppDialog::CreatePullRequest => {}
             AppDialog::None => {}
         }
     }
@@ -300,12 +295,6 @@ impl GitForgeApp {
             }
         })
         .detach();
-    }
-
-    pub fn open_add_account_dialog(&mut self, provider: String, cx: &mut Context<Self>) {
-        self.active_dialog = AppDialog::AddAccount { provider };
-        self.dialog_input.clear();
-        cx.notify();
     }
 
     pub fn open_manage_accounts_dialog(&mut self, cx: &mut Context<Self>) {

@@ -8,7 +8,9 @@ pub mod urls;
 pub use codeberg::CodebergProvider;
 pub use github::GitHubProvider;
 pub use gitlab::GitLabProvider;
-pub use models::{HostingAccount, RemoteRepo};
+pub use models::{
+    CreatePullRequestRequest, HostingAccount, PullRequest, RemoteRepo,
+};
 pub use provider::HostingProvider;
 
 pub fn get_provider(name: &str) -> Option<Box<dyn HostingProvider>> {

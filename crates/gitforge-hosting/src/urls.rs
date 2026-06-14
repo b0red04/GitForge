@@ -22,15 +22,28 @@ pub fn normalize_remote_url(url: &str) -> String {
 }
 
 pub fn detect_provider(url: &str) -> Option<Box<dyn HostingProvider>> {
+    detect_provider_id(url).map(|id| match id {
+        "github" => Box::new(GitHubProvider::new()) as Box<dyn HostingProvider>,
+        "gitlab" => Box::new(GitLabProvider::new()),
+        "codeberg" => Box::new(CodebergProvider::new()),
+        _ => unreachable!(),
+    })
+}
+
+pub fn detect_provider_id(url: &str) -> Option<&'static str> {
     if url.contains("github.com") {
-        Some(Box::new(GitHubProvider::new()))
+        Some("github")
     } else if url.contains("gitlab.com") || url.contains("gitlab") {
-        Some(Box::new(GitLabProvider::new()))
+        Some("gitlab")
     } else if url.contains("codeberg.org") {
-        Some(Box::new(CodebergProvider::new()))
+        Some("codeberg")
     } else {
         None
     }
+}
+
+pub fn split_repo_full_name(full_name: &str) -> Option<(&str, &str)> {
+    full_name.split_once('/')
 }
 
 pub fn extract_repo_full_name(url: &str) -> String {
