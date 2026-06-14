@@ -19,6 +19,7 @@ Candidate refactors that turn shallow modules into deep ones. Each is evaluated 
 - **TextInput extraction** — done (PR stack #13–#15). `gitforge-ui/src/text_input.rs` owns focus, cursor, placeholder, masked display, and rendering. Migrated: dialogs, command palette, commit editor, sidebar filter, settings window. Added `render_static_text_input` for draft-owned fields. Deleted dead `components.rs`.
 - **DiffViewer extraction** — done in PR #16. `views/diff_viewer.rs` owns `DiffViewer` with shared Diff/Code/Blame rendering, line selection, scroll handles, and binary/LFS handling. `DiffPanel` and `StatusPanel` embed it; duplicated path resolution and render scaffolding removed. `file_diff_path_or_empty` deduplicates path labels in stage/unstage ops.
 - **Dead code cleanup** — done in PR #17. Removed `GitError::Io`, `extract_hunk_patch`, dead `HostingProvider` methods (`list_org_repos`, `file_url`, `commit_url`), `find_account`, and `gitforge-ui/src/components.rs`.
+- **Sidebar state ownership consolidation** — done (uncommitted, +123/−73 across 6 files). `SidebarState` is now the single seam for its own state: toggle/filter/`set_context_menu` methods own the mutations, matching the peer-panel pattern (DiffPanel/GraphPanel/StatusPanel). `SidebarExpansion` sub-struct centralises the snapshot shape and the "which fields persist" rule (`apply_persisted_from_settings`/`write_persisted_to_settings`). `toggle_sidebar_worktrees` relocated from `dialog_ops.rs` to `git_ops.rs`. Collapsed 3 copies of the Settings↔SidebarState 4-boolean mapping (`app.rs` init + `save_settings` + `settings_ops` draft-apply) and 2 copies of the TabSnapshot 6-field mapping (`repo_session.rs`) into method calls; `TabSnapshot` now embeds one `sidebar_expansion` field. Investigation corrected the PLAN's scope: it understated the problem (missed the two duplicated sync layers — the real payoff) and incorrectly included `navigate_to_ref`, which is a graph-navigation action, not sidebar state, so it was left in `git_ops.rs`. `worktrees_expanded`'s non-persistence is now a visible omission in `write_persisted_to_settings` rather than silent.
 
 ---
 
@@ -27,20 +28,6 @@ Candidate refactors that turn shallow modules into deep ones. Each is evaluated 
 ---
 
 ## New candidates
-
-### 7. Sidebar state ownership has no home — mutations scattered across 3 files
-
-**Files:** `ops/git_ops.rs:166-243` (sidebar toggles, filter, navigate_to_ref), `ops/dialog_ops.rs:221-225` (`toggle_sidebar_worktrees` — wrong file), `action_handlers.rs`, rendered by `sidebar.rs` (1093 lines, deep)
-
-**Problem:** `SidebarState` exists to own sidebar state, but its mutations live in `git_ops.rs`, `dialog_ops.rs`, and `action_handlers.rs`. Three of four section toggles are in `git_ops.rs`; the fourth (`worktrees`) is in `dialog_ops.rs`. There is no single seam for sidebar transitions, despite `SidebarState` existing precisely to be that owner.
-
-**Solution:** Move sidebar mutations into `SidebarState` methods. Each current caller (`toggle_sidebar_branches`, `update_sidebar_filter`, etc.) becomes a method on the owner.
-
-**Benefits:**
-- **Locality** — sidebar state transitions concentrate in one module. A reader debugging "why didn't the worktrees section toggle" goes to one place, not three.
-- Each individual toggle fails the deletion test alone (one-liner + notify). As a consolidated group inside `SidebarState`, they pass — the friction is the missing owner.
-
----
 
 ### 8. `run_git_op` abstraction has its seam in the wrong place — 11 data-returning ops rebuild the spawn scaffold
 

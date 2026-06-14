@@ -98,12 +98,6 @@ impl GitForgeApp {
         cx.notify();
     }
 
-    pub fn toggle_sidebar_worktrees(&mut self, cx: &mut Context<Self>) {
-        self.repo_session.sidebar_state.worktrees_expanded =
-            !self.repo_session.sidebar_state.worktrees_expanded;
-        cx.notify();
-    }
-
     pub fn open_push_dialog(&mut self, cx: &mut Context<Self>) {
         self.active_dialog = AppDialog::Push {
             branch: None,

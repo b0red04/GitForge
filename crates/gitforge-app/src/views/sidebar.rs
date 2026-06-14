@@ -7,6 +7,7 @@ use gpui::*;
 use std::collections::HashSet;
 
 use super::layout::SIDEBAR_WIDTH;
+use super::settings::AppSettings;
 const ROW_HEIGHT: f32 = 24.0;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -20,6 +21,18 @@ pub enum ContextMenuAction {
     CheckoutRemote(String),
     FilterToBranch(String),
     None,
+}
+
+/// Snapshot of the sidebar's expand/collapse state. Used both for per-tab
+/// restoration (via `TabSnapshot`) and as the unit the owner reads/writes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SidebarExpansion {
+    pub branches: bool,
+    pub remotes: bool,
+    pub tags: bool,
+    pub worktrees: bool,
+    pub pull_requests: bool,
+    pub expanded_remotes: HashSet<String>,
 }
 
 pub struct SidebarState {
@@ -51,6 +64,88 @@ impl SidebarState {
 
     pub fn dismiss_context_menu(&mut self) {
         self.context_menu = ContextMenuAction::None;
+    }
+
+    pub fn set_context_menu(&mut self, action: ContextMenuAction, pos: (f32, f32)) {
+        self.context_menu = action;
+        self.context_menu_pos = pos;
+    }
+
+    pub fn toggle_branches(&mut self) {
+        self.branches_expanded = !self.branches_expanded;
+    }
+
+    pub fn toggle_remotes(&mut self) {
+        self.remotes_expanded = !self.remotes_expanded;
+    }
+
+    pub fn toggle_tags(&mut self) {
+        self.tags_expanded = !self.tags_expanded;
+    }
+
+    pub fn toggle_worktrees(&mut self) {
+        self.worktrees_expanded = !self.worktrees_expanded;
+    }
+
+    pub fn toggle_pull_requests(&mut self) {
+        self.pull_requests_expanded = !self.pull_requests_expanded;
+    }
+
+    pub fn toggle_remote(&mut self, remote: String) {
+        if self.expanded_remotes.contains(&remote) {
+            self.expanded_remotes.remove(&remote);
+        } else {
+            self.expanded_remotes.insert(remote);
+        }
+    }
+
+    pub fn update_filter(&mut self, typed_char: Option<&str>) {
+        self.filter_input.edit(typed_char);
+    }
+
+    pub fn clear_filter(&mut self) {
+        self.filter_input.clear();
+    }
+
+    /// Capture the full expansion state (all sections + per-remote) for
+    /// per-tab snapshotting. Unlike the persisted slice, this includes
+    /// `worktrees` and `expanded_remotes`.
+    pub fn expansion(&self) -> SidebarExpansion {
+        SidebarExpansion {
+            branches: self.branches_expanded,
+            remotes: self.remotes_expanded,
+            tags: self.tags_expanded,
+            worktrees: self.worktrees_expanded,
+            pull_requests: self.pull_requests_expanded,
+            expanded_remotes: self.expanded_remotes.clone(),
+        }
+    }
+
+    pub fn apply_expansion(&mut self, exp: &SidebarExpansion) {
+        self.branches_expanded = exp.branches;
+        self.remotes_expanded = exp.remotes;
+        self.tags_expanded = exp.tags;
+        self.worktrees_expanded = exp.worktrees;
+        self.pull_requests_expanded = exp.pull_requests;
+        self.expanded_remotes = exp.expanded_remotes.clone();
+    }
+
+    /// Load the persisted subset of the expansion state from settings. Only
+    /// branches/remotes/tags/pull_requests are persisted; `worktrees` and
+    /// `expanded_remotes` are per-tab only and untouched here.
+    pub fn apply_persisted_from_settings(&mut self, settings: &AppSettings) {
+        self.branches_expanded = settings.sidebar_branches_expanded;
+        self.remotes_expanded = settings.sidebar_remotes_expanded;
+        self.tags_expanded = settings.sidebar_tags_expanded;
+        self.pull_requests_expanded = settings.sidebar_pull_requests_expanded;
+    }
+
+    /// Write the persisted subset back into settings.
+    pub fn write_persisted_to_settings(&self, settings: &mut AppSettings) {
+        settings.sidebar_branches_expanded = self.branches_expanded;
+        settings.sidebar_remotes_expanded = self.remotes_expanded;
+        settings.sidebar_tags_expanded = self.tags_expanded;
+        settings.sidebar_pull_requests_expanded = self.pull_requests_expanded;
     }
 
     pub fn seed_expanded_remotes(&mut self, repo_state: &RepoState) {
@@ -605,8 +700,9 @@ fn render_ref_item(
                 if action != ContextMenuAction::None {
                     if let Some(e) = ent_context.upgrade() {
                         e.update(cx, |this, cx| {
-                            this.repo_session.sidebar_state.context_menu = action;
-                            this.repo_session.sidebar_state.context_menu_pos = (x, y);
+                            this.repo_session
+                                .sidebar_state
+                                .set_context_menu(action, (x, y));
                             cx.notify();
                         });
                     }

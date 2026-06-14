@@ -162,11 +162,9 @@ impl GitForgeApp {
         let prev_author_col = self.settings.graph_show_author_column;
         let prev_periodic = self.active_repo_behavior_settings();
         draft.apply_to(&mut self.settings);
-        self.repo_session.sidebar_state.branches_expanded = draft.sidebar_branches_expanded;
-        self.repo_session.sidebar_state.remotes_expanded = draft.sidebar_remotes_expanded;
-        self.repo_session.sidebar_state.tags_expanded = draft.sidebar_tags_expanded;
-        self.repo_session.sidebar_state.pull_requests_expanded =
-            draft.sidebar_pull_requests_expanded;
+        self.repo_session
+            .sidebar_state
+            .apply_persisted_from_settings(&self.settings);
         self.set_theme(&draft.theme, cx);
         self.save_settings();
         let columns_changed = draft.graph_show_graph_column != prev_graph_col
