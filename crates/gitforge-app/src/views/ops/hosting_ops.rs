@@ -170,7 +170,6 @@ impl GitForgeApp {
             },
             |this, _cx| {
                 this.hosting_repos_loading = false;
-                this.repo_session.remote_status.clear();
             },
         );
     }
@@ -268,7 +267,6 @@ impl GitForgeApp {
             },
             |this, _cx| {
                 this.hosting_repos_loading = false;
-                this.repo_session.remote_status.clear();
             },
         );
     }
