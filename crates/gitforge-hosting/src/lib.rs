@@ -1,24 +1,28 @@
-pub mod codeberg;
-pub mod github;
+pub mod gitea_style;
 pub mod gitlab;
+pub mod http;
 pub mod models;
 pub mod provider;
 pub mod secrets;
 pub mod urls;
 
-pub use codeberg::CodebergProvider;
-pub use github::GitHubProvider;
+pub use gitea_style::GiteaStyleProvider;
 pub use gitlab::GitLabProvider;
 pub use models::{
     CreatePullRequestRequest, HostingAccount, PullRequest, RemoteRepo,
 };
 pub use provider::HostingProvider;
 
+/// Type alias preserving the historical name for GitHub.
+pub type GitHubProvider = GiteaStyleProvider;
+/// Type alias preserving the historical name for Codeberg.
+pub type CodebergProvider = GiteaStyleProvider;
+
 pub fn get_provider(name: &str) -> Option<Box<dyn HostingProvider>> {
     match name {
-        "github" => Some(Box::new(GitHubProvider::new())),
+        "github" => Some(Box::new(GiteaStyleProvider::new_github())),
         "gitlab" => Some(Box::new(GitLabProvider::new())),
-        "codeberg" => Some(Box::new(CodebergProvider::new())),
+        "codeberg" => Some(Box::new(GiteaStyleProvider::new_codeberg())),
         _ => None,
     }
 }
