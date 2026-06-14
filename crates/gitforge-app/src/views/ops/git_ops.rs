@@ -312,7 +312,7 @@ impl GitForgeApp {
                 Ok(Err(e)) => {
                     tracing::error!("Commit failed: {}", e);
                     this.update(cx, |this, cx| {
-                        this.report_op_error("Commit", &e.to_string(), cx);
+                        this.report_git_error("Commit", &e, cx);
                     })
                     .ok();
                 }
@@ -492,7 +492,7 @@ impl GitForgeApp {
                 Ok(Err(e)) => {
                     tracing::error!("{} failed: {}", label_owned, e);
                     this.update(cx, |this, cx| {
-                        this.report_op_error(&label_owned, &e.to_string(), cx);
+                        this.report_git_error(&label_owned, &e, cx);
                     })
                     .ok();
                 }
@@ -548,7 +548,7 @@ impl GitForgeApp {
                     tracing::error!("{} failed: {}", label_owned, e);
                     this.update(cx, |this, cx| {
                         this.repo_session.remote_status.clear();
-                        this.report_op_error(&label_owned, &e.to_string(), cx);
+                        this.report_git_error(&label_owned, &e, cx);
                     })
                     .ok();
                 }
@@ -764,7 +764,7 @@ impl GitForgeApp {
                     tracing::error!("Clone failed: {}", e);
                     this.update(cx, |this, cx| {
                         this.repo_session.remote_status.clear();
-                        this.report_op_error("Clone", &e.to_string(), cx);
+                        this.report_git_error("Clone", &e, cx);
                     })
                     .ok();
                 }
