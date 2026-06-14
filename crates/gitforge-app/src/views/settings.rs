@@ -16,6 +16,8 @@ pub struct AppSettings {
     pub sidebar_branches_expanded: bool,
     pub sidebar_remotes_expanded: bool,
     pub sidebar_tags_expanded: bool,
+    #[serde(default = "default_true")]
+    pub sidebar_pull_requests_expanded: bool,
     pub window_width: f32,
     pub window_height: f32,
     pub ai: AiSettings,
@@ -219,6 +221,7 @@ impl Default for AppSettings {
             sidebar_branches_expanded: true,
             sidebar_remotes_expanded: true,
             sidebar_tags_expanded: true,
+            sidebar_pull_requests_expanded: true,
             window_width: 1280.0,
             window_height: 800.0,
             ai: AiSettings::default(),

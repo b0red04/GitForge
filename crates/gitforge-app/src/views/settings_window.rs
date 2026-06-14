@@ -119,6 +119,7 @@ pub struct SettingsDraft {
     pub sidebar_branches_expanded: bool,
     pub sidebar_remotes_expanded: bool,
     pub sidebar_tags_expanded: bool,
+    pub sidebar_pull_requests_expanded: bool,
     pub show_checkpoint_refs: bool,
     pub commit_limit: usize,
     pub commit_limit_text: String,
@@ -170,6 +171,7 @@ impl SettingsDraft {
             sidebar_branches_expanded: settings.sidebar_branches_expanded,
             sidebar_remotes_expanded: settings.sidebar_remotes_expanded,
             sidebar_tags_expanded: settings.sidebar_tags_expanded,
+            sidebar_pull_requests_expanded: settings.sidebar_pull_requests_expanded,
             show_checkpoint_refs: settings.show_checkpoint_refs,
             commit_limit: settings.commit_limit,
             commit_limit_text: settings.commit_limit.to_string(),
@@ -221,6 +223,7 @@ impl SettingsDraft {
         settings.sidebar_branches_expanded = self.sidebar_branches_expanded;
         settings.sidebar_remotes_expanded = self.sidebar_remotes_expanded;
         settings.sidebar_tags_expanded = self.sidebar_tags_expanded;
+        settings.sidebar_pull_requests_expanded = self.sidebar_pull_requests_expanded;
         settings.show_checkpoint_refs = self.show_checkpoint_refs;
         if let Ok(parsed) = self.commit_limit_text.parse::<usize>() {
             settings.commit_limit = parsed.max(1);
@@ -415,6 +418,7 @@ enum SettingsTextField {
     CommitLimit,
     RepoFetchInterval,
     Search,
+    HostingPat,
 }
 
 pub struct SettingsWindow {
@@ -428,9 +432,13 @@ pub struct SettingsWindow {
     focused_field: SettingsTextField,
     input_focus: FocusHandle,
     api_key_focus: FocusHandle,
+    pat_focus: FocusHandle,
     focus_handle: FocusHandle,
     api_key_input: String,
     api_key_configured: bool,
+    pending_account_provider: Option<String>,
+    pat_input: String,
+    pat_error: Option<String>,
     available_models: Vec<String>,
     models_loading: bool,
     models_error: Option<String>,
@@ -461,9 +469,13 @@ impl SettingsWindow {
             focused_field: SettingsTextField::Editor,
             input_focus: cx.focus_handle(),
             api_key_focus: cx.focus_handle(),
+            pat_focus: cx.focus_handle(),
             focus_handle: cx.focus_handle(),
             api_key_input: String::new(),
             api_key_configured: false,
+            pending_account_provider: None,
+            pat_input: String::new(),
+            pat_error: None,
             available_models: Vec::new(),
             models_loading: false,
             models_error: None,
@@ -712,11 +724,15 @@ impl SettingsWindow {
                         edit_repo_fetch_interval_field(draft, ch);
                         return;
                     }
-                    SettingsTextField::AiApiKey | SettingsTextField::Search => {
+                    SettingsTextField::AiApiKey | SettingsTextField::Search
+                    | SettingsTextField::HostingPat => {
                         &mut draft.editor_command
                     }
                 };
-                if field == SettingsTextField::Search || field == SettingsTextField::AiApiKey {
+                if field == SettingsTextField::Search
+                    || field == SettingsTextField::AiApiKey
+                    || field == SettingsTextField::HostingPat
+                {
                     return;
                 }
                 if let Some(c) = ch {
@@ -747,6 +763,62 @@ impl SettingsWindow {
         cx.notify();
     }
 
+    fn start_add_account(&mut self, provider: String, cx: &mut Context<Self>) {
+        self.pending_account_provider = Some(provider);
+        self.pat_input.clear();
+        self.pat_error = None;
+        self.focused_field = SettingsTextField::HostingPat;
+        cx.notify();
+    }
+
+    fn cancel_add_account(&mut self, cx: &mut Context<Self>) {
+        self.pending_account_provider = None;
+        self.pat_input.clear();
+        self.pat_error = None;
+        cx.notify();
+    }
+
+    fn edit_pat_field(&mut self, ch: Option<&str>, cx: &mut Context<Self>) {
+        if let Some(c) = ch {
+            self.pat_input.push_str(c);
+        } else {
+            self.pat_input.pop();
+        }
+        cx.notify();
+    }
+
+    fn append_pat_from_clipboard(&mut self, cx: &mut Context<Self>) {
+        let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) else {
+            return;
+        };
+        let text = text.replace(['\n', '\r'], "");
+        if !text.is_empty() {
+            self.pat_input.push_str(&text);
+            cx.notify();
+        }
+    }
+
+    fn save_hosting_account(&mut self, cx: &mut Context<Self>) {
+        let Some(provider) = self.pending_account_provider.clone() else {
+            return;
+        };
+        let token = self.pat_input.trim().to_string();
+        if token.is_empty() {
+            self.pat_error = Some("Enter a Personal Access Token before saving.".into());
+            cx.notify();
+            return;
+        }
+        if let Some(main) = self.main_app.upgrade() {
+            main.update(cx, |app, cx| {
+                app.add_hosting_account(provider, token, cx);
+            });
+        }
+        self.pending_account_provider = None;
+        self.pat_input.clear();
+        self.pat_error = None;
+        cx.notify();
+    }
+
     fn append_api_key_from_clipboard(&mut self, cx: &mut Context<Self>) {
         let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) else {
             return;
@@ -759,6 +831,11 @@ impl SettingsWindow {
     }
 
     fn handle_paste_api_key(&mut self, window: &Window, cx: &mut Context<Self>) {
+        if self.pat_focus.is_focused(window) {
+            self.focused_field = SettingsTextField::HostingPat;
+            self.append_pat_from_clipboard(cx);
+            return;
+        }
         if !self.api_key_focus.is_focused(window) {
             return;
         }
@@ -767,6 +844,27 @@ impl SettingsWindow {
     }
 
     fn handle_key_input(&mut self, ev: &KeyDownEvent, window: &Window, cx: &mut Context<Self>) {
+        if self.pat_focus.is_focused(window) {
+            self.focused_field = SettingsTextField::HostingPat;
+            if is_paste_keystroke(ev) {
+                self.append_pat_from_clipboard(cx);
+                return;
+            }
+            match ev.keystroke.key.as_str() {
+                "enter" => self.save_hosting_account(cx),
+                "backspace" => self.edit_pat_field(None, cx),
+                "escape" => self.cancel_add_account(cx),
+                _ => {
+                    if let Some(ch) = typed_character(ev) {
+                        if !modifier_keys_prevent_typing(&ev.keystroke.modifiers) {
+                            self.edit_pat_field(Some(&ch), cx);
+                        }
+                    }
+                }
+            }
+            return;
+        }
+
         if self.api_key_focus.is_focused(window) {
             self.focused_field = SettingsTextField::AiApiKey;
             if is_paste_keystroke(ev) {
@@ -1067,10 +1165,15 @@ impl Render for SettingsWindow {
         let focused = self.focused_field;
         let input_focus = self.input_focus.clone();
         let api_key_focus = self.api_key_focus.clone();
+        let pat_focus = self.pat_focus.clone();
         let input_focused = input_focus.is_focused(window);
         let api_key_focused = api_key_focus.is_focused(window);
+        let pat_focused = pat_focus.is_focused(window);
         let repo_data = self.repo_data.clone();
         let accounts = self.accounts.clone();
+        let pending_account_provider = self.pending_account_provider.clone();
+        let pat_input = self.pat_input.clone();
+        let pat_error = self.pat_error.clone();
         let ent_keys = entity.clone();
 
         let sidebar = render_sidebar(
@@ -1097,13 +1200,18 @@ impl Render for SettingsWindow {
             focused,
             input_focused,
             api_key_focused,
+            pat_focused,
             &self.colors,
             self.main_app.clone(),
             entity,
             &input_focus,
             &api_key_focus,
+            &pat_focus,
             Some(repo_data),
             accounts,
+            pending_account_provider.as_deref(),
+            &pat_input,
+            pat_error.as_deref(),
         );
 
         let settings_content = div()
@@ -1155,8 +1263,12 @@ impl Render for SettingsWindow {
                 let ent = ent_keys;
                 let input_fh = input_focus.clone();
                 let api_key_fh = api_key_focus.clone();
+                let pat_fh = pat_focus.clone();
                 move |ev: &KeyDownEvent, window, cx| {
-                    if !input_fh.is_focused(window) && !api_key_fh.is_focused(window) {
+                    if !input_fh.is_focused(window)
+                        && !api_key_fh.is_focused(window)
+                        && !pat_fh.is_focused(window)
+                    {
                         return;
                     }
                     if let Some(e) = ent.upgrade() {
@@ -1327,13 +1439,18 @@ fn render_content(
     focused: SettingsTextField,
     input_focused: bool,
     api_key_focused: bool,
+    pat_focused: bool,
     colors: &AppColors,
     main_app: WeakEntity<GitForgeApp>,
     entity: WeakEntity<SettingsWindow>,
     input_focus: &FocusHandle,
     api_key_focus: &FocusHandle,
+    pat_focus: &FocusHandle,
     repo_data: Option<SettingsRepoData>,
     accounts: Vec<gitforge_hosting::HostingAccount>,
+    pending_account_provider: Option<&str>,
+    pat_input: &str,
+    pat_error: Option<&str>,
 ) -> impl IntoElement {
     let border = rgba_to_hsla(colors.border);
     let text = rgba_to_hsla(colors.text);
@@ -1461,9 +1578,18 @@ fn render_content(
             entity.clone(),
             input_focus,
         ),
-        SettingsSection::Accounts => {
-            render_accounts_section(section_body, accounts, colors, main_app.clone())
-        }
+        SettingsSection::Accounts => render_accounts_section(
+            section_body,
+            accounts,
+            colors,
+            main_app.clone(),
+            entity.clone(),
+            pending_account_provider,
+            pat_input,
+            pat_focused,
+            pat_error,
+            pat_focus,
+        ),
     };
 
     div()
@@ -1606,6 +1732,10 @@ fn pill_toggle(
                                 draft.sidebar_remotes_expanded = !draft.sidebar_remotes_expanded
                             }
                             "tags" => draft.sidebar_tags_expanded = !draft.sidebar_tags_expanded,
+                            "pull-requests" => {
+                                draft.sidebar_pull_requests_expanded =
+                                    !draft.sidebar_pull_requests_expanded
+                            }
                             "checkpoints" => {
                                 draft.show_checkpoint_refs = !draft.show_checkpoint_refs
                             }
@@ -1964,6 +2094,123 @@ fn api_key_field_control(
         })
 }
 
+fn pat_field_control(
+    pat_input: &str,
+    is_active: bool,
+    colors: &AppColors,
+    entity: WeakEntity<SettingsWindow>,
+    pat_focus: &FocusHandle,
+) -> impl IntoElement {
+    let border = rgba_to_hsla(colors.border);
+    let accent = rgba_to_hsla(colors.accent);
+    let text = rgba_to_hsla(colors.text);
+    let muted = rgba_to_hsla(colors.text_muted);
+    let bg = rgba_to_hsla(colors.background);
+
+    let display = if is_active {
+        let masked = "\u{2022}".repeat(pat_input.chars().count());
+        format!("{masked}\u{2502}")
+    } else if !pat_input.is_empty() {
+        "••••••••••••".to_string()
+    } else {
+        String::new()
+    };
+    let placeholder = "Personal Access Token";
+    let show_placeholder = display.is_empty() && !is_active;
+    let color = if show_placeholder { muted } else { text };
+
+    let ent_focus = entity.clone();
+    let ent_keys = entity.clone();
+    let ent_save = entity.clone();
+    let ent_cancel = entity.clone();
+    let fh = pat_focus.clone();
+
+    div()
+        .flex()
+        .items_center()
+        .gap_2()
+        .child(
+            div()
+                .id(ElementId::Name("settings-field-HostingPat".into()))
+                .w(px(280.0))
+                .track_focus(&fh)
+                .px_2()
+                .py_1()
+                .border_1()
+                .border_color(if is_active { accent } else { border })
+                .rounded(px(4.0))
+                .bg(bg)
+                .cursor_pointer()
+                .on_click(move |_ev, window, cx| {
+                    if let Some(e) = ent_focus.upgrade() {
+                        e.update(cx, |this, cx| {
+                            this.focused_field = SettingsTextField::HostingPat;
+                            cx.notify();
+                        });
+                    }
+                    window.focus(&fh);
+                })
+                .on_key_down(move |ev: &KeyDownEvent, window, cx| {
+                    if let Some(e) = ent_keys.upgrade() {
+                        e.update(cx, |this, cx| this.handle_key_input(ev, window, cx));
+                    }
+                })
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(color)
+                        .overflow_hidden()
+                        .text_ellipsis()
+                        .child(if show_placeholder {
+                            placeholder.to_string()
+                        } else {
+                            display
+                        }),
+                ),
+        )
+        .child(
+            div()
+                .id("settings-pat-save")
+                .px_2()
+                .py_1()
+                .border_1()
+                .border_color(accent)
+                .rounded(px(4.0))
+                .cursor_pointer()
+                .on_click(move |_ev, _window, cx| {
+                    if let Some(e) = ent_save.upgrade() {
+                        e.update(cx, |this, cx| this.save_hosting_account(cx));
+                    }
+                })
+                .child(div().text_xs().text_color(accent).child("Save")),
+        )
+        .child(
+            div()
+                .id("settings-pat-cancel")
+                .px_2()
+                .py_1()
+                .border_1()
+                .border_color(border)
+                .rounded(px(4.0))
+                .cursor_pointer()
+                .on_click(move |_ev, _window, cx| {
+                    if let Some(e) = ent_cancel.upgrade() {
+                        e.update(cx, |this, cx| this.cancel_add_account(cx));
+                    }
+                })
+                .child(div().text_xs().text_color(muted).child("Cancel")),
+        )
+}
+
+fn provider_display_name(provider: &str) -> &str {
+    match provider {
+        "github" => "GitHub",
+        "gitlab" => "GitLab",
+        "codeberg" => "Codeberg",
+        _ => provider,
+    }
+}
+
 fn default_model_for_provider(provider: &str) -> String {
     gitforge_ai::default_model_for_provider(provider).to_string()
 }
@@ -2189,6 +2436,19 @@ fn render_sidebar_section(
         "Expand Tags",
         "Expand the tags section in the sidebar by default.",
         pill_toggle(draft.sidebar_tags_expanded, entity.clone(), "tags", colors),
+        border,
+        text,
+        muted,
+    ))
+    .child(setting_row(
+        "Expand Pull Requests",
+        "Expand the pull requests section in the sidebar by default.",
+        pill_toggle(
+            draft.sidebar_pull_requests_expanded,
+            entity.clone(),
+            "pull-requests",
+            colors,
+        ),
         border,
         text,
         muted,
@@ -3031,6 +3291,12 @@ fn render_accounts_section(
     accounts: Vec<gitforge_hosting::HostingAccount>,
     colors: &AppColors,
     main_app: WeakEntity<GitForgeApp>,
+    settings_entity: WeakEntity<SettingsWindow>,
+    pending_account_provider: Option<&str>,
+    pat_input: &str,
+    pat_focused: bool,
+    pat_error: Option<&str>,
+    pat_focus: &FocusHandle,
 ) -> Stateful<Div> {
     let border = rgba_to_hsla(colors.border);
     let text = rgba_to_hsla(colors.text);
@@ -3038,9 +3304,10 @@ fn render_accounts_section(
     let accent = rgba_to_hsla(colors.accent);
     let warning = rgba_to_hsla(colors.warning);
 
-    let ent_github = main_app.clone();
-    let ent_gitlab = main_app.clone();
-    let ent_codeberg = main_app.clone();
+    let ent_github = settings_entity.clone();
+    let ent_gitlab = settings_entity.clone();
+    let ent_codeberg = settings_entity.clone();
+    let pat_fh = pat_focus.clone();
 
     body = body
         .flex()
@@ -3057,19 +3324,66 @@ fn render_accounts_section(
                 .flex()
                 .gap_2()
                 .child(add_provider_button(
-                    "GitHub", accent, border, ent_github, "github",
+                    "GitHub",
+                    accent,
+                    border,
+                    ent_github,
+                    pat_fh.clone(),
+                    "github",
                 ))
                 .child(add_provider_button(
-                    "GitLab", accent, border, ent_gitlab, "gitlab",
+                    "GitLab",
+                    accent,
+                    border,
+                    ent_gitlab,
+                    pat_fh.clone(),
+                    "gitlab",
                 ))
                 .child(add_provider_button(
                     "Codeberg",
                     accent,
                     border,
                     ent_codeberg,
+                    pat_fh,
                     "codeberg",
                 )),
         );
+
+    if let Some(provider) = pending_account_provider {
+        let provider_label = provider_display_name(provider);
+        let mut form = div()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .px_2()
+            .py_2()
+            .border_1()
+            .border_color(border)
+            .rounded(px(4.0))
+            .child(
+                div()
+                    .text_sm()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(text)
+                    .child(format!("Add {provider_label} account")),
+            )
+            .child(pat_field_control(
+                pat_input,
+                pat_focused,
+                colors,
+                settings_entity.clone(),
+                pat_focus,
+            ));
+        if let Some(err) = pat_error {
+            form = form.child(
+                div()
+                    .text_xs()
+                    .text_color(warning)
+                    .child(err.to_string()),
+            );
+        }
+        body = body.child(form);
+    }
 
     if accounts.is_empty() {
         body = body.child(
@@ -3155,7 +3469,8 @@ fn add_provider_button(
     label: &str,
     color: Hsla,
     border_color: Hsla,
-    entity: WeakEntity<GitForgeApp>,
+    entity: WeakEntity<SettingsWindow>,
+    pat_focus: FocusHandle,
     provider: &str,
 ) -> impl IntoElement {
     let provider = provider.to_string();
@@ -3167,12 +3482,14 @@ fn add_provider_button(
         .border_color(border_color)
         .rounded(px(4.0))
         .cursor_pointer()
-        .on_click(move |_ev, _window, cx| {
-            if let Some(app) = entity.upgrade() {
+        .on_click(move |_ev, window, cx| {
+            if let Some(settings) = entity.upgrade() {
                 let p = provider.clone();
-                app.update(cx, |this, cx| {
-                    this.open_add_account_dialog(p, cx);
+                let fh = pat_focus.clone();
+                settings.update(cx, |this, cx| {
+                    this.start_add_account(p, cx);
                 });
+                window.focus(&fh);
             }
         })
         .child(

@@ -2,9 +2,9 @@ use gpui::Action;
 
 use crate::views::app::{
     AddRemote, BackToDiff, CloneFromGithub, CloneFromGitlab, CloneRepo, CloseTab, CreateBranch,
-    CreateWorktree, InitRepo, ManageAccounts, NewTab, OpenAiSettings, OpenInBrowser, OpenInEditor,
-    OpenInFileManager, OpenInTerminal, OpenRepoManagement, OpenRepository, OpenSshKey, Preferences,
-    QuitApp, RefreshRepository, ReopenClosedTab, SelectNextCommit, SelectPrevCommit,
+    CreatePullRequest, CreateWorktree, InitRepo, ManageAccounts, NewTab, OpenAiSettings, OpenInBrowser,
+    OpenInEditor, OpenInFileManager, OpenInTerminal, OpenRepoManagement, OpenRepository, OpenSshKey,
+    Preferences, QuitApp, RefreshRepository, ReopenClosedTab, SelectNextCommit, SelectPrevCommit,
     ShowCommandPalette, ShowHistory, ShowStatusPanel, SoftReset, StashPop, StashPush, ToggleTheme,
     ViewFileAtCommit,
 };
@@ -75,6 +75,7 @@ pub enum CommandAction {
     Quit,
     Refresh,
     CreateBranch,
+    CreatePullRequest,
     StashPush,
     StashPop,
     SoftReset,
@@ -113,6 +114,7 @@ impl CommandAction {
             Self::Quit => Box::new(QuitApp),
             Self::Refresh => Box::new(RefreshRepository),
             Self::CreateBranch => Box::new(CreateBranch),
+            Self::CreatePullRequest => Box::new(CreatePullRequest),
             Self::StashPush => Box::new(StashPush),
             Self::StashPop => Box::new(StashPop),
             Self::SoftReset => Box::new(SoftReset),
@@ -250,6 +252,11 @@ const EDIT_MENU: &[CommandEntry] = &[
         label: "Create Branch",
         action: CommandAction::CreateBranch,
         keybinding: Some("Ctrl+N"),
+    },
+    CommandEntry {
+        label: "Create Pull Request",
+        action: CommandAction::CreatePullRequest,
+        keybinding: None,
     },
     CommandEntry {
         label: "Stash Changes",

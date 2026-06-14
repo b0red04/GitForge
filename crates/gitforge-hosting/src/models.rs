@@ -12,20 +12,41 @@ pub struct HostingAccount {
 }
 
 impl HostingAccount {
-    pub fn token(&self) -> Result<String, keyring::Error> {
-        let entry = keyring::Entry::new("gitforge-hosting", &self.token_key)?;
-        entry.get_password()
+    pub fn token(&self) -> anyhow::Result<String> {
+        crate::secrets::get_token(&self.token_key)
     }
 
-    pub fn store_token(token_key: &str, token: &str) -> Result<(), keyring::Error> {
-        let entry = keyring::Entry::new("gitforge-hosting", token_key)?;
-        entry.set_password(token)
+    pub fn store_token(token_key: &str, token: &str) -> anyhow::Result<()> {
+        crate::secrets::store_token(token_key, token)
     }
 
-    pub fn delete_token(token_key: &str) -> Result<(), keyring::Error> {
-        let entry = keyring::Entry::new("gitforge-hosting", token_key)?;
-        entry.delete_credential()
+    pub fn delete_token(token_key: &str) -> anyhow::Result<()> {
+        crate::secrets::delete_token(token_key)
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreatePullRequestRequest {
+    pub owner: String,
+    pub repo: String,
+    pub title: String,
+    pub body: String,
+    pub head_owner: String,
+    pub head_branch: String,
+    pub base_branch: String,
+    pub draft: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PullRequest {
+    pub number: u64,
+    pub title: String,
+    pub html_url: String,
+    pub state: String,
+    #[serde(default)]
+    pub head_branch: Option<String>,
+    #[serde(default)]
+    pub draft: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

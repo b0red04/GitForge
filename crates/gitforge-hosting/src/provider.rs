@@ -1,4 +1,4 @@
-use crate::models::{HostingAccount, RemoteRepo};
+use crate::models::{CreatePullRequestRequest, HostingAccount, PullRequest, RemoteRepo};
 use anyhow::Result;
 use async_trait::async_trait;
 
@@ -21,4 +21,24 @@ pub trait HostingProvider: Send + Sync {
     fn file_url(&self, repo_full_name: &str, sha: &str, path: &str, line: Option<u32>) -> String;
     fn commit_url(&self, repo_full_name: &str, sha: &str) -> String;
     fn repo_url(&self, repo_full_name: &str) -> String;
+
+    async fn create_pull_request(
+        &self,
+        account: &HostingAccount,
+        req: &CreatePullRequestRequest,
+    ) -> Result<PullRequest>;
+
+    async fn list_pull_requests(
+        &self,
+        account: &HostingAccount,
+        owner: &str,
+        repo: &str,
+    ) -> Result<Vec<PullRequest>>;
+
+    async fn list_branches(
+        &self,
+        account: &HostingAccount,
+        owner: &str,
+        repo: &str,
+    ) -> Result<Vec<String>>;
 }

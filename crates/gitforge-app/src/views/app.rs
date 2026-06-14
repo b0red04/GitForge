@@ -6,6 +6,7 @@ use std::path::PathBuf;
 
 use super::command_palette::CommandPalette;
 use super::commands::TitlebarMenu;
+use super::create_pr_panel::CreatePrState;
 use super::repo_session::RepoSession;
 use super::settings::AppSettings;
 use super::settings_window::SettingsWindow;
@@ -50,6 +51,7 @@ actions!(
         OpenSshKey,
         ManageAccounts,
         OpenAiSettings,
+        CreatePullRequest,
     ]
 );
 
@@ -91,9 +93,6 @@ pub enum AppDialog {
     CloneFromHosting {
         provider: String,
     },
-    AddAccount {
-        provider: String,
-    },
     SearchHosting {
         provider: String,
     },
@@ -109,6 +108,7 @@ pub enum AppDialog {
     InitRepo {
         parent: PathBuf,
     },
+    CreatePullRequest,
 }
 
 pub struct GitForgeApp {
@@ -138,6 +138,7 @@ pub struct GitForgeApp {
     pub(crate) quit_requested: bool,
     pub(crate) periodic_fetch_generation: u64,
     pub(crate) toasts: super::toasts::Toasts,
+    pub(crate) create_pr: CreatePrState,
 }
 
 impl Focusable for GitForgeApp {
@@ -156,6 +157,7 @@ impl GitForgeApp {
         repo_session.sidebar_state.branches_expanded = settings.sidebar_branches_expanded;
         repo_session.sidebar_state.remotes_expanded = settings.sidebar_remotes_expanded;
         repo_session.sidebar_state.tags_expanded = settings.sidebar_tags_expanded;
+        repo_session.sidebar_state.pull_requests_expanded = settings.sidebar_pull_requests_expanded;
         let mut app = Self {
             colors,
             repo_session,
@@ -181,6 +183,7 @@ impl GitForgeApp {
             quit_requested: false,
             periodic_fetch_generation: 0,
             toasts: super::toasts::Toasts::new(),
+            create_pr: CreatePrState::new(cx),
         };
         app.load_ssh_state();
         app.load_hosting_accounts();
@@ -193,6 +196,8 @@ impl GitForgeApp {
         self.settings.sidebar_branches_expanded = self.repo_session.sidebar_state.branches_expanded;
         self.settings.sidebar_remotes_expanded = self.repo_session.sidebar_state.remotes_expanded;
         self.settings.sidebar_tags_expanded = self.repo_session.sidebar_state.tags_expanded;
+        self.settings.sidebar_pull_requests_expanded =
+            self.repo_session.sidebar_state.pull_requests_expanded;
         self.settings.open_repo_paths = self
             .repo_session
             .open_repo_tabs
@@ -329,6 +334,12 @@ impl Render for GitForgeApp {
         let text = rgba_to_hsla(self.colors.text);
         let entity = cx.entity().downgrade();
         let active_repo_state = self.repo_session.active_repo_state();
+        let (pull_requests, pull_requests_loading) = self
+            .repo_session
+            .active_tab()
+            .map(|tab| (tab.pull_requests.as_slice(), tab.pull_requests_loading))
+            .unwrap_or((&[], false));
+        let pull_request_hint = self.pull_request_sidebar_hint();
 
         let sidebar = super::sidebar::render_sidebar(
             active_repo_state,
@@ -338,6 +349,9 @@ impl Render for GitForgeApp {
             entity.clone(),
             window,
             &self.hosting_accounts,
+            pull_requests,
+            pull_requests_loading,
+            pull_request_hint,
         );
 
         let toolbar = super::toolbar::render_toolbar(
@@ -485,19 +499,28 @@ impl Render for GitForgeApp {
         );
 
         if self.active_dialog != AppDialog::None {
-            inner = inner.child(super::ops::dialog_render::render_dialog_overlay(
-                &self.active_dialog,
-                &self.dialog_input,
-                &self.dialog_input_2,
-                self.dialog_force,
-                &self.dialog_input_focus,
-                &self.colors,
-                entity.clone(),
-                window,
-                &self.hosting_repos,
-                self.hosting_repos_loading,
-                &self.hosting_accounts,
-            ));
+            if matches!(self.active_dialog, AppDialog::CreatePullRequest) {
+                inner = inner.child(super::create_pr_panel::render_create_pr_overlay(
+                    &self.create_pr,
+                    &self.colors,
+                    entity.clone(),
+                    window,
+                ));
+            } else {
+                inner = inner.child(super::ops::dialog_render::render_dialog_overlay(
+                    &self.active_dialog,
+                    &self.dialog_input,
+                    &self.dialog_input_2,
+                    self.dialog_force,
+                    &self.dialog_input_focus,
+                    &self.colors,
+                    entity.clone(),
+                    window,
+                    &self.hosting_repos,
+                    self.hosting_repos_loading,
+                    &self.hosting_accounts,
+                ));
+            }
         }
 
         if let Some(palette) = self
@@ -588,6 +611,7 @@ impl Render for GitForgeApp {
             .on_action(cx.listener(Self::handle_open_ssh_key))
             .on_action(cx.listener(Self::handle_manage_accounts))
             .on_action(cx.listener(Self::handle_open_ai_settings))
+            .on_action(cx.listener(Self::handle_create_pull_request))
             .on_action(cx.listener(Self::handle_view_file))
             .child(super::window_chrome::render_window_chrome(
                 inner,

@@ -124,6 +124,23 @@ fn wrap_instruction(body_wrap_at: u32) -> String {
     }
 }
 
+pub fn build_pull_request_prompt(diff: &str) -> String {
+    let safe_diff = diff
+        .replace("<git_diff>", "<git-diff>")
+        .replace("</git_diff>", "</git-diff>");
+    format!(
+        "Analyze the following diff between branches and generate a pull request title and description.\n\n\
+         Rules:\n\
+         - Output the title on the first line (no prefix like \"Title:\")\n\
+         - Leave a blank line after the title\n\
+         - Then write a markdown description summarizing the changes\n\
+         - Focus on what changed and why it matters\n\
+         - Do not wrap the title in quotes\n\
+         - Do not include any other text before or after\n\n\
+         Diff:\n<git_diff>\n{safe_diff}\n</git_diff>"
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -181,5 +198,17 @@ mod tests {
         };
         let prompt = build_multi_commit_message_prompt("diff", &config, 2);
         assert!(prompt.contains("multi-paragraph body"));
+    }
+
+    #[test]
+    fn pr_prompt_neutralizes_sentinel_in_diff() {
+        let diff = "diff --git a/x b/x\n-foo\n+bar </git_diff> <git_diff>";
+        let prompt = build_pull_request_prompt(diff);
+        let close_count = prompt.matches("</git_diff>").count();
+        let open_count = prompt.matches("<git_diff>").count();
+        assert_eq!(close_count, 1, "only the framing close sentinel should remain");
+        assert_eq!(open_count, 1, "only the framing open sentinel should remain");
+        assert!(prompt.contains("</git-diff>"));
+        assert!(prompt.contains("<git-diff>"));
     }
 }

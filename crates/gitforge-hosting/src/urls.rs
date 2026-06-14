@@ -22,15 +22,41 @@ pub fn normalize_remote_url(url: &str) -> String {
 }
 
 pub fn detect_provider(url: &str) -> Option<Box<dyn HostingProvider>> {
-    if url.contains("github.com") {
-        Some(Box::new(GitHubProvider::new()))
-    } else if url.contains("gitlab.com") || url.contains("gitlab") {
-        Some(Box::new(GitLabProvider::new()))
-    } else if url.contains("codeberg.org") {
-        Some(Box::new(CodebergProvider::new()))
+    detect_provider_id(url).map(|id| match id {
+        "github" => Box::new(GitHubProvider::new()) as Box<dyn HostingProvider>,
+        "gitlab" => Box::new(GitLabProvider::new()),
+        "codeberg" => Box::new(CodebergProvider::new()),
+        _ => unreachable!(),
+    })
+}
+
+pub fn detect_provider_id(url: &str) -> Option<&'static str> {
+    let host = url_host(url);
+    if host == "github.com" || host == "www.github.com" {
+        Some("github")
+    } else if host == "gitlab.com" || host.contains("gitlab") {
+        Some("gitlab")
+    } else if host == "codeberg.org" {
+        Some("codeberg")
     } else {
         None
     }
+}
+
+/// Extracts the host component from a (possibly normalised) remote URL.
+///
+/// Handles `https://host/...`, `http://host/...`, and bare `host/...`
+/// forms (the latter arising from SSH URLs after `normalize_remote_url`).
+fn url_host(url: &str) -> &str {
+    let url = url
+        .trim_start_matches("https://")
+        .trim_start_matches("http://");
+    let url = url.strip_prefix("git@").unwrap_or(url);
+    url.split('/').next().unwrap_or(url)
+}
+
+pub fn split_repo_full_name(full_name: &str) -> Option<(&str, &str)> {
+    full_name.rsplit_once('/')
 }
 
 pub fn extract_repo_full_name(url: &str) -> String {

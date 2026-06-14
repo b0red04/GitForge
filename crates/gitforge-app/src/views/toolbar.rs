@@ -62,6 +62,7 @@ pub fn render_toolbar(
         let ent_fetch = entity.clone();
         let ent_pull = entity.clone();
         let ent_push = entity.clone();
+        let ent_create_pr = entity.clone();
         let ent_branch = entity.clone();
         let ent_stash = entity.clone();
         let ent_pop = entity.clone();
@@ -146,6 +147,20 @@ pub fn render_toolbar(
                     if let Some(e) = ent_push.upgrade() {
                         e.update(cx, |this, cx| {
                             this.open_push_dialog(cx);
+                        });
+                    }
+                },
+            ))
+            .child(toolbar_button(
+                "btn-create-pr",
+                "Create PR",
+                border,
+                accent,
+                hover_bg,
+                move |_ev, _window, cx| {
+                    if let Some(e) = ent_create_pr.upgrade() {
+                        e.update(cx, |this, cx| {
+                            this.open_create_pr_dialog(cx);
                         });
                     }
                 },

@@ -32,6 +32,8 @@ impl GitForgeApp {
                 loading: true,
                 last_error: None,
                 panel_snapshot: None,
+                pull_requests: Vec::new(),
+                pull_requests_loading: false,
             });
             restore_ids.push(id);
         }
@@ -74,6 +76,8 @@ impl GitForgeApp {
             loading: true,
             last_error: None,
             panel_snapshot: None,
+            pull_requests: Vec::new(),
+            pull_requests_loading: false,
         });
         self.repo_session.active_repo_tab_id = Some(id);
         self.repo_session.apply_active_repo_tab_to_view();
@@ -163,6 +167,7 @@ impl GitForgeApp {
                         .sidebar_state
                         .seed_expanded_remotes(&repo_state);
                     self.repo_session.apply_active_repo_tab_to_view();
+                    self.refresh_pull_requests(cx);
                 }
                 self.record_recent_repo(&repo_state.path);
                 self.save_settings();
@@ -213,6 +218,7 @@ impl GitForgeApp {
         self.save_settings();
         cx.notify();
         self.restart_periodic_fetch(cx);
+        self.refresh_pull_requests(cx);
     }
 
     pub fn close_repo_tab(&mut self, tab_id: u64, cx: &mut Context<Self>) {

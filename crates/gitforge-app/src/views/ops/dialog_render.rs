@@ -52,12 +52,12 @@ pub(crate) fn render_dialog_overlay(
         AppDialog::SshTestConnection => "Test SSH Connection",
         AppDialog::CredentialAdd => "Add Credential",
         AppDialog::CloneFromHosting { .. } => "Clone from Hosting",
-        AppDialog::AddAccount { .. } => "Add Account",
         AppDialog::SearchHosting { .. } => "Search Repositories",
         AppDialog::ForkRepo { .. } => "Fork Repository",
         AppDialog::CreateWorktree => "Create Worktree",
         AppDialog::RemoveWorktree { .. } => "Remove Worktree",
         AppDialog::InitRepo { .. } => "Init Repository",
+        AppDialog::CreatePullRequest => "Create Pull Request",
         AppDialog::None => "",
     };
 
@@ -83,7 +83,6 @@ pub(crate) fn render_dialog_overlay(
         AppDialog::SshTestConnection => "Host (e.g. github.com)",
         AppDialog::CredentialAdd => "host username",
         AppDialog::CloneFromHosting { .. } => "Search repos...",
-        AppDialog::AddAccount { .. } => "Personal Access Token",
         AppDialog::SearchHosting { .. } => "Search query...",
         AppDialog::ForkRepo { owner, repo, .. } => {
             return render_fork_confirm_overlay(owner, repo, colors, entity);
@@ -102,6 +101,7 @@ pub(crate) fn render_dialog_overlay(
             return render_remove_worktree_overlay(path, colors, entity);
         }
         AppDialog::InitRepo { .. } => "Repository name",
+        AppDialog::CreatePullRequest => "",
         AppDialog::None => "",
     };
 
