@@ -5,7 +5,7 @@ use gitforge_hosting::{
 use gpui::Context;
 
 use crate::views::app::{AppDialog, GitForgeApp};
-use crate::views::create_pr_panel::CreatePrDropdown;
+use crate::views::dialogs::CreatePrDropdown;
 
 pub(crate) struct OriginHostingContext {
     pub provider_id: String,
