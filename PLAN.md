@@ -6,6 +6,8 @@ Candidate refactors that turn shallow modules into deep ones. Each is evaluated 
 
 ## Completed
 
+- **gitforge-git Error Type — Structured variants** — done. Expanded `GitError` from 2 to 10 variants (`MergeConflict`, `AuthenticationFailed`, `NetworkError`, `IndexLock`, `EmptyCommit`, `BranchNotFound`, `BranchNotFullyMerged`, `InvalidReference`, plus original `RepositoryNotFound`/`OperationFailed`). Centralised classification in `classify_git_failure(args, output)` in `error.rs`, routed through all 3 `run_git*` methods + 4 hand-rolled `Command::new("git")` sites. App layer: added `report_git_error` using `GitError::toast_message()` + variant-aware toast kind (`EmptyCommit` → Info, not Error). Deleted `clean_error_message` (the string-parsing compensating layer) and its 6 tests. 11 new classifier/toast tests in `error.rs`.
+
 - **RepoSession extraction** — done in `64297f7`, finished by collapsing the duplicated `apply_repo_state` (branch `opencode/finish-repo-session-apply-state`). `RepoSession::apply_repo_state` is now the single seam for installing a fresh `RepoState`.
 - **CommitEditor extraction** — done in `1f89936`. Owns commit message buffer, cursor, AI alternatives, rendering at `views/commit_editor.rs`.
 - **UTF-8 diff truncation** — fixed in `0290776`.
@@ -22,18 +24,6 @@ Candidate refactors that turn shallow modules into deep ones. Each is evaluated 
 ---
 
 ## Active candidates
-
-### 4. gitforge-git Error Type — Single String Variant
-
-**Files:** `gitforge-git/src/error.rs` (2 variants), used across all `*_impl.rs` files
-
-**Problem:** `GitError` has 2 variants: `RepositoryNotFound(String)`, `OperationFailed(String)`. `OperationFailed` absorbs **99%** of constructions (98/99 across 12 files). Structured gix error info is discarded via `.map_err(|e| GitError::OperationFailed(e.to_string()))` — 29 exact-form occurrences plus 22 more `format!`-wrapped variants. (Note: the prior claim that `InvalidReference` and `MergeConflict` variants exist-but-unused was wrong — those variants were never defined. They are candidates to add, not delete.)
-
-**Solution:** Introduce domain-specific variants: `MergeConflict { paths: Vec<String> }`, `AuthenticationFailed { remote: String }`, `NetworkError { source: String }`, `IndexLock { path: PathBuf }`, `EmptyCommit`, `BranchNotFound { name: String }`, plus the missing `InvalidReference`. gix error mapping preserves structured cause.
-
-**Benefits:**
-- **Leverage** — app shows "Merge conflict in 3 files" instead of "Operation failed: ...git merge...exit status 1".
-- **Locality** — error classification concentrates in `gitforge-git` instead of being parsed from strings in the app layer.
 
 ---
 

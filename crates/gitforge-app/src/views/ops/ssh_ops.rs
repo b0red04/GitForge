@@ -28,7 +28,7 @@ impl GitForgeApp {
                 Ok(Err(e)) => {
                     this.update(cx, |this, cx| {
                         this.repo_session.remote_status.clear();
-                        this.report_op_error("SSH key generation", &e.to_string(), cx);
+                        this.report_git_error("SSH key generation", &e, cx);
                     })
                     .ok();
                 }
@@ -67,7 +67,7 @@ impl GitForgeApp {
                 Ok(Err(e)) => {
                     this.update(cx, |this, cx| {
                         this.repo_session.remote_status.clear();
-                        this.report_op_error("SSH test", &e.to_string(), cx);
+                        this.report_git_error("SSH test", &e, cx);
                     })
                     .ok();
                 }

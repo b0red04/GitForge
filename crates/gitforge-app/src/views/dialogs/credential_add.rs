@@ -105,7 +105,7 @@ fn store_credential(
             }
             Ok(Err(e)) => {
                 this.update(cx, |this, cx| {
-                    this.report_op_error("Store credential", &e.to_string(), cx);
+                    this.report_git_error("Store credential", &e, cx);
                 })
                 .ok();
             }
