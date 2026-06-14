@@ -61,7 +61,7 @@ impl GitForgeApp {
 
     pub fn refresh_pull_requests(&mut self, cx: &mut Context<Self>) {
         let Some(ctx) = self.resolve_origin_hosting() else {
-            if let Some(tab) = self.active_tab_mut() {
+            if let Some(tab) = self.repo_session.active_tab_mut() {
                 tab.pull_requests.clear();
                 tab.pull_requests_loading = false;
             }
@@ -70,9 +70,9 @@ impl GitForgeApp {
         };
 
         let tab_id = self.repo_session.active_repo_tab_id;
-        let tab_path = self.active_tab().map(|t| t.path.clone());
+        let tab_path = self.repo_session.active_tab().map(|t| t.path.clone());
 
-        if let Some(tab) = self.active_tab_mut() {
+        if let Some(tab) = self.repo_session.active_tab_mut() {
             tab.pull_requests_loading = true;
         }
         cx.notify();
@@ -94,10 +94,10 @@ impl GitForgeApp {
                 if this.repo_session.active_repo_tab_id != tab_id {
                     return;
                 }
-                if this.active_tab().map(|t| &t.path) != tab_path.as_ref() {
+                if this.repo_session.active_tab().map(|t| &t.path) != tab_path.as_ref() {
                     return;
                 }
-                if let Some(tab) = this.active_tab_mut() {
+                if let Some(tab) = this.repo_session.active_tab_mut() {
                     tab.pull_requests_loading = false;
                     match result {
                         Ok(prs) => tab.pull_requests = prs,
