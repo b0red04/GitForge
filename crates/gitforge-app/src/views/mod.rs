@@ -2,7 +2,7 @@ pub mod app;
 pub mod command_palette;
 pub mod commands;
 pub mod commit_editor;
-pub mod create_pr_panel;
+pub mod dialogs;
 pub mod diff_panel;
 pub mod diff_view;
 pub mod graph_panel;

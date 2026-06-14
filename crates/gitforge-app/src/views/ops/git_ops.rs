@@ -162,19 +162,12 @@ impl GitForgeApp {
     }
 
     pub fn update_sidebar_filter(&mut self, typed_char: Option<&str>, cx: &mut Context<Self>) {
-        match typed_char {
-            Some(ch) => {
-                self.repo_session.sidebar_state.search_filter.push_str(ch);
-            }
-            None => {
-                self.repo_session.sidebar_state.search_filter.pop();
-            }
-        }
+        self.repo_session.sidebar_state.filter_input.edit(typed_char);
         cx.notify();
     }
 
     pub fn clear_sidebar_filter(&mut self, cx: &mut Context<Self>) {
-        self.repo_session.sidebar_state.search_filter.clear();
+        self.repo_session.sidebar_state.filter_input.clear();
         cx.notify();
     }
 

@@ -2,7 +2,11 @@ use super::app::GitForgeApp;
 use super::layout::{TITLEBAR_HEIGHT, WINDOW_CORNER_RADIUS};
 use super::settings::{AppSettings, RepoBehaviorSettings};
 use super::window_chrome::{apply_top_corner_radius, seal_rounded_corners};
-use gitforge_ui::{AppColors, Appearance, Theme, ThemeEntry, rgba_to_hsla};
+use gitforge_ui::{
+    AppColors, Appearance, TextInput, TextInputDisplay, TextInputEvent, TextInputRenderOpts,
+    Theme, ThemeEntry, modifier_keys_prevent_typing, parse_key_event, render_static_text_input,
+    render_text_input, rgba_to_hsla, typed_character,
+};
 use gpui::prelude::FluentBuilder;
 use gpui::*;
 use std::path::{Path, PathBuf};
@@ -153,7 +157,6 @@ pub struct SettingsDraft {
 
 #[derive(Clone, Debug, Default)]
 pub struct AiSettingsUiState {
-    pub api_key_input: String,
     pub api_key_configured: bool,
     pub available_models: Vec<String>,
     pub models_loading: bool,
@@ -428,17 +431,15 @@ pub struct SettingsWindow {
     repo_data: SettingsRepoData,
     accounts: Vec<gitforge_hosting::HostingAccount>,
     active_section: SettingsSection,
-    search_query: String,
+    search_input: TextInput,
     focused_field: SettingsTextField,
     input_focus: FocusHandle,
-    api_key_focus: FocusHandle,
-    pat_focus: FocusHandle,
-    focus_handle: FocusHandle,
-    api_key_input: String,
+    api_key_input: TextInput,
     api_key_configured: bool,
     pending_account_provider: Option<String>,
-    pat_input: String,
+    pat_input: TextInput,
     pat_error: Option<String>,
+    focus_handle: FocusHandle,
     available_models: Vec<String>,
     models_loading: bool,
     models_error: Option<String>,
@@ -465,17 +466,16 @@ impl SettingsWindow {
             },
             accounts: Vec::new(),
             active_section: initial_section,
-            search_query: String::new(),
+            search_input: TextInput::new("Search settings...", cx),
             focused_field: SettingsTextField::Editor,
             input_focus: cx.focus_handle(),
-            api_key_focus: cx.focus_handle(),
-            pat_focus: cx.focus_handle(),
-            focus_handle: cx.focus_handle(),
-            api_key_input: String::new(),
+            api_key_input: TextInput::new("API key", cx).with_display(TextInputDisplay::MaskedBullets),
             api_key_configured: false,
             pending_account_provider: None,
-            pat_input: String::new(),
+            pat_input: TextInput::new("Personal Access Token", cx)
+                .with_display(TextInputDisplay::MaskedWithCursor),
             pat_error: None,
+            focus_handle: cx.focus_handle(),
             available_models: Vec::new(),
             models_loading: false,
             models_error: None,
@@ -489,7 +489,6 @@ impl SettingsWindow {
 
     fn ai_ui_state(&self) -> AiSettingsUiState {
         AiSettingsUiState {
-            api_key_input: self.api_key_input.clone(),
             api_key_configured: self.api_key_configured,
             available_models: self.available_models.clone(),
             models_loading: self.models_loading,
@@ -505,7 +504,7 @@ impl SettingsWindow {
 
     fn save_api_key(&mut self, cx: &mut Context<Self>) {
         let provider = self.draft.ai_provider.clone();
-        let key = self.api_key_input.trim().to_string();
+        let key = self.api_key_input.text().trim().to_string();
         if key.is_empty() {
             self.models_error = Some("Enter an API key before saving.".into());
             cx.notify();
@@ -746,20 +745,12 @@ impl SettingsWindow {
     }
 
     fn edit_search(&mut self, ch: Option<&str>, cx: &mut Context<Self>) {
-        if let Some(c) = ch {
-            self.search_query.push_str(c);
-        } else {
-            self.search_query.pop();
-        }
+        self.search_input.edit(ch);
         cx.notify();
     }
 
     fn edit_api_key_field(&mut self, ch: Option<&str>, cx: &mut Context<Self>) {
-        if let Some(c) = ch {
-            self.api_key_input.push_str(c);
-        } else {
-            self.api_key_input.pop();
-        }
+        self.api_key_input.edit(ch);
         cx.notify();
     }
 
@@ -779,11 +770,7 @@ impl SettingsWindow {
     }
 
     fn edit_pat_field(&mut self, ch: Option<&str>, cx: &mut Context<Self>) {
-        if let Some(c) = ch {
-            self.pat_input.push_str(c);
-        } else {
-            self.pat_input.pop();
-        }
+        self.pat_input.edit(ch);
         cx.notify();
     }
 
@@ -793,7 +780,7 @@ impl SettingsWindow {
         };
         let text = text.replace(['\n', '\r'], "");
         if !text.is_empty() {
-            self.pat_input.push_str(&text);
+            self.pat_input.edit(Some(&text));
             cx.notify();
         }
     }
@@ -802,7 +789,7 @@ impl SettingsWindow {
         let Some(provider) = self.pending_account_provider.clone() else {
             return;
         };
-        let token = self.pat_input.trim().to_string();
+        let token = self.pat_input.text().trim().to_string();
         if token.is_empty() {
             self.pat_error = Some("Enter a Personal Access Token before saving.".into());
             cx.notify();
@@ -825,18 +812,18 @@ impl SettingsWindow {
         };
         let text = text.replace(['\n', '\r'], "");
         if !text.is_empty() {
-            self.api_key_input.push_str(&text);
+            self.api_key_input.edit(Some(&text));
             cx.notify();
         }
     }
 
     fn handle_paste_api_key(&mut self, window: &Window, cx: &mut Context<Self>) {
-        if self.pat_focus.is_focused(window) {
+        if self.pat_input.focus_handle().is_focused(window) {
             self.focused_field = SettingsTextField::HostingPat;
             self.append_pat_from_clipboard(cx);
             return;
         }
-        if !self.api_key_focus.is_focused(window) {
+        if !self.api_key_input.focus_handle().is_focused(window) {
             return;
         }
         self.focused_field = SettingsTextField::AiApiKey;
@@ -844,7 +831,7 @@ impl SettingsWindow {
     }
 
     fn handle_key_input(&mut self, ev: &KeyDownEvent, window: &Window, cx: &mut Context<Self>) {
-        if self.pat_focus.is_focused(window) {
+        if self.pat_input.focus_handle().is_focused(window) {
             self.focused_field = SettingsTextField::HostingPat;
             if is_paste_keystroke(ev) {
                 self.append_pat_from_clipboard(cx);
@@ -865,7 +852,7 @@ impl SettingsWindow {
             return;
         }
 
-        if self.api_key_focus.is_focused(window) {
+        if self.api_key_input.focus_handle().is_focused(window) {
             self.focused_field = SettingsTextField::AiApiKey;
             if is_paste_keystroke(ev) {
                 self.append_api_key_from_clipboard(cx);
@@ -931,24 +918,6 @@ fn is_paste_keystroke(ev: &KeyDownEvent) -> bool {
     }
     let m = &ev.keystroke.modifiers;
     m.control || m.platform
-}
-
-fn modifier_keys_prevent_typing(modifiers: &Modifiers) -> bool {
-    modifiers.control || modifiers.alt || modifiers.platform
-}
-
-fn typed_character(ev: &KeyDownEvent) -> Option<String> {
-    if modifier_keys_prevent_typing(&ev.keystroke.modifiers) {
-        return None;
-    }
-    if let Some(ch) = ev.keystroke.key_char.clone() {
-        return Some(ch);
-    }
-    let key = ev.keystroke.key.as_str();
-    if key.len() == 1 {
-        return Some(key.to_string());
-    }
-    None
 }
 
 fn provider_needs_api_key(provider: &str) -> bool {
@@ -1136,7 +1105,7 @@ fn render_settings_titlebar(colors: &AppColors, window: &Window) -> impl IntoEle
 
 impl Render for SettingsWindow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let query = self.search_query.to_lowercase();
+        let query = self.search_input.text().to_lowercase();
         let visible_sections: Vec<SettingsSection> = SettingsSection::ALL
             .into_iter()
             .filter(|s| s.matches_search(&query))
@@ -1161,26 +1130,26 @@ impl Render for SettingsWindow {
 
         let entity = cx.entity().downgrade();
         let draft = self.draft.clone();
-        let search = self.search_query.clone();
         let focused = self.focused_field;
+        let search_focused = self.search_input.focus_handle().is_focused(window);
         let input_focus = self.input_focus.clone();
-        let api_key_focus = self.api_key_focus.clone();
-        let pat_focus = self.pat_focus.clone();
+        let api_key_focus = self.api_key_input.focus_handle().clone();
+        let pat_focus = self.pat_input.focus_handle().clone();
         let input_focused = input_focus.is_focused(window);
         let api_key_focused = api_key_focus.is_focused(window);
         let pat_focused = pat_focus.is_focused(window);
         let repo_data = self.repo_data.clone();
         let accounts = self.accounts.clone();
         let pending_account_provider = self.pending_account_provider.clone();
-        let pat_input = self.pat_input.clone();
         let pat_error = self.pat_error.clone();
         let ent_keys = entity.clone();
 
         let sidebar = render_sidebar(
             &visible_sections,
             display_section,
-            &search,
-            focused == SettingsTextField::Search && input_focused,
+            &self.search_input,
+            search_focused,
+            &self.colors,
             surface,
             surface_high,
             border,
@@ -1189,7 +1158,7 @@ impl Render for SettingsWindow {
             accent,
             hover,
             entity.clone(),
-            &input_focus,
+            window,
         );
 
         let ai_ui = self.ai_ui_state();
@@ -1205,12 +1174,12 @@ impl Render for SettingsWindow {
             self.main_app.clone(),
             entity,
             &input_focus,
-            &api_key_focus,
-            &pat_focus,
+            &self.api_key_input,
+            &self.pat_input,
+            window,
             Some(repo_data),
             accounts,
             pending_account_provider.as_deref(),
-            &pat_input,
             pat_error.as_deref(),
         );
 
@@ -1288,8 +1257,9 @@ impl Render for SettingsWindow {
 fn render_sidebar(
     sections: &[SettingsSection],
     active: SettingsSection,
-    search: &str,
+    search_input: &TextInput,
     search_focused: bool,
+    colors: &AppColors,
     surface: Hsla,
     surface_high: Hsla,
     border: Hsla,
@@ -1298,15 +1268,9 @@ fn render_sidebar(
     accent: Hsla,
     hover: Hsla,
     entity: WeakEntity<SettingsWindow>,
-    search_focus: &FocusHandle,
+    window: &Window,
 ) -> impl IntoElement {
     let ent_search = entity.clone();
-    let fh = search_focus.clone();
-    let mut search_display = search.to_string();
-    if search_focused {
-        search_display.push('\u{2502}');
-    }
-
     let mut nav = div().flex().flex_col().gap_0();
     for section in sections {
         let is_active = *section == active;
@@ -1360,56 +1324,28 @@ fn render_sidebar(
         .border_color(border)
         .child(
             div().p_3().border_b_1().border_color(border).child(
-                div()
-                    .id("settings-search")
-                    .track_focus(&fh)
-                    .px_2()
-                    .py_1()
-                    .border_1()
-                    .border_color(border)
-                    .rounded(px(4.0))
-                    .bg(surface_high)
-                    .cursor_pointer()
-                    .on_click({
-                        let fh2 = fh.clone();
-                        move |_ev, window, _cx| {
-                            window.focus(&fh2);
-                        }
-                    })
-                    .on_key_down({
-                        let ent = ent_search.clone();
-                        move |ev: &KeyDownEvent, _window, cx| {
-                            if let Some(e) = ent.upgrade() {
-                                e.update(cx, |this, cx| {
-                                    this.focused_field = SettingsTextField::Search;
-                                    match ev.keystroke.key.as_str() {
-                                        "backspace" => this.edit_search(None, cx),
-                                        _ => {
-                                            if let Some(ch) = ev.keystroke.key_char.clone() {
-                                                if !ev.keystroke.modifiers.platform {
-                                                    this.edit_search(Some(&ch), cx);
-                                                }
-                                            }
-                                        }
-                                    }
-                                });
+                render_text_input(
+                    search_input,
+                    colors,
+                    window,
+                    &TextInputRenderOpts::new(ElementId::Name("settings-search".into()))
+                        .text_xs()
+                        .force_focused(search_focused)
+                        .background(surface_high),
+                    |_| {},
+                )
+                .on_key_down(move |ev, _window, cx| {
+                    if let Some(e) = ent_search.upgrade() {
+                        e.update(cx, |this, cx| {
+                            this.focused_field = SettingsTextField::Search;
+                            match parse_key_event(ev) {
+                                TextInputEvent::Backspace => this.edit_search(None, cx),
+                                TextInputEvent::Typed(c) => this.edit_search(Some(&c), cx),
+                                _ => {}
                             }
-                        }
-                    })
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(if search.is_empty() && !search_focused {
-                                muted
-                            } else {
-                                text
-                            })
-                            .child(if search.is_empty() && !search_focused {
-                                "Search settings...".to_string()
-                            } else {
-                                search_display
-                            }),
-                    ),
+                        });
+                    }
+                }),
             ),
         )
         .child(
@@ -1444,12 +1380,12 @@ fn render_content(
     main_app: WeakEntity<GitForgeApp>,
     entity: WeakEntity<SettingsWindow>,
     input_focus: &FocusHandle,
-    api_key_focus: &FocusHandle,
-    pat_focus: &FocusHandle,
+    api_key_input: &TextInput,
+    pat_input: &TextInput,
+    window: &Window,
     repo_data: Option<SettingsRepoData>,
     accounts: Vec<gitforge_hosting::HostingAccount>,
     pending_account_provider: Option<&str>,
-    pat_input: &str,
     pat_error: Option<&str>,
 ) -> impl IntoElement {
     let border = rgba_to_hsla(colors.border);
@@ -1559,7 +1495,8 @@ fn render_content(
             colors,
             entity.clone(),
             input_focus,
-            api_key_focus,
+            api_key_input,
+            window,
         ),
         SettingsSection::Repositories => render_repositories_section(
             section_body,
@@ -1588,7 +1525,7 @@ fn render_content(
             pat_input,
             pat_focused,
             pat_error,
-            pat_focus,
+            window,
         ),
     };
 
@@ -1779,57 +1716,39 @@ fn text_field_control(
     entity: WeakEntity<SettingsWindow>,
     input_focus: &FocusHandle,
 ) -> impl IntoElement {
-    let border = rgba_to_hsla(colors.border);
-    let accent = rgba_to_hsla(colors.accent);
-    let text = rgba_to_hsla(colors.text);
-    let muted = rgba_to_hsla(colors.text_muted);
-    let bg = rgba_to_hsla(colors.background);
-
-    let mut display = if value.is_empty() && !is_active {
-        placeholder.to_string()
-    } else {
-        value.to_string()
-    };
-    if is_active {
-        display.push('\u{2502}');
-    }
-    let color = if value.is_empty() && !is_active {
-        muted
-    } else {
-        text
-    };
-
     let ent_focus = entity.clone();
-    let fh = input_focus.clone();
+    let fh_click = input_focus.clone();
 
-    div()
-        .id(ElementId::Name(format!("settings-field-{field:?}").into()))
-        .w(px(200.0))
-        .track_focus(&fh)
-        .px_2()
-        .py_1()
-        .border_1()
-        .border_color(if is_active { accent } else { border })
-        .rounded(px(4.0))
-        .bg(bg)
-        .cursor_pointer()
-        .on_click(move |_ev, window, cx| {
-            if let Some(e) = ent_focus.upgrade() {
-                e.update(cx, |this, cx| {
-                    this.focused_field = field;
-                    cx.notify();
-                });
+    render_static_text_input(
+        value,
+        placeholder,
+        input_focus,
+        is_active,
+        TextInputDisplay::Plain,
+        false,
+        colors,
+        TextInputRenderOpts::new(ElementId::Name(format!("settings-field-{field:?}").into()))
+            .text_xs()
+            .width(px(200.0))
+            .text_ellipsis()
+            .overflow_hidden()
+            .force_focused(is_active),
+        {
+            let fh = input_focus.clone();
+            move |window| {
+                window.focus(&fh);
             }
-            window.focus(&fh);
-        })
-        .child(
-            div()
-                .text_xs()
-                .text_color(color)
-                .overflow_hidden()
-                .text_ellipsis()
-                .child(display),
-        )
+        },
+    )
+    .on_click(move |_ev, window, cx| {
+        if let Some(e) = ent_focus.upgrade() {
+            e.update(cx, |this, cx| {
+                this.focused_field = field;
+                cx.notify();
+            });
+        }
+        window.focus(&fh_click);
+    })
 }
 
 fn dropdown_control(
@@ -1983,80 +1902,55 @@ fn models_dropdown_control(
 }
 
 fn api_key_field_control(
-    api_key_input: &str,
+    api_key_input: &TextInput,
     configured: bool,
     is_active: bool,
     colors: &AppColors,
     entity: WeakEntity<SettingsWindow>,
-    api_key_focus: &FocusHandle,
+    window: &Window,
 ) -> impl IntoElement {
     let border = rgba_to_hsla(colors.border);
     let accent = rgba_to_hsla(colors.accent);
-    let text = rgba_to_hsla(colors.text);
     let muted = rgba_to_hsla(colors.text_muted);
-    let bg = rgba_to_hsla(colors.background);
-
-    let display = if is_active {
-        let mut s = api_key_input.to_string();
-        s.push('\u{2502}');
-        s
-    } else if configured {
-        "••••••••••••".to_string()
-    } else {
-        String::new()
-    };
-    let placeholder = "API key";
-    let show_placeholder = display.is_empty() && !is_active;
-    let color = if show_placeholder { muted } else { text };
-
     let ent_focus = entity.clone();
     let ent_keys = entity.clone();
     let ent_save = entity.clone();
     let ent_clear = entity.clone();
-    let fh = api_key_focus.clone();
+    let fh = api_key_input.focus_handle().clone();
 
     div()
         .flex()
         .items_center()
         .gap_2()
         .child(
-            div()
-                .id(ElementId::Name("settings-field-AiApiKey".into()))
-                .w(px(220.0))
-                .track_focus(&fh)
-                .px_2()
-                .py_1()
-                .border_1()
-                .border_color(if is_active { accent } else { border })
-                .rounded(px(4.0))
-                .bg(bg)
-                .cursor_pointer()
-                .on_click(move |_ev, window, cx| {
-                    if let Some(e) = ent_focus.upgrade() {
-                        e.update(cx, |this, cx| {
-                            this.focused_field = SettingsTextField::AiApiKey;
-                            cx.notify();
-                        });
-                    }
-                    window.focus(&fh);
-                })
-                .on_key_down(move |ev: &KeyDownEvent, window, cx| {
-                    if let Some(e) = ent_keys.upgrade() {
-                        e.update(cx, |this, cx| this.handle_key_input(ev, window, cx));
-                    }
-                })
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(color)
-                        .overflow_hidden()
-                        .text_ellipsis()
-                        .child(if show_placeholder {
-                            placeholder.to_string()
-                        } else {
-                            display
-                        }),
-                ),
+            render_text_input(
+                api_key_input,
+                colors,
+                window,
+                &TextInputRenderOpts::new(ElementId::Name("settings-field-AiApiKey".into()))
+                    .text_xs()
+                    .width(px(220.0))
+                    .text_ellipsis()
+                    .overflow_hidden()
+                    .configured(configured)
+                    .force_focused(is_active),
+                |_| {},
+            )
+            .on_click(move |_ev, window, cx| {
+                if let Some(e) = ent_focus.upgrade() {
+                    e.update(cx, |this, cx| {
+                        this.focused_field = SettingsTextField::AiApiKey;
+                        cx.notify();
+                    });
+                }
+                window.focus(&fh);
+            })
+            .on_key_down(move |ev, window, cx| {
+                if let Some(e) = ent_keys.upgrade() {
+                    e.update(cx, |this, cx| this.handle_key_input(ev, window, cx));
+                }
+                cx.stop_propagation();
+            }),
         )
         .child(
             div()
@@ -2095,78 +1989,53 @@ fn api_key_field_control(
 }
 
 fn pat_field_control(
-    pat_input: &str,
+    pat_input: &TextInput,
     is_active: bool,
     colors: &AppColors,
     entity: WeakEntity<SettingsWindow>,
-    pat_focus: &FocusHandle,
+    window: &Window,
 ) -> impl IntoElement {
     let border = rgba_to_hsla(colors.border);
     let accent = rgba_to_hsla(colors.accent);
-    let text = rgba_to_hsla(colors.text);
     let muted = rgba_to_hsla(colors.text_muted);
-    let bg = rgba_to_hsla(colors.background);
-
-    let display = if is_active {
-        let masked = "\u{2022}".repeat(pat_input.chars().count());
-        format!("{masked}\u{2502}")
-    } else if !pat_input.is_empty() {
-        "••••••••••••".to_string()
-    } else {
-        String::new()
-    };
-    let placeholder = "Personal Access Token";
-    let show_placeholder = display.is_empty() && !is_active;
-    let color = if show_placeholder { muted } else { text };
-
     let ent_focus = entity.clone();
     let ent_keys = entity.clone();
     let ent_save = entity.clone();
     let ent_cancel = entity.clone();
-    let fh = pat_focus.clone();
+    let fh = pat_input.focus_handle().clone();
 
     div()
         .flex()
         .items_center()
         .gap_2()
         .child(
-            div()
-                .id(ElementId::Name("settings-field-HostingPat".into()))
-                .w(px(280.0))
-                .track_focus(&fh)
-                .px_2()
-                .py_1()
-                .border_1()
-                .border_color(if is_active { accent } else { border })
-                .rounded(px(4.0))
-                .bg(bg)
-                .cursor_pointer()
-                .on_click(move |_ev, window, cx| {
-                    if let Some(e) = ent_focus.upgrade() {
-                        e.update(cx, |this, cx| {
-                            this.focused_field = SettingsTextField::HostingPat;
-                            cx.notify();
-                        });
-                    }
-                    window.focus(&fh);
-                })
-                .on_key_down(move |ev: &KeyDownEvent, window, cx| {
-                    if let Some(e) = ent_keys.upgrade() {
-                        e.update(cx, |this, cx| this.handle_key_input(ev, window, cx));
-                    }
-                })
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(color)
-                        .overflow_hidden()
-                        .text_ellipsis()
-                        .child(if show_placeholder {
-                            placeholder.to_string()
-                        } else {
-                            display
-                        }),
-                ),
+            render_text_input(
+                pat_input,
+                colors,
+                window,
+                &TextInputRenderOpts::new(ElementId::Name("settings-field-HostingPat".into()))
+                    .text_xs()
+                    .width(px(280.0))
+                    .text_ellipsis()
+                    .overflow_hidden()
+                    .force_focused(is_active),
+                |_| {},
+            )
+            .on_click(move |_ev, window, cx| {
+                if let Some(e) = ent_focus.upgrade() {
+                    e.update(cx, |this, cx| {
+                        this.focused_field = SettingsTextField::HostingPat;
+                        cx.notify();
+                    });
+                }
+                window.focus(&fh);
+            })
+            .on_key_down(move |ev, window, cx| {
+                if let Some(e) = ent_keys.upgrade() {
+                    e.update(cx, |this, cx| this.handle_key_input(ev, window, cx));
+                }
+                cx.stop_propagation();
+            }),
         )
         .child(
             div()
@@ -2561,7 +2430,8 @@ fn render_ai_section(
     colors: &AppColors,
     entity: WeakEntity<SettingsWindow>,
     input_focus: &FocusHandle,
-    api_key_focus: &FocusHandle,
+    api_key_input: &TextInput,
+    window: &Window,
 ) -> Stateful<Div> {
     let border = rgba_to_hsla(colors.border);
     let text = rgba_to_hsla(colors.text);
@@ -2661,12 +2531,12 @@ fn render_ai_section(
             "API Key",
             "Stored in the system keyring. Enter a new key to replace the saved one.",
             api_key_field_control(
-                &ai_ui.api_key_input,
+                api_key_input,
                 ai_ui.api_key_configured,
                 focused == SettingsTextField::AiApiKey && api_key_focused,
                 colors,
                 entity.clone(),
-                api_key_focus,
+                window,
             ),
             border,
             text,
@@ -3293,10 +3163,10 @@ fn render_accounts_section(
     main_app: WeakEntity<GitForgeApp>,
     settings_entity: WeakEntity<SettingsWindow>,
     pending_account_provider: Option<&str>,
-    pat_input: &str,
+    pat_input: &TextInput,
     pat_focused: bool,
     pat_error: Option<&str>,
-    pat_focus: &FocusHandle,
+    window: &Window,
 ) -> Stateful<Div> {
     let border = rgba_to_hsla(colors.border);
     let text = rgba_to_hsla(colors.text);
@@ -3307,7 +3177,7 @@ fn render_accounts_section(
     let ent_github = settings_entity.clone();
     let ent_gitlab = settings_entity.clone();
     let ent_codeberg = settings_entity.clone();
-    let pat_fh = pat_focus.clone();
+    let pat_fh = pat_input.focus_handle().clone();
 
     body = body
         .flex()
@@ -3372,7 +3242,7 @@ fn render_accounts_section(
                 pat_focused,
                 colors,
                 settings_entity.clone(),
-                pat_focus,
+                window,
             ));
         if let Some(err) = pat_error {
             form = form.child(
