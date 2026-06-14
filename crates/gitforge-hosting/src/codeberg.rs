@@ -112,22 +112,6 @@ impl HostingProvider for CodebergProvider {
         Ok(all_repos)
     }
 
-    async fn list_org_repos(&self, account: &HostingAccount, org: &str) -> Result<Vec<RemoteRepo>> {
-        let token = account.token()?;
-        let client = make_client(&token);
-        let response = client
-            .get(format!("{}/orgs/{}/repos?limit=100", self.base_url, org))
-            .send()
-            .await?;
-
-        if !response.status().is_success() {
-            anyhow::bail!("Failed to list Codeberg org repos: {}", response.status());
-        }
-
-        let repos: Vec<serde_json::Value> = response.json().await?;
-        Ok(repos.iter().map(json_to_remote_repo).collect())
-    }
-
     async fn search_repos(&self, account: &HostingAccount, query: &str) -> Result<Vec<RemoteRepo>> {
         let token = account.token()?;
         let client = make_client(&token);
@@ -169,20 +153,6 @@ impl HostingProvider for CodebergProvider {
 
         let fork: serde_json::Value = response.json().await?;
         Ok(json_to_remote_repo(&fork))
-    }
-
-    fn file_url(&self, repo_full_name: &str, sha: &str, path: &str, line: Option<u32>) -> String {
-        match line {
-            Some(l) => format!(
-                "{}/{}/src/{}/{}#L{}",
-                self.web_url, repo_full_name, sha, path, l
-            ),
-            None => format!("{}/{}/src/{}/{}", self.web_url, repo_full_name, sha, path),
-        }
-    }
-
-    fn commit_url(&self, repo_full_name: &str, sha: &str) -> String {
-        format!("{}/{}/commit/{}", self.web_url, repo_full_name, sha)
     }
 
     fn repo_url(&self, repo_full_name: &str) -> String {

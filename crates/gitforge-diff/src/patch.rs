@@ -1,4 +1,4 @@
-use crate::types::{DiffHunk, DiffLine, DiffLineType};
+use crate::types::{DiffLine, DiffLineType};
 
 pub fn extract_patch_from_selection(file_lines: &[DiffLine], selected_indices: &[usize]) -> String {
     if selected_indices.is_empty() {
@@ -81,57 +81,6 @@ pub fn extract_patch_from_selection(file_lines: &[DiffLine], selected_indices: &
     }
 
     result
-}
-
-pub fn extract_hunk_patch(
-    file_lines: &[DiffLine],
-    hunk: &DiffHunk,
-    selected_indices: &[usize],
-) -> String {
-    let hunk_lines = &file_lines[hunk.line_range.clone()];
-    let hunk_offset = hunk.line_range.start;
-
-    let mut old_count = 0u32;
-    let mut new_count = 0u32;
-    let mut body = String::new();
-
-    for (i, line) in hunk_lines.iter().enumerate() {
-        let global_i = hunk_offset + i;
-        let selected = selected_indices.contains(&global_i);
-
-        match line.line_type {
-            DiffLineType::Added => {
-                if selected {
-                    new_count += 1;
-                    body.push_str(&format!("+{}\n", line.content));
-                }
-            }
-            DiffLineType::Removed => {
-                if selected {
-                    old_count += 1;
-                    body.push_str(&format!("-{}\n", line.content));
-                }
-            }
-            DiffLineType::Context => {
-                old_count += 1;
-                new_count += 1;
-                body.push_str(&format!(" {}\n", line.content));
-            }
-            DiffLineType::NoNewlineAtEof => {
-                body.push_str(&format!("\\{}\n", line.content));
-            }
-            DiffLineType::HunkHeader => {}
-        }
-    }
-
-    if body.is_empty() {
-        return String::new();
-    }
-
-    format!(
-        "@@ -{},{} +{},{} @@\n{}",
-        hunk.old_start, old_count, hunk.new_start, new_count, body
-    )
 }
 
 struct HunkBuilder {

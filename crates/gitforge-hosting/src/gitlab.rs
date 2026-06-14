@@ -143,33 +143,6 @@ impl HostingProvider for GitLabProvider {
         Ok(all_repos)
     }
 
-    async fn list_org_repos(
-        &self,
-        account: &HostingAccount,
-        group: &str,
-    ) -> Result<Vec<RemoteRepo>> {
-        let token = account.token()?;
-        let client = make_client(&token);
-        let response = client
-            .get(format!(
-                "{}/groups/{}/projects?per_page=100",
-                self.base_url,
-                url_encode(group)
-            ))
-            .send()
-            .await?;
-
-        if !response.status().is_success() {
-            anyhow::bail!(
-                "Failed to list GitLab group projects: {}",
-                response.status()
-            );
-        }
-
-        let projects: Vec<serde_json::Value> = response.json().await?;
-        Ok(projects.iter().map(json_to_remote_repo).collect())
-    }
-
     async fn search_repos(&self, account: &HostingAccount, query: &str) -> Result<Vec<RemoteRepo>> {
         let token = account.token()?;
         let client = make_client(&token);
@@ -211,26 +184,6 @@ impl HostingProvider for GitLabProvider {
 
         let fork: serde_json::Value = response.json().await?;
         Ok(json_to_remote_repo(&fork))
-    }
-
-    fn file_url(&self, repo_full_name: &str, sha: &str, path: &str, line: Option<u32>) -> String {
-        let encoded = url_encode(repo_full_name);
-        match line {
-            Some(l) => format!(
-                "{}/{}/-/blob/{}/{}#L{}",
-                self.web_url, encoded, sha, path, l
-            ),
-            None => format!("{}/{}/-/blob/{}/{}", self.web_url, encoded, sha, path),
-        }
-    }
-
-    fn commit_url(&self, repo_full_name: &str, sha: &str) -> String {
-        format!(
-            "{}/{}/-/commit/{}",
-            self.web_url,
-            url_encode(repo_full_name),
-            sha
-        )
     }
 
     fn repo_url(&self, repo_full_name: &str) -> String {

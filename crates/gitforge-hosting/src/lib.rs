@@ -22,10 +22,3 @@ pub fn get_provider(name: &str) -> Option<Box<dyn HostingProvider>> {
         _ => None,
     }
 }
-
-pub fn find_account<'a>(
-    accounts: &'a [HostingAccount],
-    provider: &str,
-) -> Option<&'a HostingAccount> {
-    accounts.iter().find(|a| a.provider == provider)
-}

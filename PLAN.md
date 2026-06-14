@@ -91,8 +91,6 @@ Candidate refactors that turn shallow modules into deep ones. Each is evaluated 
 - `gitforge-hosting/src/provider.rs:12, 21, 22` — `list_org_repos`, `file_url`, `commit_url` trait methods implemented in all 3 providers but called from nowhere in the app (9 dead bodies).
 - `gitforge-hosting/src/lib.rs:23` — `find_account` has zero callers (the app has its own `find_hosting_account`).
 - `gitforge-ui/src/components.rs` — dead file referencing nonexistent submodules (`sidebar`, `graph_panel`, etc.); not declared in `lib.rs`, not compiled.
-- `crates/gitforge-syntax` — `SyntaxTheme` and `TokenColor` may be unused (verify after `56f7c5d`).
-- `crates/gitforge-diff` — `anyhow` and `tracing` declared as dependencies but unused.
 
 **Solution:** Delete unused code. If a variant is planned for future use, add a comment and a tracking issue.
 
