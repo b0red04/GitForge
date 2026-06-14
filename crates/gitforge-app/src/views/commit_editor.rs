@@ -133,8 +133,7 @@ impl CommitEditor {
                 } else {
                     first_line.to_string()
                 };
-                let is_selected = self.message_input.text().lines().next().unwrap_or("")
-                    == alt.lines().next().unwrap_or("");
+                let is_selected = self.message_input.text() == alt.as_str();
                 let pill_bg = if is_selected { accent } else { surface };
                 let pill_tc = if is_selected {
                     rgba_to_hsla(colors.background)
