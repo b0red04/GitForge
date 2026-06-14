@@ -1,10 +1,20 @@
 pub mod colors;
+pub mod dialog;
 pub mod icon;
 pub mod text_input;
 pub mod theme;
 
 pub use colors::AppColors;
 pub use colors::rgba_to_hsla;
+pub use dialog::DialogColors;
+pub use dialog::attach_dialog_input_keys;
+pub use dialog::dialog_actions;
+pub use dialog::dialog_body;
+pub use dialog::dialog_close_button;
+pub use dialog::dialog_label;
+pub use dialog::dialog_overlay;
+pub use dialog::dialog_surface;
+pub use dialog::dialog_title;
 pub use text_input::TextInput;
 pub use text_input::TextInputDisplay;
 pub use text_input::TextInputEvent;

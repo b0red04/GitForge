@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use super::command_palette::CommandPalette;
 use super::commands::TitlebarMenu;
-use super::create_pr_panel::CreatePrState;
+use super::dialogs::CreatePrState;
 use super::repo_session::RepoSession;
 use super::settings::AppSettings;
 use super::settings_window::SettingsWindow;
@@ -497,27 +497,18 @@ impl Render for GitForgeApp {
         );
 
         if self.active_dialog != AppDialog::None {
-            if matches!(self.active_dialog, AppDialog::CreatePullRequest) {
-                inner = inner.child(super::create_pr_panel::render_create_pr_overlay(
-                    &self.create_pr,
-                    &self.colors,
-                    entity.clone(),
-                    window,
-                ));
-            } else {
-                inner = inner.child(super::ops::dialog_render::render_dialog_overlay(
-                    &self.active_dialog,
-                    &self.dialog_input,
-                    &self.dialog_input_2,
-                    self.dialog_force,
-                    &self.colors,
-                    entity.clone(),
-                    window,
-                    &self.hosting_repos,
-                    self.hosting_repos_loading,
-                    &self.hosting_accounts,
-                ));
-            }
+            inner = inner.child(super::ops::dialog_render::render_dialog_overlay(
+                &self.active_dialog,
+                &self.dialog_input,
+                &self.dialog_input_2,
+                self.dialog_force,
+                &self.colors,
+                entity.clone(),
+                window,
+                &self.hosting_repos,
+                self.hosting_repos_loading,
+                &self.create_pr,
+            ));
         }
 
         if let Some(palette) = self

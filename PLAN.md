@@ -13,28 +13,23 @@ Candidate refactors that turn shallow modules into deep ones. Each is evaluated 
 - **i18n removal + syntax simplification** — done in `56f7c5d`.
 - **Text Input extraction** — shared `TextInput` module in `gitforge-ui` (`text_input.rs`). Migrated sidebar filter, commit editor, command palette, settings (search, 11 draft fields, API key, PAT), dialogs (generic + worktree with separate focus handles), and create PR panel title/description. Worktree overlay bug (shared focus, missing cursor on field 2) fixed.
 - **`tab_ops.rs` delegation facade** — done (uncommitted). Deleted 12 one-line forwarders to `RepoSession` (the 11 listed plus `push_closed_tab`, which was hidden by `#[allow(dead_code)]` and surfaced on removal). Investigation corrected the scope: the codebase had already migrated to direct `self.repo_session.X()` calls, so only `active_repo_state` still had callers (4 sites in `git_ops.rs`/`dialog_ops.rs`), rewritten direct; `normalize_repo_path` had 2 internal callers repointed to `RepoSession::`. `tab_ops.rs` now holds only tab lifecycle logic (+9/−327).
+- **Dialog system refactor** — done. Pragmatic phased approach (kept `AppDialog` enum as router, not `Box<dyn Dialog>`). Shared primitives in `gitforge-ui/src/dialog.rs` (`DialogColors`, `dialog_overlay`, `dialog_surface`, `dialog_actions`, `attach_dialog_input_keys`). Per-dialog modules under `views/dialogs/` (`simple_input.rs` metadata table for 11 single-input dialogs, plus `credential_add`, `delete_branch`, `fork_confirm`, `worktree`, `remove_worktree`, `hosting_browse`, `create_pr`). `dialog_ops.rs` and `dialog_render.rs` are thin routers (~30 lines each). Create PR overlay moved from `create_pr_panel.rs` to `dialogs/create_pr.rs` with `TextInput` for title/description; unified dispatch in `app.rs`. Overlap with item #1: all dialog text inputs now use shared `TextInput` + `attach_dialog_input_keys`.
 
 ---
 
 ## Active candidates
 
-### 2. Dialog System — 19-arm dispatcher + 5× button pair
+### 1. Text Input Duplication (remaining sites)
 
-**Files:** `app.rs:64-113` (`AppDialog` enum, 20 variants incl. `None`), `ops/dialog_ops.rs:61-207` (`confirm_dialog`, 19-arm match), `ops/dialog_render.rs` (1043 lines, six `render_*_overlay` functions)
+**Files:** `sidebar.rs` (`render_search_bar`), `command_palette.rs` (`CommandPalette::render`), `settings_window.rs` (settings search, `text_field_control`, `api_key_field_control`). Dialog sites removed by item #2 above; `commit_editor.rs` already uses `TextInput`.
 
-**Problem:** Adding a new dialog requires edits in 3 files / 5+ sites: enum variant, `open_*_dialog` method, `confirm_dialog` match arm, title match arm, placeholder match arm, and (for non-standard dialogs) a copy-pasted 90-260 line `render_*_overlay`. The duplications inside `dialog_render.rs`:
-- Input key handler (enter/escape/backspace/char): 3 full copies (`:171-208`, `:776-812`, `:840-878`) + 1 partial (`:602-622`).
-- Cancel + action button pair: 5 copies (`:216-261`, `:498-550`, `:636-683`, `:886-931`, `:985-1030`).
-- Overlay wrapper (`dialog-overlay` div): 6 copies.
-- Color-binding preamble: 6 copies.
-- `dialog-box` surface wrapper: 6 copies.
-- Three parallel `AppDialog` match dispatches inside `dialog_render.rs` (title, placeholder, hosting-title).
+**Problem:** Several independent implementations of "GPUI text input" remain outside dialogs. `gitforge-ui` now has `TextInput` (`text_input.rs`) but not all call sites migrated.
 
-**Solution:** Each dialog becomes a self-contained module implementing a `Dialog` trait with `open()`, `confirm(input, cx)`, `cancel()`, `render(input, colors, entity)`. `AppDialog` becomes `Box<dyn Dialog>`. Shared rendering primitives (input handler, button pair, overlay wrapper) move to `gitforge-ui`.
+**Solution:** Migrate remaining sites to `TextInput` + `render_text_input`. Delete dead `gitforge-ui/src/components.rs` if still present.
 
 **Benefits:**
-- **Locality** — all knowledge of "what CreateBranch does" lives in one file. Adding a dialog is one file, one struct.
-- **Leverage** — shared primitives benefit all dialogs simultaneously. Tests exercise a dialog's confirm logic through the trait interface.
+- **Locality** — text handling bugs fixed once instead of N times.
+- **Leverage** — remaining inputs gain clipboard paste, multi-byte safety from one interface.
 
 ---
 

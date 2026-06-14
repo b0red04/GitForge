@@ -1,12 +1,11 @@
 use gitforge_hosting::RemoteRepo;
 use gitforge_ui::{
-    AppColors, TextInput, TextInputEvent, TextInputMode, TextInputRenderOpts, parse_key_event,
-    render_text_input,
-    rgba_to_hsla,
+    AppColors, DialogColors, TextInput, TextInputEvent, TextInputMode, TextInputRenderOpts,
+    attach_dialog_input_keys, dialog_overlay, dialog_surface, rgba_to_hsla, render_text_input,
 };
 use gpui::*;
 
-use super::app::GitForgeApp;
+use crate::views::app::GitForgeApp;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CreatePrDropdown {
@@ -85,18 +84,17 @@ impl CreatePrState {
     }
 }
 
-pub fn render_create_pr_overlay(
+pub fn render(
     state: &CreatePrState,
     colors: &AppColors,
     entity: WeakEntity<GitForgeApp>,
     window: &mut Window,
 ) -> Stateful<Div> {
-    let overlay_bg = rgba_to_hsla(colors.background).opacity(0.7);
-    let surface = rgba_to_hsla(colors.surface);
-    let border = rgba_to_hsla(colors.border);
-    let text_color = rgba_to_hsla(colors.text);
-    let accent = rgba_to_hsla(colors.accent);
-    let muted = rgba_to_hsla(colors.text_muted);
+    let dc = DialogColors::from_app(colors);
+    let border = dc.border;
+    let text_color = dc.text;
+    let accent = dc.accent;
+    let muted = dc.muted;
     let success = rgba_to_hsla(colors.success);
     let purple = gpui::hsla(270.0 / 360.0, 0.55, 0.65, 1.0);
 
@@ -138,94 +136,56 @@ pub fn render_create_pr_overlay(
         );
     }
 
-    let title_field = render_text_input(
-        &state.title_input,
-        colors,
-        window,
-        &TextInputRenderOpts::new(ElementId::Name("create-pr-title".into()))
-            .background(rgba_to_hsla(colors.background)),
-        |_| {},
-    )
-    .on_key_down({
-        let ent_title = entity.clone();
-        let ent_title2 = entity.clone();
-        let ent_title3 = entity.clone();
-        let fh_desc = state.description_input.focus_handle().clone();
-        move |ev, window, cx| {
-            match parse_key_event(ev) {
-                TextInputEvent::Escape => {
-                    if let Some(e) = ent_title.upgrade() {
-                        e.update(cx, |this, cx| this.cancel_create_pr_dialog(cx));
-                    }
-                }
-                TextInputEvent::Enter { .. } => {
-                    window.focus(&fh_desc);
-                    if let Some(e) = ent_title2.upgrade() {
-                        e.update(cx, |this, cx| {
-                            this.create_pr.active_field = CreatePrActiveField::Description;
-                            cx.notify();
-                        });
-                    }
-                }
-                TextInputEvent::Backspace => {
-                    if let Some(e) = ent_title3.upgrade() {
-                        e.update(cx, |this, cx| this.edit_create_pr_title(None, cx));
-                    }
-                }
-                TextInputEvent::Typed(c) => {
-                    if let Some(e) = ent_title3.upgrade() {
-                        e.update(cx, |this, cx| this.edit_create_pr_title(Some(&c), cx));
-                    }
-                }
-                _ => {}
-            }
-        }
-    });
+    let desc_focus = state.description_input.focus_handle().clone();
 
-    let description_field = render_text_input(
-        &state.description_input,
-        colors,
-        window,
-        &TextInputRenderOpts::new(ElementId::Name("create-pr-description".into()))
-            .min_h(px(96.0))
-            .max_h(px(200.0))
-            .overflow_y_scroll()
-            .overflow_x_hidden()
-            .background(rgba_to_hsla(colors.background)),
-        |_| {},
-    )
-    .on_key_down({
-        let ent_desc = entity.clone();
-        let ent_desc2 = entity.clone();
-        let ent_desc3 = entity.clone();
-        move |ev, _window, cx| {
-            match parse_key_event(ev) {
-                TextInputEvent::Escape => {
-                    if let Some(e) = ent_desc.upgrade() {
-                        e.update(cx, |this, cx| this.cancel_create_pr_dialog(cx));
-                    }
-                }
-                TextInputEvent::Backspace => {
-                    if let Some(e) = ent_desc2.upgrade() {
-                        e.update(cx, |this, cx| this.edit_create_pr_description(None, cx));
-                    }
-                }
-                TextInputEvent::Typed(c) => {
-                    if let Some(e) = ent_desc3.upgrade() {
-                        e.update(cx, |this, cx| this.edit_create_pr_description(Some(&c), cx));
-                    }
-                }
+    let title_field = attach_dialog_input_keys(
+        render_text_input(
+            &state.title_input,
+            colors,
+            window,
+            &TextInputRenderOpts::new(ElementId::Name("create-pr-title".into()))
+                .placeholder("Pull request title"),
+            |_| {},
+        ),
+        entity.clone(),
+        {
+            let desc_focus = desc_focus.clone();
+            move |this, cx, window, event| match event {
                 TextInputEvent::Enter { .. } => {
-                    if let Some(e) = ent_desc3.upgrade() {
-                        e.update(cx, |this, cx| {
-                            this.edit_create_pr_description(Some("\n"), cx);
-                        });
-                    }
+                    this.create_pr.active_field = CreatePrActiveField::Description;
+                    window.focus(&desc_focus);
+                    cx.notify();
                 }
+                TextInputEvent::Escape => this.cancel_create_pr_dialog(cx),
+                TextInputEvent::Backspace => this.edit_create_pr_title(None, cx),
+                TextInputEvent::Typed(c) => this.edit_create_pr_title(Some(&c), cx),
                 _ => {}
             }
-        }
-    });
+        },
+    );
+
+    let description_field = attach_dialog_input_keys(
+        render_text_input(
+            &state.description_input,
+            colors,
+            window,
+            &TextInputRenderOpts::new(ElementId::Name("create-pr-description".into()))
+                .placeholder("Pull request description")
+                .min_h(px(96.0))
+                .max_h(px(200.0))
+                .overflow_y_scroll()
+                .overflow_x_hidden(),
+            |_| {},
+        ),
+        entity.clone(),
+        |this, cx, _window, event| match event {
+            TextInputEvent::Enter { .. } => this.edit_create_pr_description(Some("\n"), cx),
+            TextInputEvent::Escape => this.cancel_create_pr_dialog(cx),
+            TextInputEvent::Backspace => this.edit_create_pr_description(None, cx),
+            TextInputEvent::Typed(c) => this.edit_create_pr_description(Some(&c), cx),
+            _ => {}
+        },
+    );
 
     let from_repo_label = if state.from_repo.is_empty() {
         "Select...".to_string()
@@ -248,17 +208,7 @@ pub fn render_create_pr_overlay(
         state.to_branch.clone()
     };
 
-    let dialog = div()
-        .id("dialog-box")
-        .w(px(520.0))
-        .bg(surface)
-        .border_1()
-        .border_color(border)
-        .rounded(px(6.0))
-        .p_4()
-        .flex()
-        .flex_col()
-        .gap_3()
+    let dialog = dialog_surface(px(520.0), dc)
         .child(
             div()
                 .flex()
@@ -311,12 +261,7 @@ pub fn render_create_pr_overlay(
                         .flex()
                         .flex_col()
                         .gap_2()
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(muted)
-                                .child("From Repo"),
-                        )
+                        .child(div().text_xs().text_color(muted).child("From Repo"))
                         .child(render_dropdown_trigger(
                             "from-repo",
                             &from_repo_label,
@@ -328,12 +273,7 @@ pub fn render_create_pr_overlay(
                             entity.clone(),
                             CreatePrDropdown::FromRepo,
                         ))
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(muted)
-                                .child("Branch"),
-                        )
+                        .child(div().text_xs().text_color(muted).child("Branch"))
                         .child(render_dropdown_trigger(
                             "from-branch",
                             &from_branch_label,
@@ -346,24 +286,14 @@ pub fn render_create_pr_overlay(
                             CreatePrDropdown::FromBranch,
                         )),
                 )
-                .child(
-                    div()
-                        .pt_6()
-                        .text_color(muted)
-                        .child("→"),
-                )
+                .child(div().pt_6().text_color(muted).child("→"))
                 .child(
                     div()
                         .flex_1()
                         .flex()
                         .flex_col()
                         .gap_2()
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(muted)
-                                .child("To Repo"),
-                        )
+                        .child(div().text_xs().text_color(muted).child("To Repo"))
                         .child(render_dropdown_trigger(
                             "to-repo",
                             &to_repo_label,
@@ -375,12 +305,7 @@ pub fn render_create_pr_overlay(
                             entity.clone(),
                             CreatePrDropdown::ToRepo,
                         ))
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(muted)
-                                .child("Branch"),
-                        )
+                        .child(div().text_xs().text_color(muted).child("Branch"))
                         .child(render_dropdown_trigger(
                             "to-branch",
                             &to_branch_label,
@@ -411,12 +336,7 @@ pub fn render_create_pr_overlay(
                 .flex()
                 .items_center()
                 .justify_between()
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(muted)
-                        .child("Title"),
-                )
+                .child(div().text_xs().text_color(muted).child("Title"))
                 .child(
                     div()
                         .id("create-pr-ai")
@@ -443,12 +363,7 @@ pub fn render_create_pr_overlay(
                 ),
         )
         .child(title_field)
-        .child(
-            div()
-                .text_xs()
-                .text_color(muted)
-                .child("Description"),
-        )
+        .child(div().text_xs().text_color(muted).child("Description"))
         .child(description_field)
         .child(
             div()
@@ -475,7 +390,7 @@ pub fn render_create_pr_overlay(
                         .rounded(px(2.0))
                         .border_1()
                         .border_color(if state.draft { accent } else { border })
-                        .bg(if state.draft { accent } else { surface })
+                        .bg(if state.draft { accent } else { dc.surface })
                         .text_color(gpui::hsla(0.0, 0.0, 1.0, 1.0))
                         .text_xs()
                         .child(if state.draft { "\u{2713}" } else { "" }),
@@ -547,15 +462,8 @@ pub fn render_create_pr_overlay(
                 ),
         );
 
-    div()
-        .id("dialog-overlay")
-        .absolute()
+    dialog_overlay(dc)
         .inset_0()
-        .flex()
-        .items_center()
-        .justify_center()
-        .bg(overlay_bg)
-        .occlude()
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .child(dialog)
 }
@@ -609,11 +517,19 @@ fn render_open_dropdown(
 ) -> Option<Stateful<Div>> {
     let (items, dropdown) = match state.open_dropdown {
         CreatePrDropdown::FromRepo => (
-            state.repos.iter().map(|r| r.full_name.clone()).collect::<Vec<_>>(),
+            state
+                .repos
+                .iter()
+                .map(|r| r.full_name.clone())
+                .collect::<Vec<_>>(),
             CreatePrDropdown::FromRepo,
         ),
         CreatePrDropdown::ToRepo => (
-            state.repos.iter().map(|r| r.full_name.clone()).collect::<Vec<_>>(),
+            state
+                .repos
+                .iter()
+                .map(|r| r.full_name.clone())
+                .collect::<Vec<_>>(),
             CreatePrDropdown::ToRepo,
         ),
         CreatePrDropdown::FromBranch => (state.from_branches.clone(), CreatePrDropdown::FromBranch),
