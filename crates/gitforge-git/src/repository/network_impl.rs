@@ -1,4 +1,4 @@
-use crate::error::{GitError, GitResult};
+use crate::error::{classify_git_failure, GitError, GitResult};
 use crate::repository::Repository;
 use std::path::Path;
 use std::process::Command;
@@ -124,11 +124,13 @@ impl Repository {
             .output()
             .map_err(|e| GitError::OperationFailed(format!("Failed to run git clone: {}", e)))?;
 
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
         if !output.status.success() {
-            return Err(GitError::OperationFailed(format!("{}{}", stdout, stderr)));
+            return Err(classify_git_failure(
+                &["clone", url, path.to_str().unwrap_or(".")],
+                &output,
+            ));
         }
         Ok(stderr)
     }
@@ -146,8 +148,7 @@ impl Repository {
             .map_err(|e| GitError::OperationFailed(format!("Failed to run git init: {}", e)))?;
 
         if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(GitError::OperationFailed(stderr.to_string()));
+            return Err(classify_git_failure(&args, &output));
         }
         Ok(())
     }
