@@ -43,11 +43,13 @@ pub enum GitError {
 impl GitError {
     /// Constructs a user-presentable single-line message for a toast. Unlike the
     /// raw `Display` impl (which may include multi-line git stderr), this is
-    /// trimmed to one line and phrased for the toast card.
+    /// trimmed to one line, phrased for the toast card, and has any credential
+    /// URL userinfo redacted to prevent tokens/passwords from appearing in the
+    /// toast UI.
     pub fn toast_message(&self) -> String {
         match self {
-            GitError::RepositoryNotFound(msg) => msg.clone(),
-            GitError::OperationFailed(msg) => first_line(msg),
+            GitError::RepositoryNotFound(msg) => redact_credentials(msg),
+            GitError::OperationFailed(msg) => redact_credentials(&first_line(msg)),
             GitError::MergeConflict { paths, .. } if paths.is_empty() => {
                 "Merge conflict".to_string()
             }
@@ -55,9 +57,15 @@ impl GitError {
                 format!("Merge conflict in {} file(s)", paths.len())
             }
             GitError::AuthenticationFailed { remote, stderr } => {
-                format!("Authentication failed for {remote}: {}", first_line(stderr))
+                format!(
+                    "Authentication failed for {}: {}",
+                    redact_credentials(remote),
+                    redact_credentials(&first_line(stderr))
+                )
             }
-            GitError::NetworkError { detail } => format!("Network error: {}", first_line(detail)),
+            GitError::NetworkError { detail } => {
+                format!("Network error: {}", redact_credentials(&first_line(detail)))
+            }
             GitError::IndexLock { .. } => {
                 "Repository locked: another git process may be running".to_string()
             }
@@ -111,7 +119,7 @@ pub(crate) fn classify_git_failure(args: &[&str], output: &std::process::Output)
     // Command-generic: index lock can appear from any mutating command.
     if stderr_trim.contains("index.lock") {
         return GitError::IndexLock {
-            path: PathBuf::from(extract_index_lock_path(stderr_trim)),
+            path: PathBuf::from(".git/index.lock"),
         };
     }
 
@@ -133,7 +141,7 @@ pub(crate) fn classify_git_failure(args: &[&str], output: &std::process::Output)
     match command {
         "merge" | "rebase" | "cherry-pick" if is_merge_conflict(stderr_trim) => {
             GitError::MergeConflict {
-                paths: Vec::new(),
+                paths: extract_conflict_paths(stderr_trim),
                 stderr: stderr_trim.to_string(),
             }
         }
@@ -154,23 +162,33 @@ fn first_line(s: &str) -> String {
     s.lines().next().unwrap_or(s).trim().to_string()
 }
 
-fn extract_index_lock_path(stderr: &str) -> String {
-    stderr
-        .lines()
-        .find(|line| line.contains("index.lock"))
-        .and_then(|line| {
-            let l = line.trim();
-            let idx = l.find("index.lock")?;
-            let after = &l[..idx];
-            if let Some(start) = after.rfind(['/', '\\']) {
-                let path_part = after[start + 1..].trim_matches(['\'', '"', ' ']);
-                if !path_part.is_empty() {
-                    return Some(format!(".git/{}index.lock", path_part));
-                }
-            }
-            Some(".git/index.lock".to_string())
-        })
-        .unwrap_or_else(|| ".git/index.lock".to_string())
+/// Redacts credential userinfo from URLs embedded in a string. Replaces the
+/// `user:password@` or `token@` portion of any `scheme://...@host` URL with
+/// `***@` so tokens/passwords don't leak into toast messages.
+fn redact_credentials(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut remaining = s;
+
+    while let Some(scheme_end) = remaining.find("://") {
+        result.push_str(&remaining[..scheme_end + 3]);
+        let after_scheme = &remaining[scheme_end + 3..];
+
+        // Scan the authority segment (up to the next path separator or quote).
+        let host_end = after_scheme
+            .find(['/', ' ', '\'', '"'])
+            .unwrap_or(after_scheme.len());
+        let authority = &after_scheme[..host_end];
+
+        if let Some(at_pos) = authority.rfind('@') {
+            result.push_str("***@");
+            result.push_str(&authority[at_pos + 1..]);
+        } else {
+            result.push_str(authority);
+        }
+        remaining = &after_scheme[host_end..];
+    }
+    result.push_str(remaining);
+    result
 }
 
 fn is_auth_failure(stderr: &str) -> bool {
@@ -206,6 +224,22 @@ fn is_merge_conflict(stderr: &str) -> bool {
         || stderr.contains("Merge conflict")
         || stderr.contains("Automatic merge failed")
         || stderr.contains("merge conflict")
+}
+
+/// Extracts file paths from git merge/rebase conflict output. Git emits lines
+/// like `CONFLICT (content): Merge conflict in path/to/file.txt` — the path
+/// follows `in ` and may be quoted.
+fn extract_conflict_paths(stderr: &str) -> Vec<String> {
+    stderr
+        .lines()
+        .filter_map(|line| {
+            line.trim()
+                .strip_prefix("CONFLICT")
+                .and_then(|rest| rest.rsplit_once(" in "))
+                .map(|(_, path)| path.trim().trim_matches('\'').trim_matches('"').to_string())
+                .filter(|p| !p.is_empty())
+        })
+        .collect()
 }
 
 fn is_empty_commit(stderr: &str) -> bool {
@@ -273,11 +307,18 @@ mod tests {
 
     #[test]
     fn classifies_merge_conflict() {
-        let out = fail_output("Auto-merging file.txt\nCONFLICT (content): Merge conflict in file.txt\nAutomatic merge failed; fix conflicts and then commit the result.");
-        assert!(matches!(
-            classify_git_failure(&["merge", "feature"], &out),
-            GitError::MergeConflict { .. }
-        ));
+        let out = fail_output(
+            "Auto-merging file.txt\n\
+             CONFLICT (content): Merge conflict in file.txt\n\
+             CONFLICT (content): Merge conflict in src/main.rs\n\
+             Automatic merge failed; fix conflicts and then commit the result.",
+        );
+        match classify_git_failure(&["merge", "feature"], &out) {
+            GitError::MergeConflict { paths, .. } => {
+                assert_eq!(paths, vec!["file.txt", "src/main.rs"]);
+            }
+            other => panic!("expected MergeConflict, got {other:?}"),
+        }
     }
 
     #[test]
@@ -355,5 +396,48 @@ mod tests {
     #[test]
     fn toast_message_for_empty_commit() {
         assert_eq!(GitError::EmptyCommit.toast_message(), "Nothing to commit");
+    }
+
+    #[test]
+    fn toast_message_redacts_credentials_in_auth_failure() {
+        let e = GitError::AuthenticationFailed {
+            remote: "https://user:ghp_token@github.com/owner/repo.git".into(),
+            stderr: "fatal: Authentication failed for 'https://user:secret@github.com/repo.git'".into(),
+        };
+        let msg = e.toast_message();
+        assert!(msg.contains("ghp_token") == false, "token leaked in toast: {msg}");
+        assert!(msg.contains("secret") == false, "password leaked in toast: {msg}");
+        assert!(msg.contains("***@"), "expected redaction marker: {msg}");
+    }
+
+    #[test]
+    fn redact_credentials_strips_userinfo_from_urls() {
+        assert_eq!(
+            redact_credentials("https://user:token@github.com/repo.git"),
+            "https://***@github.com/repo.git"
+        );
+        assert_eq!(
+            redact_credentials("fatal: failed for 'https://x:yz@host.com/path'"),
+            "fatal: failed for 'https://***@host.com/path'"
+        );
+        // URL without credentials is unchanged.
+        assert_eq!(
+            redact_credentials("https://github.com/owner/repo.git"),
+            "https://github.com/owner/repo.git"
+        );
+        // Non-URL text is unchanged.
+        assert_eq!(
+            redact_credentials("nothing to commit"),
+            "nothing to commit"
+        );
+    }
+
+    #[test]
+    fn merge_conflict_paths_parsed_from_stderr() {
+        let e = GitError::MergeConflict {
+            paths: vec!["a.txt".into(), "b.txt".into(), "c.txt".into()],
+            stderr: "...".into(),
+        };
+        assert_eq!(e.toast_message(), "Merge conflict in 3 file(s)");
     }
 }
