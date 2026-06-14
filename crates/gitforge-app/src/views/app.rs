@@ -153,10 +153,9 @@ impl GitForgeApp {
         let theme = Theme::load_by_name(&settings.theme).unwrap_or_else(|_| Theme::default_dark());
         let colors = AppColors::from_theme(&theme);
         let mut repo_session = RepoSession::new(cx);
-        repo_session.sidebar_state.branches_expanded = settings.sidebar_branches_expanded;
-        repo_session.sidebar_state.remotes_expanded = settings.sidebar_remotes_expanded;
-        repo_session.sidebar_state.tags_expanded = settings.sidebar_tags_expanded;
-        repo_session.sidebar_state.pull_requests_expanded = settings.sidebar_pull_requests_expanded;
+        repo_session
+            .sidebar_state
+            .apply_persisted_from_settings(&settings);
         let mut app = Self {
             colors,
             repo_session,
@@ -191,11 +190,9 @@ impl GitForgeApp {
         self.open_or_activate_repo_tab(path, cx);
     }
     pub(crate) fn save_settings(&mut self) {
-        self.settings.sidebar_branches_expanded = self.repo_session.sidebar_state.branches_expanded;
-        self.settings.sidebar_remotes_expanded = self.repo_session.sidebar_state.remotes_expanded;
-        self.settings.sidebar_tags_expanded = self.repo_session.sidebar_state.tags_expanded;
-        self.settings.sidebar_pull_requests_expanded =
-            self.repo_session.sidebar_state.pull_requests_expanded;
+        self.repo_session
+            .sidebar_state
+            .write_persisted_to_settings(&mut self.settings);
         self.settings.open_repo_paths = self
             .repo_session
             .open_repo_tabs
