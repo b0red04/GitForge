@@ -73,6 +73,15 @@ impl CreatePrState {
         self.loading_repos = false;
         self.loading_branches = false;
     }
+
+    pub fn can_submit(&self) -> bool {
+        !self.title.trim().is_empty()
+            && !self.from_repo.is_empty()
+            && !self.to_repo.is_empty()
+            && !self.from_branch.is_empty()
+            && !self.to_branch.is_empty()
+            && !self.submitting
+    }
 }
 
 pub fn render_create_pr_overlay(
@@ -90,12 +99,7 @@ pub fn render_create_pr_overlay(
     let success = rgba_to_hsla(colors.success);
     let purple = gpui::hsla(270.0 / 360.0, 0.55, 0.65, 1.0);
 
-    let can_submit = !state.title.trim().is_empty()
-        && !state.from_repo.is_empty()
-        && !state.to_repo.is_empty()
-        && !state.from_branch.is_empty()
-        && !state.to_branch.is_empty()
-        && !state.submitting;
+    let can_submit = state.can_submit();
 
     let ent_close = entity.clone();
     let ent_cancel = entity.clone();
@@ -606,7 +610,9 @@ pub fn render_create_pr_overlay(
                         .on_click(move |_ev, _window, cx| {
                             if let Some(e) = ent_submit.upgrade() {
                                 e.update(cx, |this, cx| {
-                                    this.submit_create_pr(cx);
+                                    if this.create_pr.can_submit() {
+                                        this.submit_create_pr(cx);
+                                    }
                                 });
                             }
                         }),

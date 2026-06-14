@@ -95,7 +95,6 @@ pub fn get_token(token_key: &str) -> Result<String> {
 }
 
 pub fn delete_token(token_key: &str) -> Result<()> {
-    let _ = delete_from_keyring(token_key);
     let mut tokens = load_file_tokens();
     tokens.remove(token_key);
     if tokens.is_empty() {
@@ -106,6 +105,11 @@ pub fn delete_token(token_key: &str) -> Result<()> {
     } else {
         save_file_tokens(&tokens)?;
     }
+
+    if let Err(e) = delete_from_keyring(token_key) {
+        tracing::warn!("Failed to delete {token_key} from keyring: {e}");
+    }
+
     Ok(())
 }
 

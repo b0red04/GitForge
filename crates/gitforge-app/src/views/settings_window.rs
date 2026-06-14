@@ -2108,9 +2108,8 @@ fn pat_field_control(
     let bg = rgba_to_hsla(colors.background);
 
     let display = if is_active {
-        let mut s = pat_input.to_string();
-        s.push('\u{2502}');
-        s
+        let masked = "\u{2022}".repeat(pat_input.chars().count());
+        format!("{masked}\u{2502}")
     } else if !pat_input.is_empty() {
         "••••••••••••".to_string()
     } else {

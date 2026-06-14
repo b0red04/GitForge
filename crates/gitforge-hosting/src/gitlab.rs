@@ -46,6 +46,30 @@ fn url_encode(s: &str) -> String {
         .replace(' ', "%20")
 }
 
+async fn fetch_project_id(
+    client: &reqwest::Client,
+    base_url: &str,
+    full_path: &str,
+) -> Result<u64> {
+    let response = client
+        .get(format!("{}/projects/{}", base_url, url_encode(full_path)))
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        anyhow::bail!(
+            "Failed to resolve GitLab project id for {}: {}",
+            full_path,
+            response.status()
+        );
+    }
+
+    let project: serde_json::Value = response.json().await?;
+    project["id"]
+        .as_u64()
+        .ok_or_else(|| anyhow::anyhow!("Missing numeric id for GitLab project {}", full_path))
+}
+
 #[async_trait]
 impl HostingProvider for GitLabProvider {
     fn name(&self) -> &str {
@@ -220,15 +244,34 @@ impl HostingProvider for GitLabProvider {
     ) -> Result<PullRequest> {
         let token = account.token()?;
         let client = make_client(&token);
-        let project_path = url_encode(&format!("{}/{}", req.owner, req.repo));
 
-        let body = serde_json::json!({
-            "source_branch": req.head_branch,
-            "target_branch": req.base_branch,
-            "title": req.title,
-            "description": req.body,
-            "draft": req.draft,
-        });
+        let is_cross_fork = req.head_owner != req.owner;
+
+        let (project_path, body) = if is_cross_fork {
+            let source_path = format!("{}/{}", req.head_owner, req.repo);
+            let target_path = format!("{}/{}", req.owner, req.repo);
+            let target_project_id =
+                fetch_project_id(&client, &self.base_url, &target_path).await?;
+            let body = serde_json::json!({
+                "source_branch": req.head_branch,
+                "target_branch": req.base_branch,
+                "title": req.title,
+                "description": req.body,
+                "draft": req.draft,
+                "target_project_id": target_project_id,
+            });
+            (url_encode(&source_path), body)
+        } else {
+            let path = format!("{}/{}", req.owner, req.repo);
+            let body = serde_json::json!({
+                "source_branch": req.head_branch,
+                "target_branch": req.base_branch,
+                "title": req.title,
+                "description": req.body,
+                "draft": req.draft,
+            });
+            (url_encode(&path), body)
+        };
 
         let response = client
             .post(format!(

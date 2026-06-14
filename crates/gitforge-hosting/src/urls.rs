@@ -56,7 +56,7 @@ fn url_host(url: &str) -> &str {
 }
 
 pub fn split_repo_full_name(full_name: &str) -> Option<(&str, &str)> {
-    full_name.split_once('/')
+    full_name.rsplit_once('/')
 }
 
 pub fn extract_repo_full_name(url: &str) -> String {

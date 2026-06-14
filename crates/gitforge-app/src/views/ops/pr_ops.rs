@@ -286,6 +286,7 @@ impl GitForgeApp {
         let provider = self.create_pr.provider.clone();
         let Some(account) = self.find_hosting_account(&provider) else {
             self.create_pr.repos.clear();
+            self.create_pr.loading_repos = false;
             cx.notify();
             return;
         };
@@ -304,6 +305,9 @@ impl GitForgeApp {
             match result {
                 Ok(repos) => {
                     this.update(cx, |this, cx| {
+                        if this.create_pr.provider != provider {
+                            return;
+                        }
                         this.create_pr.loading_repos = false;
                         this.create_pr.repos = repos;
                         cx.notify();
@@ -313,6 +317,9 @@ impl GitForgeApp {
                 Err(e) => {
                     tracing::error!("Failed to list repos for PR: {}", e);
                     this.update(cx, |this, cx| {
+                        if this.create_pr.provider != provider {
+                            return;
+                        }
                         this.create_pr.loading_repos = false;
                         this.report_op_error("List repositories", &e.to_string(), cx);
                     })
@@ -350,6 +357,7 @@ impl GitForgeApp {
         let to_repo = self.create_pr.to_repo.clone();
         let Some((owner, repo)) = urls::split_repo_full_name(&to_repo) else {
             self.create_pr.to_branches.clear();
+            self.create_pr.loading_branches = false;
             cx.notify();
             return;
         };
@@ -357,6 +365,8 @@ impl GitForgeApp {
         let repo = repo.to_string();
 
         let Some(account) = self.find_hosting_account(&provider) else {
+            self.create_pr.loading_branches = false;
+            cx.notify();
             return;
         };
 
@@ -374,6 +384,11 @@ impl GitForgeApp {
             match result {
                 Ok(branches) => {
                     this.update(cx, |this, cx| {
+                        if this.create_pr.provider != provider
+                            || this.create_pr.to_repo != to_repo
+                        {
+                            return;
+                        }
                         this.create_pr.loading_branches = false;
                         this.create_pr.to_branches = branches;
                         cx.notify();
@@ -383,6 +398,11 @@ impl GitForgeApp {
                 Err(e) => {
                     tracing::error!("Failed to list branches for PR: {}", e);
                     this.update(cx, |this, cx| {
+                        if this.create_pr.provider != provider
+                            || this.create_pr.to_repo != to_repo
+                        {
+                            return;
+                        }
                         this.create_pr.loading_branches = false;
                         this.report_op_error("List branches", &e.to_string(), cx);
                     })
@@ -540,6 +560,15 @@ impl GitForgeApp {
             );
             return;
         };
+
+        if self.create_pr.from_branch.is_empty() {
+            self.push_toast(
+                crate::views::toasts::ToastKind::Warning,
+                "Select a source branch before creating a pull request",
+                cx,
+            );
+            return;
+        }
 
         if !self.is_branch_pushed_to_origin(&self.create_pr.from_branch) {
             self.push_toast(
