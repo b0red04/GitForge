@@ -925,7 +925,7 @@ fn provider_needs_api_key(provider: &str) -> bool {
 }
 
 fn provider_supports_model_list(provider: &str) -> bool {
-    matches!(provider, "openai" | "anthropic" | "zai" | "ollama")
+    matches!(provider, "openai" | "zai" | "ollama")
 }
 
 impl Focusable for SettingsWindow {
