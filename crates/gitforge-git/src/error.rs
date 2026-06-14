@@ -5,9 +5,6 @@ pub enum GitError {
 
     #[error("Operation failed: {0}")]
     OperationFailed(String),
-
-    #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
 }
 
 pub type GitResult<T> = Result<T, GitError>;

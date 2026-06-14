@@ -124,43 +124,6 @@ impl HostingProvider for GitHubProvider {
         Ok(all_repos)
     }
 
-    async fn list_org_repos(&self, account: &HostingAccount, org: &str) -> Result<Vec<RemoteRepo>> {
-        let token = account.token()?;
-        let client = make_client(&token);
-        let mut all_repos = Vec::new();
-        let mut page = 1;
-
-        loop {
-            let response = client
-                .get(format!(
-                    "{}/orgs/{}/repos?page={}&per_page=100&sort=updated",
-                    self.base_url, org, page
-                ))
-                .send()
-                .await?;
-
-            if !response.status().is_success() {
-                anyhow::bail!("Failed to list org repos: {}", response.status());
-            }
-
-            let repos: Vec<serde_json::Value> = response.json().await?;
-            if repos.is_empty() {
-                break;
-            }
-
-            for repo in &repos {
-                all_repos.push(json_to_remote_repo(repo));
-            }
-
-            page += 1;
-            if repos.len() < 100 {
-                break;
-            }
-        }
-
-        Ok(all_repos)
-    }
-
     async fn search_repos(&self, account: &HostingAccount, query: &str) -> Result<Vec<RemoteRepo>> {
         let token = account.token()?;
         let client = make_client(&token);
@@ -202,20 +165,6 @@ impl HostingProvider for GitHubProvider {
 
         let fork: serde_json::Value = response.json().await?;
         Ok(json_to_remote_repo(&fork))
-    }
-
-    fn file_url(&self, repo_full_name: &str, sha: &str, path: &str, line: Option<u32>) -> String {
-        match line {
-            Some(l) => format!(
-                "{}/{}/blob/{}/{}#L{}",
-                self.web_url, repo_full_name, sha, path, l
-            ),
-            None => format!("{}/{}/blob/{}/{}", self.web_url, repo_full_name, sha, path),
-        }
-    }
-
-    fn commit_url(&self, repo_full_name: &str, sha: &str) -> String {
-        format!("{}/{}/commit/{}", self.web_url, repo_full_name, sha)
     }
 
     fn repo_url(&self, repo_full_name: &str) -> String {
