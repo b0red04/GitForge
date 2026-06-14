@@ -61,48 +61,26 @@ impl GitForgeApp {
             return;
         };
 
-        let Some(open_repo) = self.repo_session.require_active_repo_handle() else {
-            cx.notify();
-            return;
-        };
         let path_for_result = file_path.clone();
 
-        cx.spawn(async move |this, cx| {
-            let fp = file_path;
-            let result = tokio::task::spawn_blocking(move || {
-                let repo_lock = open_repo.lock();
-                let Some(repo) = repo_lock.as_ref() else {
-                    return Err(gitforge_git::GitError::OperationFailed(
-                        "No repository open".into(),
-                    ));
-                };
-                let data = repo.file_at_commit(&commit_id, std::path::Path::new(&fp))?;
-                Ok(data)
-            })
-            .await;
-
-            match result {
-                Ok(Ok(Some(data))) => {
+        self.run_git_op_returning(
+            "View file",
+            cx,
+            move |repo| repo.file_at_commit(&commit_id, std::path::Path::new(&file_path)),
+            move |this, data, cx| {
+                if let Some(data) = data {
                     let content = String::from_utf8_lossy(&data).to_string();
-                    let fp = path_for_result;
-                    this.update(cx, |this, cx| {
-                        this.repo_session.diff_panel.set_code_view(content, fp);
-                        cx.notify();
-                    })
-                    .ok();
-                }
-                Ok(Ok(None)) => {
+                    this.repo_session
+                        .diff_panel
+                        .set_code_view(content, path_for_result);
+                    cx.notify();
+                } else {
                     tracing::info!("File not found at commit");
+                    this.repo_session.diff_panel.set_diff_mode();
+                    cx.notify();
                 }
-                Ok(Err(e)) => {
-                    tracing::warn!("Failed to load file: {}", e);
-                }
-                Err(e) => {
-                    tracing::warn!("File load task panicked: {}", e);
-                }
-            }
-        })
-        .detach();
+            },
+        );
     }
 
     pub fn back_to_diff_mode(&mut self, cx: &mut Context<Self>) {
@@ -183,49 +161,27 @@ impl GitForgeApp {
     ) {
         self.repo_session.status_panel.select_file(section, idx);
 
-        let Some(open_repo) = self.repo_session.require_active_repo_handle() else {
-            cx.notify();
-            return;
-        };
         let is_staged = section == StatusFileSection::Staged;
 
-        cx.spawn(async move |this, cx| {
-            let result = tokio::task::spawn_blocking(move || {
-                let repo_lock = open_repo.lock();
-                let Some(repo) = repo_lock.as_ref() else {
-                    return Err(gitforge_git::GitError::OperationFailed(
-                        "No repository open".into(),
-                    ));
-                };
+        self.run_git_op_returning(
+            "Load status diff",
+            cx,
+            move |repo| {
                 let diff_text = if is_staged {
                     repo.diff_head_to_index(Some(std::path::Path::new(&path)))?
                 } else {
                     repo.diff_index_to_worktree(Some(std::path::Path::new(&path)))?
                 };
                 Ok(diff_text)
-            })
-            .await;
-
-            match result {
-                Ok(Ok(diff_text)) => {
-                    let file_diffs = gitforge_diff::parser::parse_unified_diff(&diff_text);
-                    this.update(cx, |this, cx| {
-                        if let Some(diff) = file_diffs.into_iter().next() {
-                            this.repo_session.status_panel.set_diff(diff);
-                        }
-                        cx.notify();
-                    })
-                    .ok();
+            },
+            move |this, diff_text, cx| {
+                let file_diffs = gitforge_diff::parser::parse_unified_diff(&diff_text);
+                if let Some(diff) = file_diffs.into_iter().next() {
+                    this.repo_session.status_panel.set_diff(diff);
                 }
-                Ok(Err(e)) => {
-                    tracing::warn!("Failed to load status diff: {}", e);
-                }
-                Err(e) => {
-                    tracing::warn!("Status diff task panicked: {}", e);
-                }
-            }
-        })
-        .detach();
+                cx.notify();
+            },
+        );
     }
 
     pub fn show_commit_dialog(&mut self, cx: &mut Context<Self>) {
@@ -251,103 +207,47 @@ impl GitForgeApp {
             return;
         }
         let message = self.repo_session.take_commit_message();
-
-        let Some(open_repo) = self.repo_session.require_active_repo_handle() else {
-            cx.notify();
-            return;
-        };
         let behavior = self.active_repo_behavior_settings();
         let branch_to_push = self
             .repo_session
             .active_repo_state()
             .and_then(|state| state.head_branch.clone());
 
-        cx.spawn(async move |this, cx| {
-            let result = tokio::task::spawn_blocking(move || {
-                let repo_lock = open_repo.lock();
-                let Some(repo) = repo_lock.as_ref() else {
-                    return Err(gitforge_git::GitError::OperationFailed(
-                        "No repository open".into(),
-                    ));
-                };
+        self.run_git_op_returning(
+            "Commit",
+            cx,
+            move |repo| {
                 if amend {
                     repo.commit_amend(&message)?;
                 } else {
                     repo.commit(&message)?;
                 }
                 Ok(())
-            })
-            .await;
-
-            match result {
-                Ok(Ok(())) => {
-                    this.update(cx, |this, cx| {
-                        this.refresh_repository(cx);
-                        if behavior.auto_push_on_commit {
-                            if let Some(branch) = branch_to_push.clone() {
-                                this.push_current_branch("origin".into(), branch, false, cx);
-                            } else {
-                                this.repo_session.remote_status =
-                                    "Commit succeeded; skipped auto-push because HEAD is detached."
-                                        .into();
-                            }
-                        }
-                    })
-                    .ok();
+            },
+            move |this, _value: (), cx| {
+                this.refresh_repository(cx);
+                if behavior.auto_push_on_commit {
+                    if let Some(branch) = branch_to_push.clone() {
+                        this.push_current_branch("origin".into(), branch, false, cx);
+                    } else {
+                        this.repo_session.remote_status =
+                            "Commit succeeded; skipped auto-push because HEAD is detached."
+                                .into();
+                    }
                 }
-                Ok(Err(e)) => {
-                    tracing::error!("Commit failed: {}", e);
-                    this.update(cx, |this, cx| {
-                        this.report_git_error("Commit", &e, cx);
-                    })
-                    .ok();
-                }
-                Err(e) => {
-                    tracing::error!("Commit task panicked: {}", e);
-                    this.update(cx, |this, cx| {
-                        this.report_op_error("Commit", &e.to_string(), cx);
-                    })
-                    .ok();
-                }
-            }
-        })
-        .detach();
+            },
+        );
     }
     pub fn load_status(&mut self, cx: &mut Context<Self>) {
-        let Some(open_repo) = self.repo_session.require_active_repo_handle() else {
-            cx.notify();
-            return;
-        };
-
-        cx.spawn(async move |this, cx| {
-            let result = tokio::task::spawn_blocking(move || {
-                let repo_lock = open_repo.lock();
-                let Some(repo) = repo_lock.as_ref() else {
-                    return Err(gitforge_git::GitError::OperationFailed(
-                        "No repository open".into(),
-                    ));
-                };
-                repo.status()
-            })
-            .await;
-
-            match result {
-                Ok(Ok(status)) => {
-                    this.update(cx, |this, cx| {
-                        this.repo_session.status_panel.set_status(status, false);
-                        cx.notify();
-                    })
-                    .ok();
-                }
-                Ok(Err(e)) => {
-                    tracing::warn!("Failed to load status: {}", e);
-                }
-                Err(e) => {
-                    tracing::warn!("Status task panicked: {}", e);
-                }
-            }
-        })
-        .detach();
+        self.run_git_op_returning(
+            "Load status",
+            cx,
+            move |repo| repo.status(),
+            move |this, status, cx| {
+                this.repo_session.status_panel.set_status(status, false);
+                cx.notify();
+            },
+        );
     }
 
     pub fn stage_file(&mut self, path: String, cx: &mut Context<Self>) {
@@ -447,10 +347,20 @@ impl GitForgeApp {
     pub fn soft_reset(&mut self, cx: &mut Context<Self>) {
         self.run_git_op("Soft reset", cx, move |repo| repo.soft_reset_head(1));
     }
-    pub(crate) fn run_git_op<F, R>(&mut self, label: &str, cx: &mut Context<Self>, op: F)
-    where
-        F: FnOnce(&gitforge_git::Repository) -> Result<R, gitforge_git::GitError> + Send + 'static,
-        R: Send + 'static,
+    /// General async seam for git operations that produce a value.
+    ///
+    /// Owns the `cx.spawn` + `spawn_blocking` + repo-handle lock + 3-arm
+    /// result match. On success, `on_success` receives the value; on either
+    /// failure (op error or task panic), `report_op_error` surfaces a toast.
+    pub(crate) fn run_git_op_returning<F, T>(
+        &mut self,
+        label: &str,
+        cx: &mut Context<Self>,
+        op: F,
+        on_success: impl FnOnce(&mut Self, T, &mut Context<Self>) + Send + 'static,
+    ) where
+        F: FnOnce(&gitforge_git::Repository) -> Result<T, gitforge_git::GitError> + Send + 'static,
+        T: Send + 'static,
     {
         let Some(open_repo) = self.repo_session.require_active_repo_handle() else {
             cx.notify();
@@ -469,9 +379,9 @@ impl GitForgeApp {
             })
             .await;
             match result {
-                Ok(Ok(_)) => {
+                Ok(Ok(value)) => {
                     this.update(cx, |this, cx| {
-                        this.refresh_repository(cx);
+                        on_success(this, value, cx);
                     })
                     .ok();
                 }
@@ -492,6 +402,18 @@ impl GitForgeApp {
             }
         })
         .detach();
+    }
+
+    /// Fire-and-refresh git op: runs `op`, then refreshes the repository on
+    /// success. A thin specialization of `run_git_op_returning`.
+    pub(crate) fn run_git_op<F, R>(&mut self, label: &str, cx: &mut Context<Self>, op: F)
+    where
+        F: FnOnce(&gitforge_git::Repository) -> Result<R, gitforge_git::GitError> + Send + 'static,
+        R: Send + 'static,
+    {
+        self.run_git_op_returning(label, cx, op, |this, _value: R, cx| {
+            this.refresh_repository(cx);
+        });
     }
 
     pub(crate) fn run_git_op_with_status<F, R>(
@@ -787,80 +709,35 @@ impl GitForgeApp {
         });
     }
     pub fn view_blame(&mut self, file_path: String, cx: &mut Context<Self>) {
-        let Some(open_repo) = self.repo_session.require_active_repo_handle() else {
-            cx.notify();
-            return;
-        };
         let path_for_result = file_path.clone();
 
-        cx.spawn(async move |this, cx| {
-            let fp = file_path;
-            let result = tokio::task::spawn_blocking(move || {
-                let repo_lock = open_repo.lock();
-                let Some(repo) = repo_lock.as_ref() else {
-                    return Err(gitforge_git::GitError::OperationFailed(
-                        "No repository open".into(),
-                    ));
-                };
-                repo.blame_file(std::path::Path::new(&fp), None)
-            })
-            .await;
-
-            match result {
-                Ok(Ok(blame_lines)) => {
-                    this.update(cx, |this, cx| {
-                        this.repo_session
-                            .diff_panel
-                            .set_blame(blame_lines, path_for_result);
-                        cx.notify();
-                    })
-                    .ok();
-                }
-                Ok(Err(e)) => tracing::warn!("Failed to load blame: {}", e),
-                Err(e) => tracing::warn!("Blame task panicked: {}", e),
-            }
-        })
-        .detach();
+        self.run_git_op_returning(
+            "Load blame",
+            cx,
+            move |repo| repo.blame_file(std::path::Path::new(&file_path), None),
+            move |this, blame_lines, cx| {
+                this.repo_session
+                    .diff_panel
+                    .set_blame(blame_lines, path_for_result);
+                cx.notify();
+            },
+        );
     }
 
     pub(crate) fn refresh_repository(&mut self, cx: &mut Context<Self>) {
         self.save_settings();
-        let Some(open_repo) = self.repo_session.require_active_repo_handle() else {
-            cx.notify();
-            return;
-        };
         let load_options = self.load_options();
 
-        cx.spawn(async move |this, cx| {
-            let result = tokio::task::spawn_blocking(move || {
-                let repo_lock = open_repo.lock();
-                let Some(repo) = repo_lock.as_ref() else {
-                    return Err(gitforge_git::GitError::OperationFailed(
-                        "No repository open".into(),
-                    ));
-                };
-                RepoState::from_repository_with_options(repo, load_options)
-            })
-            .await;
-
-            match result {
-                Ok(Ok(repo_state)) => {
-                    this.update(cx, |this, cx| {
-                        this.repo_session.apply_repo_state(repo_state);
-                        this.refresh_pull_requests(cx);
-                        cx.notify();
-                    })
-                    .ok();
-                }
-                Ok(Err(e)) => {
-                    tracing::error!("Refresh failed: {}", e);
-                }
-                Err(e) => {
-                    tracing::error!("Refresh task panicked: {}", e);
-                }
-            }
-        })
-        .detach();
+        self.run_git_op_returning(
+            "Refresh",
+            cx,
+            move |repo| RepoState::from_repository_with_options(repo, load_options),
+            move |this, repo_state, cx| {
+                this.repo_session.apply_repo_state(repo_state);
+                this.refresh_pull_requests(cx);
+                cx.notify();
+            },
+        );
     }
 
     pub(crate) fn load_diff_for_selected(&mut self, cx: &mut Context<Self>) {
@@ -876,46 +753,19 @@ impl GitForgeApp {
             return;
         };
 
-        let Some(open_repo) = self.repo_session.require_active_repo_handle() else {
-            cx.notify();
-            return;
-        };
         let id_for_state = commit_id.clone();
 
-        cx.spawn(async move |this, cx| {
-            let raw_diff = tokio::task::spawn_blocking(move || {
-                let repo_lock = open_repo.lock();
-                let Some(repo) = repo_lock.as_ref() else {
-                    return Err(gitforge_git::GitError::OperationFailed(
-                        "No repository open".into(),
-                    ));
-                };
-                repo.unified_diff_for_commit(&commit_id)
-            })
-            .await;
-
-            match raw_diff {
-                Ok(Ok(diff_text)) => {
-                    let file_diffs = gitforge_diff::parser::parse_unified_diff(&diff_text);
-
-                    this.update(cx, |this, cx| {
-                        this.repo_session.diff_panel.set_diff(CommitDiffState::new(
-                            id_for_state,
-                            file_diffs,
-                            None,
-                        ));
-                        cx.notify();
-                    })
-                    .ok();
-                }
-                Ok(Err(e)) => {
-                    tracing::warn!("Failed to load diff: {}", e);
-                }
-                Err(e) => {
-                    tracing::warn!("Diff task panicked: {}", e);
-                }
-            }
-        })
-        .detach();
+        self.run_git_op_returning(
+            "Load diff",
+            cx,
+            move |repo| repo.unified_diff_for_commit(&commit_id),
+            move |this, diff_text, cx| {
+                let file_diffs = gitforge_diff::parser::parse_unified_diff(&diff_text);
+                this.repo_session
+                    .diff_panel
+                    .set_diff(CommitDiffState::new(id_for_state, file_diffs, None));
+                cx.notify();
+            },
+        );
     }
 }

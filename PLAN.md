@@ -19,6 +19,7 @@ Candidate refactors that turn shallow modules into deep ones. Each is evaluated 
 - **TextInput extraction** — done (PR stack #13–#15). `gitforge-ui/src/text_input.rs` owns focus, cursor, placeholder, masked display, and rendering. Migrated: dialogs, command palette, commit editor, sidebar filter, settings window. Added `render_static_text_input` for draft-owned fields. Deleted dead `components.rs`.
 - **DiffViewer extraction** — done in PR #16. `views/diff_viewer.rs` owns `DiffViewer` with shared Diff/Code/Blame rendering, line selection, scroll handles, and binary/LFS handling. `DiffPanel` and `StatusPanel` embed it; duplicated path resolution and render scaffolding removed. `file_diff_path_or_empty` deduplicates path labels in stage/unstage ops.
 - **Dead code cleanup** — done in PR #17. Removed `GitError::Io`, `extract_hunk_patch`, dead `HostingProvider` methods (`list_org_repos`, `file_url`, `commit_url`), `find_account`, and `gitforge-ui/src/components.rs`.
+- **`run_git_op` seam generalisation + `run_hosting_op`** — done. Introduced `run_git_op_returning(label, cx, op, on_success)` (`git_ops.rs`) as the general async seam for git ops that produce a value: it owns `cx.spawn` + `spawn_blocking` + repo-handle lock + 3-arm match, hands the value to `on_success`, and hardcodes `report_op_error` on failure. Migrated 7 hand-rolled spawns (`view_file_at_commit`, `select_status_file`, `perform_commit`, `load_status`, `view_blame`, `refresh_repository`, `load_diff_for_selected`). Collapsed the old `run_git_op` into a 4-line specialization (`on_success` = `refresh_repository`); its 26 call sites unchanged. Added `run_hosting_op(label, cx, op, on_success, on_error)` (`hosting_ops.rs`) for the pure-async hosting-client seam and migrated 4 sites (`add_hosting_account`, `open_clone_from_hosting_dialog`, `search_hosting_repos`, `fork_repo`); their pre-flight guards (no account / unknown provider) moved out of the spawn to synchronous early-returns. **Error policy normalized** (the chosen direction): the 5 previously `warn!`-only read fetches and `refresh_repository` (was log-only) now surface failures via `report_op_error` — i.e. read-fetch failures are now user-visible toasts. Investigation corrected the scope: the original item lumped in the hosting pure-async sites, the AI pipeline, and the clones, but those are *different seams*. Left bespoke with rationale: `run_git_op_with_status` (its status-banner lifecycle spans all 3 arms, so it can't delegate without losing the clear-on-error), `clone_repository`/`clone_hosting_repo` (`Repository::clone_repo` constructor — no repo handle to lock), `restart_periodic_fetch` (timer loop), `ai_ops::generate_commit_message` (3-stage diff→provider→generate pipeline). Net −186 lines (1284 → 1098 across the two files).
 - **Sidebar state ownership consolidation** — done (uncommitted, +123/−73 across 6 files). `SidebarState` is now the single seam for its own state: toggle/filter/`set_context_menu` methods own the mutations, matching the peer-panel pattern (DiffPanel/GraphPanel/StatusPanel). `SidebarExpansion` sub-struct centralises the snapshot shape and the "which fields persist" rule (`apply_persisted_from_settings`/`write_persisted_to_settings`). `toggle_sidebar_worktrees` relocated from `dialog_ops.rs` to `git_ops.rs`. Collapsed 3 copies of the Settings↔SidebarState 4-boolean mapping (`app.rs` init + `save_settings` + `settings_ops` draft-apply) and 2 copies of the TabSnapshot 6-field mapping (`repo_session.rs`) into method calls; `TabSnapshot` now embeds one `sidebar_expansion` field. Investigation corrected the PLAN's scope: it understated the problem (missed the two duplicated sync layers — the real payoff) and incorrectly included `navigate_to_ref`, which is a graph-navigation action, not sidebar state, so it was left in `git_ops.rs`. `worktrees_expanded`'s non-persistence is now a visible omission in `write_persisted_to_settings` rather than silent.
 
 ---
@@ -29,20 +30,7 @@ Candidate refactors that turn shallow modules into deep ones. Each is evaluated 
 
 ## New candidates
 
-### 8. `run_git_op` abstraction has its seam in the wrong place — 11 data-returning ops rebuild the spawn scaffold
-
-**Files:** `ops/git_ops.rs:519-609` (`run_git_op`, `run_git_op_with_status`), 11 hand-rolled duplicates at `git_ops.rs:124, 260, 332, 381, 790, 852, 890, 940` + `hosting_ops.rs:52, 120, 177, 231, 290` + `ai_ops.rs:33-133`
-
-**Problem:** The two helpers cover only void-returning "do git op then refresh" ops. Anything that returns data (file bytes, diff text, RepoState, blame lines) re-implements `cx.spawn` + `spawn_blocking` + `open_repo.lock()` + the 3-arm `Ok(Ok(_))/Ok(Err(_))/Err(_)` match + `tracing::error!` pair + `this.update`. The pattern is duplicated ~14 times. `let repo_lock = open_repo.lock();` appears 11 times; `"No repository open"` wrapped in `GitError::OperationFailed` 9 times; the "task panicked" match arm duplicated 12 times.
-
-**Solution:** Generalise the helpers to thread a result back to the `this.update` closure — e.g., `run_git_op_with_result<F, T>(open_repo, op: F, on_done: impl FnOnce(&mut Self, Result<T>) + 'static)`.
-
-**Benefits:**
-- The two existing helpers pass the deletion test (15 call sites each); the hand-rolled spawns each wrap a real operation, so individually they pass — but the **scaffolding around the unique body** is duplicated. The seam needs to move to admit a returned value.
-
----
-
-### 9. `HostingProvider` trait — 3 parallel implementations
+### 7. `HostingProvider` trait — 3 parallel implementations
 
 **Files:** `gitforge-hosting/src/provider.rs:6-20` (trait, 6 methods), `github.rs`, `gitlab.rs`, `codeberg.rs`
 
@@ -55,7 +43,7 @@ Candidate refactors that turn shallow modules into deep ones. Each is evaluated 
 
 ---
 
-### 10. `patch.rs` — duplicated stage/unstage call sites
+### 8. `patch.rs` — duplicated stage/unstage call sites
 
 **Files:** `gitforge-diff/src/patch.rs:3-84` (`extract_patch_from_selection`), `ops/git_ops.rs:448-474` (`stage_selected_lines`), `:476-502` (`unstage_selected_lines`)
 
