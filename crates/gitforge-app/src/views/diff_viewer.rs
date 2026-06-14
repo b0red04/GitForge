@@ -145,6 +145,7 @@ impl DiffViewer {
         self.view_mode = DiffViewMode::Diff;
         self.code_view_file = None;
         self.code_view_content = None;
+        self.blame = None;
         self.highlight.clear_cache();
         self.selection.clear();
     }
@@ -240,67 +241,46 @@ impl DiffViewer {
         self.view_mode = view_mode;
         self.code_view_file = code_file;
         self.code_view_content = code_content;
+        self.selection.clear();
     }
 }
 
 pub fn render_binary_or_lfs(diff: &FileDiff, path_label: &str, colors: &AppColors) -> Option<Div> {
-    let border = rgba_to_hsla(colors.border);
     let muted = rgba_to_hsla(colors.text_muted);
-    let text_color = rgba_to_hsla(colors.text);
-    let surface = rgba_to_hsla(colors.surface);
     let accent = rgba_to_hsla(colors.accent);
 
     if diff.is_binary {
         let ext = path_label.rsplit('.').next().unwrap_or("").to_lowercase();
         let is_image = IMAGE_EXTENSIONS.contains(&ext.as_str());
 
-        return Some(
+        return Some(if is_image {
             div()
                 .flex_1()
-                .h_full()
-                .bg(surface)
                 .flex()
                 .flex_col()
+                .items_center()
+                .justify_center()
+                .gap_2()
                 .child(
                     div()
-                        .px_3()
-                        .py_2()
-                        .border_b_1()
-                        .border_color(border)
                         .text_sm()
-                        .font_family("monospace")
                         .text_color(muted)
-                        .child(path_label.to_string()),
+                        .child(format!("Image file ({})", ext.to_uppercase())),
                 )
-                .child(if is_image {
+                .child(
                     div()
-                        .flex_1()
-                        .flex()
-                        .flex_col()
-                        .items_center()
-                        .justify_center()
-                        .gap_2()
-                        .child(
-                            div()
-                                .text_sm()
-                                .text_color(muted)
-                                .child(format!("Image file ({})", ext.to_uppercase())),
-                        )
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(muted)
-                                .child("Image preview not available in this version"),
-                        )
-                } else {
-                    div().flex_1().flex().items_center().justify_center().child(
-                        div()
-                            .text_sm()
-                            .text_color(muted)
-                            .child("Binary file (not displayed)"),
-                    )
-                }),
-        );
+                        .text_xs()
+                        .text_color(muted)
+                        .child("Image preview not available in this version"),
+                )
+        } else {
+            div().flex_1().flex().items_center().justify_center().child(
+                div()
+                    .text_sm()
+                    .text_color(muted)
+                    .child("Binary file (not displayed)"),
+            )
+        });
     }
 
     if is_lfs_pointer(diff) {
@@ -317,52 +297,34 @@ pub fn render_binary_or_lfs(diff: &FileDiff, path_label: &str, colors: &AppColor
         return Some(
             div()
                 .flex_1()
-                .h_full()
-                .bg(surface)
+                .p_4()
                 .flex()
                 .flex_col()
+                .gap_2()
                 .child(
                     div()
-                        .px_3()
-                        .py_2()
-                        .border_b_1()
-                        .border_color(border)
                         .text_sm()
-                        .font_family("monospace")
-                        .text_color(text_color)
-                        .child(path_label.to_string()),
+                        .font_weight(FontWeight::BOLD)
+                        .text_color(accent)
+                        .child("Git LFS Pointer"),
                 )
                 .child(
                     div()
-                        .p_4()
-                        .flex()
-                        .flex_col()
-                        .gap_2()
-                        .child(
-                            div()
-                                .text_sm()
-                                .font_weight(FontWeight::BOLD)
-                                .text_color(accent)
-                                .child("Git LFS Pointer"),
-                        )
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(muted)
-                                .child(format!("Object: {}", oid.unwrap_or_default())),
-                        )
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(muted)
-                                .child(format!("Size: {} bytes", size.unwrap_or_default())),
-                        )
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(muted)
-                                .child("File content is stored in Git LFS"),
-                        ),
+                        .text_xs()
+                        .text_color(muted)
+                        .child(format!("Object: {}", oid.unwrap_or_default())),
+                )
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(muted)
+                        .child(format!("Size: {} bytes", size.unwrap_or_default())),
+                )
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(muted)
+                        .child("File content is stored in Git LFS"),
                 ),
         );
     }
@@ -563,10 +525,6 @@ fn render_diff_mode(
     let surface = rgba_to_hsla(colors.surface);
     let path_label = file_diff_path_label(diff);
 
-    if let Some(special) = render_binary_or_lfs(diff, path_label, colors) {
-        return special;
-    }
-
     let file_header = match header {
         DiffViewerHeader::CommitHistory { entity } => append_commit_history_header_actions(
             render_diff_file_header(path_label, colors),
@@ -589,17 +547,21 @@ fn render_diff_mode(
         ),
     };
 
-    let diff_lines = render_diff_lines(
-        diff.lines.clone(),
-        path_label,
-        colors,
-        ctx.scroll_handle.clone(),
-        ctx.selection.clone(),
-        Some(ctx.highlight.clone()),
-        list_id,
-        line_id_prefix,
-        on_select_line,
-    );
+    let body = if let Some(special) = render_binary_or_lfs(diff, path_label, colors) {
+        special
+    } else {
+        render_diff_lines(
+            diff.lines.clone(),
+            path_label,
+            colors,
+            ctx.scroll_handle.clone(),
+            ctx.selection.clone(),
+            Some(ctx.highlight.clone()),
+            list_id,
+            line_id_prefix,
+            on_select_line,
+        )
+    };
 
     div()
         .flex_1()
@@ -608,7 +570,7 @@ fn render_diff_mode(
         .flex()
         .flex_col()
         .child(file_header)
-        .child(diff_lines)
+        .child(body)
 }
 
 fn render_code_view(

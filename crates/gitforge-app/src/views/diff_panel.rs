@@ -172,7 +172,7 @@ impl DiffPanel {
         if let Some(ds) = self.diff_state.as_mut() {
             ds.selected_file_idx = Some(file_idx);
         }
-        self.viewer.clear_selection();
+        self.viewer.set_diff_mode();
     }
 
     pub fn selected_file_path(&self) -> Option<String> {
