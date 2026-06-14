@@ -1131,7 +1131,6 @@ impl Render for SettingsWindow {
         let entity = cx.entity().downgrade();
         let draft = self.draft.clone();
         let focused = self.focused_field;
-        let search_focused = self.search_input.focus_handle().is_focused(window);
         let input_focus = self.input_focus.clone();
         let api_key_focus = self.api_key_input.focus_handle().clone();
         let pat_focus = self.pat_input.focus_handle().clone();
@@ -1148,7 +1147,8 @@ impl Render for SettingsWindow {
             &visible_sections,
             display_section,
             &self.search_input,
-            search_focused,
+            focused == SettingsTextField::Search
+                && self.search_input.focus_handle().is_focused(window),
             &self.colors,
             surface,
             surface_high,
