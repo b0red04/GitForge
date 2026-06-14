@@ -292,15 +292,10 @@ impl GitForgeApp {
         cx.notify();
     }
 
-    /// Reports a failed git/hosting operation as an error toast, reducing the
-    /// raw error string to its first line for the toast card.
-    pub(crate) fn report_op_error(
-        &mut self,
-        label: &str,
-        err: &str,
-        cx: &mut Context<Self>,
-    ) {
-        let detail = err.lines().next().unwrap_or(err).trim();
+    /// Reports a failed git/hosting operation as an error toast, cleaning the
+    /// raw error down to its first meaningful line.
+    pub(crate) fn report_op_error(&mut self, label: &str, err: &str, cx: &mut Context<Self>) {
+        let detail = super::toasts::clean_error_message(err);
         let message = if detail.is_empty() {
             format!("{label} failed")
         } else {

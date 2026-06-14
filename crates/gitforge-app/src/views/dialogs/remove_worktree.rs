@@ -1,4 +1,7 @@
-use gitforge_ui::{AppColors, DialogColors, dialog_actions, dialog_body, dialog_overlay, dialog_surface, dialog_title};
+use gitforge_ui::{
+    AppColors, DialogColors, dialog_actions, dialog_body, dialog_overlay, dialog_surface,
+    dialog_title,
+};
 use gpui::*;
 
 use crate::views::app::{AppDialog, GitForgeApp};
@@ -26,7 +29,11 @@ pub fn render(path: &str, colors: &AppColors, entity: WeakEntity<GitForgeApp>) -
     dialog_overlay(dc).child(dialog_box)
 }
 
-pub fn confirm_from_dialog(app: &mut GitForgeApp, dialog: AppDialog, cx: &mut Context<GitForgeApp>) {
+pub fn confirm_from_dialog(
+    app: &mut GitForgeApp,
+    dialog: AppDialog,
+    cx: &mut Context<GitForgeApp>,
+) {
     if let AppDialog::RemoveWorktree { path } = dialog {
         confirm(app, path, cx);
     }

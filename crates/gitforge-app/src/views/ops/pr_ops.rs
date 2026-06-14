@@ -1,7 +1,5 @@
 use gitforge_git::RefKind;
-use gitforge_hosting::{
-    CreatePullRequestRequest, HostingAccount, urls,
-};
+use gitforge_hosting::{CreatePullRequestRequest, HostingAccount, urls};
 use gpui::Context;
 
 use crate::views::app::{AppDialog, GitForgeApp};
@@ -207,7 +205,11 @@ impl GitForgeApp {
         cx.notify();
     }
 
-    pub fn toggle_create_pr_dropdown(&mut self, dropdown: CreatePrDropdown, cx: &mut Context<Self>) {
+    pub fn toggle_create_pr_dropdown(
+        &mut self,
+        dropdown: CreatePrDropdown,
+        cx: &mut Context<Self>,
+    ) {
         if self.create_pr.open_dropdown == dropdown {
             self.create_pr.open_dropdown = CreatePrDropdown::None;
         } else {
@@ -332,7 +334,12 @@ impl GitForgeApp {
                     .references
                     .iter()
                     .filter(|r| r.kind == RefKind::RemoteBranch && r.name.starts_with("origin/"))
-                    .map(|r| r.name.strip_prefix("origin/").unwrap_or(&r.name).to_string())
+                    .map(|r| {
+                        r.name
+                            .strip_prefix("origin/")
+                            .unwrap_or(&r.name)
+                            .to_string()
+                    })
                     .collect();
                 branches.sort();
                 if !branches.is_empty() {
@@ -374,8 +381,7 @@ impl GitForgeApp {
             match result {
                 Ok(branches) => {
                     this.update(cx, |this, cx| {
-                        if this.create_pr.provider != provider
-                            || this.create_pr.to_repo != to_repo
+                        if this.create_pr.provider != provider || this.create_pr.to_repo != to_repo
                         {
                             return;
                         }
@@ -388,8 +394,7 @@ impl GitForgeApp {
                 Err(e) => {
                     tracing::error!("Failed to list branches for PR: {}", e);
                     this.update(cx, |this, cx| {
-                        if this.create_pr.provider != provider
-                            || this.create_pr.to_repo != to_repo
+                        if this.create_pr.provider != provider || this.create_pr.to_repo != to_repo
                         {
                             return;
                         }
@@ -437,8 +442,9 @@ impl GitForgeApp {
         self.create_pr.generating_ai = true;
         cx.notify();
 
-        let provider_setup =
-            tokio::task::spawn_blocking(move || gitforge_ai::create_provider(&provider_name, &provider_config));
+        let provider_setup = tokio::task::spawn_blocking(move || {
+            gitforge_ai::create_provider(&provider_name, &provider_config)
+        });
 
         cx.spawn(async move |this, cx| {
             let diff_result = tokio::task::spawn_blocking(move || {
@@ -508,7 +514,10 @@ impl GitForgeApp {
                 }
             };
 
-            match provider.generate_pull_request_content(&diff, max_diff_chars).await {
+            match provider
+                .generate_pull_request_content(&diff, max_diff_chars)
+                .await
+            {
                 Ok((title, body)) => {
                     this.update(cx, |this, cx| {
                         this.create_pr.generating_ai = false;
@@ -653,9 +662,9 @@ impl GitForgeApp {
             return false;
         };
         let remote_ref = format!("origin/{}", branch);
-        rs.references.iter().any(|r| {
-            r.kind == RefKind::RemoteBranch && r.name == remote_ref
-        })
+        rs.references
+            .iter()
+            .any(|r| r.kind == RefKind::RemoteBranch && r.name == remote_ref)
     }
 }
 
@@ -672,6 +681,11 @@ fn default_base_branch(rs: &gitforge_git::RepoState) -> String {
     rs.references
         .iter()
         .find(|r| r.kind == RefKind::RemoteBranch && r.name.starts_with("origin/"))
-        .map(|r| r.name.strip_prefix("origin/").unwrap_or(&r.name).to_string())
+        .map(|r| {
+            r.name
+                .strip_prefix("origin/")
+                .unwrap_or(&r.name)
+                .to_string()
+        })
         .unwrap_or_else(|| "main".to_string())
 }

@@ -1,4 +1,7 @@
-use gitforge_ui::{AppColors, DialogColors, dialog_actions, dialog_body, dialog_overlay, dialog_surface, dialog_title};
+use gitforge_ui::{
+    AppColors, DialogColors, dialog_actions, dialog_body, dialog_overlay, dialog_surface,
+    dialog_title,
+};
 use gpui::*;
 
 use crate::views::app::{AppDialog, GitForgeApp};
@@ -29,8 +32,8 @@ pub fn render(
         .on_click(move |_ev, window, _cx| {
             window.focus(&fh);
         })
-        .on_key_down(move |ev: &KeyDownEvent, _window, cx| {
-            match ev.keystroke.key.as_str() {
+        .on_key_down(
+            move |ev: &KeyDownEvent, _window, cx| match ev.keystroke.key.as_str() {
                 "escape" => {
                     if let Some(e) = ent_key_cancel.upgrade() {
                         e.update(cx, |this, cx| {
@@ -48,8 +51,8 @@ pub fn render(
                     }
                 }
                 _ => {}
-            }
-        })
+            },
+        )
         .child(dialog_title("Delete Branch", dc))
         .child(dialog_body(
             &format!("Delete branch '{name}'? This cannot be undone."),

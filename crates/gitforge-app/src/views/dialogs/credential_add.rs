@@ -1,6 +1,7 @@
 use gitforge_ui::{
-    AppColors, DialogColors, TextInput, TextInputEvent, TextInputRenderOpts, attach_dialog_input_keys,
-    dialog_actions, dialog_overlay, dialog_surface, dialog_title, render_text_input,
+    AppColors, DialogColors, TextInput, TextInputEvent, TextInputRenderOpts,
+    attach_dialog_input_keys, dialog_actions, dialog_overlay, dialog_surface, dialog_title,
+    render_text_input,
 };
 use gpui::*;
 
@@ -16,7 +17,13 @@ pub fn confirm(app: &mut GitForgeApp, input: &str, input_2: &str, cx: &mut Conte
     } else {
         input_2
     };
-    store_credential(app, parts[0].to_string(), parts[1].to_string(), password.to_string(), cx);
+    store_credential(
+        app,
+        parts[0].to_string(),
+        parts[1].to_string(),
+        password.to_string(),
+        cx,
+    );
 }
 
 pub fn render(
@@ -52,7 +59,8 @@ pub fn render(
             dialog_input_2,
             colors,
             window,
-            &TextInputRenderOpts::new(ElementId::Name("dialog-input-2".into())).placeholder("password"),
+            &TextInputRenderOpts::new(ElementId::Name("dialog-input-2".into()))
+                .placeholder("password"),
             |_| {},
         ),
         entity.clone(),

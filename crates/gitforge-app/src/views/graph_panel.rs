@@ -667,13 +667,10 @@ impl GraphPanel {
                             .overflow_hidden()
                             .child(ref_pills)
                             .child({
-                                let mut desc = div()
-                                    .min_w(px(0.0))
-                                    .overflow_hidden()
-                                    .text_ellipsis()
-                                    .id(ElementId::Name(
-                                        format!("commit-desc-{commit_idx}").into(),
-                                    ));
+                                let mut desc =
+                                    div().min_w(px(0.0)).overflow_hidden().text_ellipsis().id(
+                                        ElementId::Name(format!("commit-desc-{commit_idx}").into()),
+                                    );
                                 if has_body {
                                     desc = desc.tooltip(move |_window, cx| {
                                         cx.new(|_cx| {

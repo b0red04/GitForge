@@ -7,9 +7,7 @@ use std::path::Path;
 use std::rc::Rc;
 
 use super::commit_editor::CommitEditor;
-use super::diff_viewer::{
-    DiffViewer, DiffViewerHeader, render_diff_viewer,
-};
+use super::diff_viewer::{DiffViewer, DiffViewerHeader, render_diff_viewer};
 use super::layout::{FILE_LIST_WIDTH, RIGHT_MIN_WIDTH};
 
 const STATUS_FILE_WIDTH: f32 = FILE_LIST_WIDTH;

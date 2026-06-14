@@ -5,7 +5,12 @@ use std::path::PathBuf;
 
 use crate::views::app::GitForgeApp;
 
-pub fn init_repository(_app: &mut GitForgeApp, parent: PathBuf, name: String, cx: &mut Context<GitForgeApp>) {
+pub fn init_repository(
+    _app: &mut GitForgeApp,
+    parent: PathBuf,
+    name: String,
+    cx: &mut Context<GitForgeApp>,
+) {
     let repo_path = parent.join(&name);
     cx.spawn(async move |this, cx| {
         let result = tokio::task::spawn_blocking(move || {

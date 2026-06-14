@@ -89,6 +89,66 @@ impl Toasts {
     }
 }
 
+/// Reduces a raw error string (which may include trailing git "hint:" lines and
+/// a leading `Operation failed:` wrapper) to a single presentable line for a
+/// toast. Multi-line git diagnostics would render poorly in a small card.
+pub(crate) fn clean_error_message(s: &str) -> String {
+    let first = s.lines().next().unwrap_or(s).trim();
+    let stripped = first
+        .strip_prefix("Operation failed: ")
+        .or_else(|| first.strip_prefix("Operation failed:"))
+        .unwrap_or(first)
+        .trim();
+    stripped
+        .strip_prefix("error: ")
+        .or_else(|| stripped.strip_prefix("error:"))
+        .unwrap_or(stripped)
+        .trim()
+        .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::clean_error_message;
+
+    #[test]
+    fn cleans_unmerged_branch_error() {
+        let raw = "Operation failed: error: the branch 'feature/x' is not fully merged\n\
+                   hint: If you are sure you want to delete it, run 'git branch -D feature/x'\n\
+                   hint: Disable this message with \"git config set advice.forceDeleteBranch false\"";
+        assert_eq!(
+            clean_error_message(raw),
+            "the branch 'feature/x' is not fully merged"
+        );
+    }
+
+    #[test]
+    fn strips_only_operation_failed_wrapper() {
+        let raw = "Operation failed: some plain message";
+        assert_eq!(clean_error_message(raw), "some plain message");
+    }
+
+    #[test]
+    fn strips_only_error_prefix() {
+        assert_eq!(clean_error_message("error: boom"), "boom");
+    }
+
+    #[test]
+    fn leaves_plain_message_intact() {
+        assert_eq!(clean_error_message("nothing to strip"), "nothing to strip");
+    }
+
+    #[test]
+    fn takes_first_line_of_multiline() {
+        assert_eq!(clean_error_message("first line\nsecond line"), "first line");
+    }
+
+    #[test]
+    fn handles_empty_input() {
+        assert_eq!(clean_error_message(""), "");
+    }
+}
+
 /// Renders the toast stack as an absolute-positioned overlay anchored to the
 /// bottom-right of its (relative) parent. Each card is clickable to dismiss.
 pub(crate) fn render_toasts(
@@ -137,13 +197,7 @@ pub(crate) fn render_toasts(
                     e.update(cx, |this, cx| this.dismiss_toast(id, cx));
                 }
             })
-            .child(
-                div()
-                    .w(px(3.0))
-                    .flex_shrink_0()
-                    .bg(color)
-                    .rounded(px(2.0)),
-            )
+            .child(div().w(px(3.0)).flex_shrink_0().bg(color).rounded(px(2.0)))
             .child(div().flex_1().text_xs().text_color(text_color).child(msg))
             .child(
                 div()

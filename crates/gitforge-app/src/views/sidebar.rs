@@ -328,12 +328,10 @@ pub fn render_sidebar(
                 } else if let Some(hint) = pull_request_hint {
                     sidebar = sidebar.child(render_pull_request_hint(hint, muted));
                 } else if filtered_prs.is_empty() {
-                    sidebar =
-                        sidebar.child(render_empty_hint("No open pull requests", muted));
+                    sidebar = sidebar.child(render_empty_hint("No open pull requests", muted));
                 } else {
                     for pr in &filtered_prs {
-                        sidebar =
-                            sidebar.child(render_pr_item(pr, colors, entity.clone()));
+                        sidebar = sidebar.child(render_pr_item(pr, colors, entity.clone()));
                     }
                 }
             }
@@ -538,25 +536,18 @@ fn render_search_bar(
         .text_xs()
         .background(surface);
 
-    let input = render_text_input(
-        filter_input,
-        colors,
-        window,
-        &opts,
-        |_| {},
-    )
-    .on_key_down(move |ev, _window, cx| {
-        if let Some(e) = ent.upgrade() {
-            e.update(cx, |this, cx| {
-                match parse_key_event(ev) {
+    let input = render_text_input(filter_input, colors, window, &opts, |_| {}).on_key_down(
+        move |ev, _window, cx| {
+            if let Some(e) = ent.upgrade() {
+                e.update(cx, |this, cx| match parse_key_event(ev) {
                     TextInputEvent::Backspace => this.update_sidebar_filter(None, cx),
                     TextInputEvent::Escape => this.clear_sidebar_filter(cx),
                     TextInputEvent::Typed(c) => this.update_sidebar_filter(Some(&c), cx),
                     _ => {}
-                }
-            });
-        }
-    });
+                });
+            }
+        },
+    );
 
     div()
         .px_2()
@@ -1050,10 +1041,7 @@ fn render_pull_requests_header(
         )
 }
 
-fn render_pull_request_hint(
-    hint: super::ops::pr_ops::PullRequestSidebarHint,
-    muted: Hsla,
-) -> Div {
+fn render_pull_request_hint(hint: super::ops::pr_ops::PullRequestSidebarHint, muted: Hsla) -> Div {
     let text = match hint {
         super::ops::pr_ops::PullRequestSidebarHint::NoOrigin => "No supported origin remote",
         super::ops::pr_ops::PullRequestSidebarHint::UnsupportedProvider => {
@@ -1081,8 +1069,8 @@ fn render_pr_item(
     }
     let branch_suffix = pr.head_branch.clone();
 
-        let entity_click = entity.clone();
-        let mut row = div()
+    let entity_click = entity.clone();
+    let mut row = div()
         .id(ElementId::Name(format!("sidebar-pr-{}", pr.number).into()))
         .px_2()
         .h(px(ROW_HEIGHT))

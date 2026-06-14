@@ -1,17 +1,13 @@
 use gitforge_ui::{
-    AppColors, DialogColors, TextInput, TextInputEvent, TextInputRenderOpts, attach_dialog_input_keys,
-    dialog_actions, dialog_label, dialog_overlay, dialog_surface, dialog_title, render_text_input,
+    AppColors, DialogColors, TextInput, TextInputEvent, TextInputRenderOpts,
+    attach_dialog_input_keys, dialog_actions, dialog_label, dialog_overlay, dialog_surface,
+    dialog_title, render_text_input,
 };
 use gpui::*;
 
 use crate::views::app::{AppDialog, GitForgeApp};
 
-pub fn confirm(
-    app: &mut GitForgeApp,
-    input: &str,
-    input_2: &str,
-    cx: &mut Context<GitForgeApp>,
-) {
+pub fn confirm(app: &mut GitForgeApp, input: &str, input_2: &str, cx: &mut Context<GitForgeApp>) {
     if input.is_empty() {
         return;
     }

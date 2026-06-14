@@ -7,11 +7,10 @@ use std::ops::Range;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use super::diff_view::render_diff_empty_state;
 use super::diff_view::SharedHighlightState;
+use super::diff_view::render_diff_empty_state;
 use super::diff_viewer::{
-    DiffViewer, DiffViewerHeader, DiffViewerRenderCtx,
-    file_diff_path_label, render_diff_viewer,
+    DiffViewer, DiffViewerHeader, DiffViewerRenderCtx, file_diff_path_label, render_diff_viewer,
 };
 use super::layout::{FILE_LIST_WIDTH, RIGHT_MIN_WIDTH};
 
@@ -447,24 +446,23 @@ fn render_diff_panel(snap: &DiffSnapshot) -> Div {
                     })
                 };
 
-                let diff_content = if resolved_diff.is_none()
-                    && snap.view_mode == DiffViewMode::Diff
-                {
-                    render_diff_empty_state(&colors)
-                } else {
-                    render_diff_viewer(
-                        &render_ctx,
-                        resolved_diff,
-                        &colors,
-                        DiffViewerHeader::CommitHistory {
-                            entity: entity.clone(),
-                        },
-                        entity.clone(),
-                        on_click,
-                        "diff-lines",
-                        "diff-line",
-                    )
-                };
+                let diff_content =
+                    if resolved_diff.is_none() && snap.view_mode == DiffViewMode::Diff {
+                        render_diff_empty_state(&colors)
+                    } else {
+                        render_diff_viewer(
+                            &render_ctx,
+                            resolved_diff,
+                            &colors,
+                            DiffViewerHeader::CommitHistory {
+                                entity: entity.clone(),
+                            },
+                            entity.clone(),
+                            on_click,
+                            "diff-lines",
+                            "diff-line",
+                        )
+                    };
 
                 diff_panel_root(surface).child(commit_detail).child(
                     div()
@@ -689,4 +687,3 @@ fn render_commit_detail(
             ),
     )
 }
-
