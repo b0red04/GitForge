@@ -31,11 +31,13 @@ impl CommandPalette {
         command_palette_entries()
     }
 
-    pub fn show(&mut self, _cx: &mut Context<super::app::GitForgeApp>) {
+    pub fn show(&mut self, window: &mut Window, cx: &mut Context<super::app::GitForgeApp>) {
         self.visible = true;
         self.query_input.clear();
         self.filtered = (0..self.entries.len()).collect();
         self.selected = 0;
+        window.focus(&self.query_input.focus_handle());
+        cx.notify();
     }
 
     pub fn hide(&mut self, cx: &mut Context<super::app::GitForgeApp>) {

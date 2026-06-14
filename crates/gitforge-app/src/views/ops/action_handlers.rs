@@ -376,11 +376,11 @@ impl GitForgeApp {
     pub(crate) fn handle_show_command_palette(
         &mut self,
         _action: &ShowCommandPalette,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         self.hide_titlebar_menus(cx);
-        self.command_palette.show(cx);
+        self.command_palette.show(window, cx);
     }
 
     pub(crate) fn handle_new_tab(

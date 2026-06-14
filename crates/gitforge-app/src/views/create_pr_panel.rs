@@ -1,6 +1,7 @@
 use gitforge_hosting::RemoteRepo;
 use gitforge_ui::{
-    AppColors, TextInput, TextInputEvent, TextInputRenderOpts, parse_key_event, render_text_input,
+    AppColors, TextInput, TextInputEvent, TextInputMode, TextInputRenderOpts, parse_key_event,
+    render_text_input,
     rgba_to_hsla,
 };
 use gpui::*;
@@ -51,7 +52,8 @@ impl CreatePrState {
             to_repo: String::new(),
             to_branch: String::new(),
             title_input: TextInput::new("Pull request title", cx),
-            description_input: TextInput::new("Pull request description", cx),
+            description_input: TextInput::new("Pull request description", cx)
+                .with_mode(TextInputMode::MULTILINE),
             draft: false,
             repos: Vec::new(),
             from_branches: Vec::new(),
@@ -211,6 +213,13 @@ pub fn render_create_pr_overlay(
                 TextInputEvent::Typed(c) => {
                     if let Some(e) = ent_desc3.upgrade() {
                         e.update(cx, |this, cx| this.edit_create_pr_description(Some(&c), cx));
+                    }
+                }
+                TextInputEvent::Enter { .. } => {
+                    if let Some(e) = ent_desc3.upgrade() {
+                        e.update(cx, |this, cx| {
+                            this.edit_create_pr_description(Some("\n"), cx);
+                        });
                     }
                 }
                 _ => {}

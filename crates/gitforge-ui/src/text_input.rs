@@ -464,7 +464,10 @@ pub fn render_text_input(
         outer = outer.flex_shrink_0();
     }
     if opts.border {
-        outer = outer.border_1().border_color(border_color).rounded(px(3.0));
+        outer = outer.border_1().border_color(border_color);
+        if opts.rounded {
+            outer = outer.rounded(px(3.0));
+        }
     } else if opts.border_bottom {
         outer = outer.border_b_1().border_color(border);
     }
@@ -556,8 +559,34 @@ pub fn render_static_text_input(
     if let Some(w) = opts.width {
         outer = outer.w(w);
     }
+    if let Some(h) = opts.min_h {
+        outer = outer.min_h(h);
+    }
+    if let Some(h) = opts.max_h {
+        outer = outer.max_h(h);
+    }
+    if opts.flex_1 {
+        outer = outer.flex_1().min_h(px(0.0));
+    }
+    if opts.flex_shrink_0 {
+        outer = outer.flex_shrink_0();
+    }
     if opts.border {
-        outer = outer.border_1().border_color(border_color).rounded(px(3.0));
+        outer = outer.border_1().border_color(border_color);
+        if opts.rounded {
+            outer = outer.rounded(px(3.0));
+        }
+    } else if opts.border_bottom {
+        outer = outer.border_b_1().border_color(border);
+    }
+    if opts.rounded && !opts.border {
+        outer = outer.rounded(px(4.0));
+    }
+    if opts.overflow_y_scroll {
+        outer = outer.overflow_y_scroll();
+    }
+    if opts.overflow_x_hidden {
+        outer = outer.overflow_x_hidden();
     }
     outer = outer.bg(bg).on_click(move |_ev, window, _cx| {
         window.focus(&fh);
@@ -569,6 +598,9 @@ pub fn render_static_text_input(
         text_div = text_div.text_xs();
     } else if opts.text_sm {
         text_div = text_div.text_sm();
+    }
+    if let Some(family) = opts.font_family {
+        text_div = text_div.font_family(family);
     }
     if opts.overflow_hidden {
         text_div = text_div.overflow_hidden();

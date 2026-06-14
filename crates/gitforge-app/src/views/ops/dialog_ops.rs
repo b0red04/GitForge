@@ -49,6 +49,8 @@ impl GitForgeApp {
         self.dialog_input.clear();
         self.dialog_input_2.clear();
         self.dialog_force = false;
+        self.hosting_repos.clear();
+        self.hosting_repos_loading = false;
         cx.notify();
     }
 
@@ -63,6 +65,16 @@ impl GitForgeApp {
     }
 
     pub fn confirm_dialog(&mut self, cx: &mut Context<Self>) {
+        if let AppDialog::SearchHosting { provider } = self.active_dialog.clone() {
+            let input = self.dialog_input.text().trim().to_string();
+            if input.is_empty() {
+                return;
+            }
+            self.dialog_input.clear();
+            self.search_hosting_repos(input, provider, cx);
+            return;
+        }
+
         let input = self.dialog_input.text().trim().to_string();
         let input_2 = self.dialog_input_2.text().trim().to_string();
         let dialog_force = self.dialog_force;
@@ -167,12 +179,7 @@ impl GitForgeApp {
                 self.add_credential(parts[0].to_string(), parts[1].to_string(), password, cx);
             }
             AppDialog::CloneFromHosting { .. } => {}
-            AppDialog::SearchHosting { provider } => {
-                if input.is_empty() {
-                    return;
-                }
-                self.search_hosting_repos(input, provider, cx);
-            }
+            AppDialog::SearchHosting { .. } => {}
             AppDialog::ForkRepo {
                 owner,
                 repo,

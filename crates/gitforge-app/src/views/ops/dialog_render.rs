@@ -117,7 +117,9 @@ pub(crate) fn render_dialog_overlay(
         );
     }
 
-    if matches!(dialog, AppDialog::SearchHosting { .. }) {
+    if matches!(dialog, AppDialog::SearchHosting { .. })
+        && (hosting_repos_loading || !hosting_repos.is_empty())
+    {
         return render_hosting_repos_overlay(
             dialog,
             colors,
