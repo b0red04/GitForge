@@ -7,7 +7,9 @@ use std::path::Path;
 use std::rc::Rc;
 
 use super::commit_editor::CommitEditor;
-use super::diff_view::{DiffLineSelection, render_diff_lines};
+use super::diff_viewer::{
+    DiffViewer, DiffViewerHeader, render_diff_viewer,
+};
 use super::layout::{FILE_LIST_WIDTH, RIGHT_MIN_WIDTH};
 
 const STATUS_FILE_WIDTH: f32 = FILE_LIST_WIDTH;
@@ -29,10 +31,8 @@ pub struct StatusSelection {
 pub struct StatusPanel {
     status: Option<RepoStatus>,
     selection: Option<StatusSelection>,
-    diff_for_selected: Option<FileDiff>,
-    scroll_handle: UniformListScrollHandle,
+    viewer: DiffViewer,
     view_mode: StatusViewMode,
-    diff_selection: DiffLineSelection,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -40,7 +40,6 @@ pub struct StatusPanel {
 pub enum StatusViewMode {
     Status,
     Diff,
-    Code,
     Commit,
     GraphStaging,
 }
@@ -51,17 +50,14 @@ impl StatusPanel {
         Self {
             status: None,
             selection: None,
-            diff_for_selected: None,
-            scroll_handle: UniformListScrollHandle::default(),
+            viewer: DiffViewer::new(),
             view_mode: StatusViewMode::Status,
-            diff_selection: DiffLineSelection::new(),
         }
     }
 
     pub fn set_status(&mut self, status: RepoStatus, preserve_graph_staging: bool) {
         self.status = Some(status);
-        self.diff_for_selected = None;
-        self.diff_selection.clear();
+        self.viewer.clear_diff();
 
         if preserve_graph_staging {
             self.view_mode = StatusViewMode::GraphStaging;
@@ -78,7 +74,7 @@ impl StatusPanel {
     pub fn enter_graph_staging(&mut self) {
         self.view_mode = StatusViewMode::GraphStaging;
         self.selection = None;
-        self.diff_for_selected = None;
+        self.viewer.clear_diff();
     }
 
     pub fn exit_graph_staging(&mut self) {
@@ -90,19 +86,18 @@ impl StatusPanel {
     pub fn clear(&mut self) {
         self.status = None;
         self.selection = None;
-        self.diff_for_selected = None;
         self.view_mode = StatusViewMode::Status;
-        self.diff_selection.clear();
+        self.viewer.clear_diff();
     }
 
     pub fn select_file(&mut self, section: StatusFileSection, file_idx: usize) {
         self.selection = Some(StatusSelection { section, file_idx });
         self.view_mode = StatusViewMode::Diff;
-        self.diff_selection.clear();
+        self.viewer.clear_selection();
     }
 
     pub fn set_diff(&mut self, diff: FileDiff) {
-        self.diff_for_selected = Some(diff);
+        self.viewer.set_diff(diff);
     }
 
     pub fn show_commit(&mut self) {
@@ -131,19 +126,19 @@ impl StatusPanel {
     }
 
     pub fn select_diff_line(&mut self, line_idx: usize, extend: bool) {
-        self.diff_selection.select(line_idx, extend);
+        self.viewer.select_line(line_idx, extend);
     }
 
     pub fn diff_selected_range(&self) -> Option<Range<usize>> {
-        self.diff_selection.range()
+        self.viewer.selected_range()
     }
 
     pub fn diff_selected_indices(&self) -> Vec<usize> {
-        self.diff_selection.indices()
+        self.viewer.selected_indices()
     }
 
     pub fn current_diff(&self) -> Option<&FileDiff> {
-        self.diff_for_selected.as_ref()
+        self.viewer.current_diff()
     }
 
     pub fn current_section(&self) -> Option<StatusFileSection> {
@@ -230,9 +225,6 @@ impl StatusPanel {
                                 .child(file_list)
                                 .child(diff_content),
                         )
-                    }
-                    StatusViewMode::Code => {
-                        return self.render_placeholder(colors);
                     }
                 }
             }
@@ -654,21 +646,7 @@ impl StatusPanel {
         colors: &AppColors,
         entity: WeakEntity<super::app::GitForgeApp>,
     ) -> Div {
-        let surface = rgba_to_hsla(colors.surface);
-        let muted = rgba_to_hsla(colors.text_muted);
-        let border = rgba_to_hsla(colors.border);
-        let accent = rgba_to_hsla(colors.accent);
-
-        let Some(diff) = &self.diff_for_selected else {
-            return super::diff_view::render_diff_empty_state(colors);
-        };
-
-        let path_label = diff
-            .new_path
-            .as_deref()
-            .or(diff.old_path.as_deref())
-            .unwrap_or("(unknown)");
-
+        let diff = self.viewer.current_diff();
         let sel = self.selection.clone();
         let section_label = match sel.as_ref().map(|s| s.section) {
             Some(StatusFileSection::Staged) => "Staged",
@@ -676,65 +654,11 @@ impl StatusPanel {
             Some(StatusFileSection::Conflicted) => "Conflicted",
             _ => "Changes",
         };
-
-        let sel_range = self.diff_selected_range();
-        let has_selection = sel_range.is_some();
-
-        let mut file_header = div()
-            .px_3()
-            .py_2()
-            .border_b_1()
-            .border_color(border)
-            .flex()
-            .items_center()
-            .gap_2()
-            .child(
-                div()
-                    .text_sm()
-                    .font_family("monospace")
-                    .text_color(rgba_to_hsla(colors.text))
-                    .child(path_label.to_string()),
-            )
-            .child(div().flex_1());
-
-        if has_selection {
-            let is_staged = matches!(
-                sel.as_ref().map(|s| s.section),
-                Some(StatusFileSection::Staged)
-            );
-            let label = if is_staged {
-                "Unstage Lines"
-            } else {
-                "Stage Lines"
-            };
-            let lines_ent = entity.clone();
-            file_header = file_header.child(
-                div()
-                    .id("stage-lines-btn")
-                    .px_2()
-                    .py_0()
-                    .rounded(px(3.0))
-                    .bg(accent)
-                    .cursor_pointer()
-                    .text_xs()
-                    .text_color(rgba_to_hsla(colors.background))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child(label.to_string())
-                    .on_click(move |_ev, _window, cx| {
-                        if let Some(e) = lines_ent.upgrade() {
-                            e.update(cx, |this, cx| {
-                                if is_staged {
-                                    this.unstage_selected_lines(cx);
-                                } else {
-                                    this.stage_selected_lines(cx);
-                                }
-                            });
-                        }
-                    }),
-            );
-        }
-
-        file_header = file_header.child(div().text_xs().text_color(muted).child(section_label));
+        let is_staged = matches!(
+            sel.as_ref().map(|s| s.section),
+            Some(StatusFileSection::Staged)
+        );
+        let has_selection = self.viewer.selected_range().is_some();
 
         let on_click = {
             let ent = entity.clone();
@@ -747,26 +671,21 @@ impl StatusPanel {
             })
         };
 
-        let diff_lines = render_diff_lines(
-            diff.lines.clone(),
-            path_label,
+        render_diff_viewer(
+            &self.viewer.render_ctx(),
+            diff,
             colors,
-            self.scroll_handle.clone(),
-            sel_range,
-            None,
+            DiffViewerHeader::WorkingTree {
+                section_label,
+                is_staged,
+                has_line_selection: has_selection,
+                entity: entity.clone(),
+            },
+            entity,
+            on_click,
             "status-diff-lines",
             "sdl",
-            on_click,
-        );
-
-        div()
-            .flex_1()
-            .h_full()
-            .bg(surface)
-            .flex()
-            .flex_col()
-            .child(file_header)
-            .child(diff_lines)
+        )
     }
 
     fn render_placeholder(&self, colors: &AppColors) -> Div {

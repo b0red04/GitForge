@@ -5,6 +5,7 @@ pub mod commit_editor;
 pub mod create_pr_panel;
 pub mod diff_panel;
 pub mod diff_view;
+pub mod diff_viewer;
 pub mod graph_panel;
 pub mod layout;
 pub mod ops;
