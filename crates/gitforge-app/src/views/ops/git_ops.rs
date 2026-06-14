@@ -287,29 +287,19 @@ impl GitForgeApp {
     }
 
     pub fn stage_selected_lines(&mut self, cx: &mut Context<Self>) {
-        let Some(diff) = self.repo_session.status_panel.current_diff().cloned() else {
-            return;
-        };
-        let indices = self.repo_session.status_panel.diff_selected_indices();
-        if indices.is_empty() {
-            return;
-        }
-
-        let path = file_diff_path_or_empty(&diff).to_string();
-
-        let hunks = gitforge_diff::extract_patch_from_selection(&diff.lines, &indices);
-        if hunks.is_empty() {
-            return;
-        }
-
-        let patch = format!("--- a/{}\n+++ b/{}\n{}", path, path, hunks);
-
-        self.run_git_op("Stage lines", cx, move |repo| {
-            repo.apply_patch(&patch, true, false)
-        });
+        self.apply_selected_lines_patch("Stage lines", false, cx);
     }
 
     pub fn unstage_selected_lines(&mut self, cx: &mut Context<Self>) {
+        self.apply_selected_lines_patch("Unstage lines", true, cx);
+    }
+
+    fn apply_selected_lines_patch(
+        &mut self,
+        label: &'static str,
+        reverse: bool,
+        cx: &mut Context<Self>,
+    ) {
         let Some(diff) = self.repo_session.status_panel.current_diff().cloned() else {
             return;
         };
@@ -327,9 +317,7 @@ impl GitForgeApp {
 
         let patch = format!("--- a/{}\n+++ b/{}\n{}", path, path, hunks);
 
-        self.run_git_op("Unstage lines", cx, move |repo| {
-            repo.apply_patch(&patch, true, true)
-        });
+        self.run_git_op(label, cx, move |repo| repo.apply_patch(&patch, true, reverse));
     }
 
     pub fn select_status_diff_line(
