@@ -134,7 +134,7 @@ pub fn build_pull_request_prompt(diff: &str) -> String {
          - Focus on what changed and why it matters\n\
          - Do not wrap the title in quotes\n\
          - Do not include any other text before or after\n\n\
-         Diff:\n```\n{diff}\n```"
+         Diff:\n<git_diff>\n{diff}\n</git_diff>"
     )
 }
 

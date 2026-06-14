@@ -45,6 +45,7 @@ pub(crate) struct TabSnapshot {
     pub sidebar_branches_expanded: bool,
     pub sidebar_remotes_expanded: bool,
     pub sidebar_tags_expanded: bool,
+    pub sidebar_pull_requests_expanded: bool,
     pub sidebar_worktrees_expanded: bool,
     pub sidebar_expanded_remotes: HashSet<String>,
 }
@@ -266,6 +267,7 @@ impl RepoSession {
         let sidebar_branches_expanded = self.sidebar_state.branches_expanded;
         let sidebar_remotes_expanded = self.sidebar_state.remotes_expanded;
         let sidebar_tags_expanded = self.sidebar_state.tags_expanded;
+        let sidebar_pull_requests_expanded = self.sidebar_state.pull_requests_expanded;
         let sidebar_worktrees_expanded = self.sidebar_state.worktrees_expanded;
         let sidebar_expanded_remotes = self.sidebar_state.expanded_remotes.clone();
 
@@ -291,6 +293,7 @@ impl RepoSession {
             sidebar_branches_expanded,
             sidebar_remotes_expanded,
             sidebar_tags_expanded,
+            sidebar_pull_requests_expanded,
             sidebar_worktrees_expanded,
             sidebar_expanded_remotes,
         });
@@ -305,6 +308,7 @@ impl RepoSession {
         self.sidebar_state.branches_expanded = snap.sidebar_branches_expanded;
         self.sidebar_state.remotes_expanded = snap.sidebar_remotes_expanded;
         self.sidebar_state.tags_expanded = snap.sidebar_tags_expanded;
+        self.sidebar_state.pull_requests_expanded = snap.sidebar_pull_requests_expanded;
         self.sidebar_state.worktrees_expanded = snap.sidebar_worktrees_expanded;
         self.sidebar_state.expanded_remotes = snap.sidebar_expanded_remotes;
 

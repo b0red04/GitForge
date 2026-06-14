@@ -119,6 +119,7 @@ pub struct SettingsDraft {
     pub sidebar_branches_expanded: bool,
     pub sidebar_remotes_expanded: bool,
     pub sidebar_tags_expanded: bool,
+    pub sidebar_pull_requests_expanded: bool,
     pub show_checkpoint_refs: bool,
     pub commit_limit: usize,
     pub commit_limit_text: String,
@@ -170,6 +171,7 @@ impl SettingsDraft {
             sidebar_branches_expanded: settings.sidebar_branches_expanded,
             sidebar_remotes_expanded: settings.sidebar_remotes_expanded,
             sidebar_tags_expanded: settings.sidebar_tags_expanded,
+            sidebar_pull_requests_expanded: settings.sidebar_pull_requests_expanded,
             show_checkpoint_refs: settings.show_checkpoint_refs,
             commit_limit: settings.commit_limit,
             commit_limit_text: settings.commit_limit.to_string(),
@@ -221,6 +223,7 @@ impl SettingsDraft {
         settings.sidebar_branches_expanded = self.sidebar_branches_expanded;
         settings.sidebar_remotes_expanded = self.sidebar_remotes_expanded;
         settings.sidebar_tags_expanded = self.sidebar_tags_expanded;
+        settings.sidebar_pull_requests_expanded = self.sidebar_pull_requests_expanded;
         settings.show_checkpoint_refs = self.show_checkpoint_refs;
         if let Ok(parsed) = self.commit_limit_text.parse::<usize>() {
             settings.commit_limit = parsed.max(1);
@@ -1729,6 +1732,10 @@ fn pill_toggle(
                                 draft.sidebar_remotes_expanded = !draft.sidebar_remotes_expanded
                             }
                             "tags" => draft.sidebar_tags_expanded = !draft.sidebar_tags_expanded,
+                            "pull-requests" => {
+                                draft.sidebar_pull_requests_expanded =
+                                    !draft.sidebar_pull_requests_expanded
+                            }
                             "checkpoints" => {
                                 draft.show_checkpoint_refs = !draft.show_checkpoint_refs
                             }
@@ -2104,8 +2111,10 @@ fn pat_field_control(
         let mut s = pat_input.to_string();
         s.push('\u{2502}');
         s
+    } else if !pat_input.is_empty() {
+        "••••••••••••".to_string()
     } else {
-        pat_input.to_string()
+        String::new()
     };
     let placeholder = "Personal Access Token";
     let show_placeholder = display.is_empty() && !is_active;
@@ -2428,6 +2437,19 @@ fn render_sidebar_section(
         "Expand Tags",
         "Expand the tags section in the sidebar by default.",
         pill_toggle(draft.sidebar_tags_expanded, entity.clone(), "tags", colors),
+        border,
+        text,
+        muted,
+    ))
+    .child(setting_row(
+        "Expand Pull Requests",
+        "Expand the pull requests section in the sidebar by default.",
+        pill_toggle(
+            draft.sidebar_pull_requests_expanded,
+            entity.clone(),
+            "pull-requests",
+            colors,
+        ),
         border,
         text,
         muted,

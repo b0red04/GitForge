@@ -42,10 +42,10 @@ impl GitForgeApp {
         if self.repo_session.active_repo_state().is_none() {
             return None;
         }
-        if self.get_origin_remote_url().is_none() {
+        let Some(origin_url) = self.get_origin_remote_url() else {
             return Some(PullRequestSidebarHint::NoOrigin);
-        }
-        let clean_url = urls::normalize_remote_url(&self.get_origin_remote_url().unwrap());
+        };
+        let clean_url = urls::normalize_remote_url(&origin_url);
         let Some(provider_id) = urls::detect_provider_id(&clean_url) else {
             return Some(PullRequestSidebarHint::UnsupportedProvider);
         };
@@ -523,6 +523,11 @@ impl GitForgeApp {
 
     pub fn submit_create_pr(&mut self, cx: &mut Context<Self>) {
         if self.create_pr.title.trim().is_empty() {
+            self.push_toast(
+                crate::views::toasts::ToastKind::Warning,
+                "A title is required to create a pull request",
+                cx,
+            );
             return;
         }
 

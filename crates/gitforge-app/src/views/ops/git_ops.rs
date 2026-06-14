@@ -132,6 +132,7 @@ impl GitForgeApp {
     pub fn toggle_sidebar_pull_requests(&mut self, cx: &mut Context<Self>) {
         self.repo_session.sidebar_state.pull_requests_expanded =
             !self.repo_session.sidebar_state.pull_requests_expanded;
+        self.save_settings();
         cx.notify();
     }
 

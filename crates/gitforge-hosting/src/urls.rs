@@ -31,15 +31,28 @@ pub fn detect_provider(url: &str) -> Option<Box<dyn HostingProvider>> {
 }
 
 pub fn detect_provider_id(url: &str) -> Option<&'static str> {
-    if url.contains("github.com") {
+    let host = url_host(url);
+    if host == "github.com" || host == "www.github.com" {
         Some("github")
-    } else if url.contains("gitlab.com") || url.contains("gitlab") {
+    } else if host == "gitlab.com" || host.contains("gitlab") {
         Some("gitlab")
-    } else if url.contains("codeberg.org") {
+    } else if host == "codeberg.org" {
         Some("codeberg")
     } else {
         None
     }
+}
+
+/// Extracts the host component from a (possibly normalised) remote URL.
+///
+/// Handles `https://host/...`, `http://host/...`, and bare `host/...`
+/// forms (the latter arising from SSH URLs after `normalize_remote_url`).
+fn url_host(url: &str) -> &str {
+    let url = url
+        .trim_start_matches("https://")
+        .trim_start_matches("http://");
+    let url = url.strip_prefix("git@").unwrap_or(url);
+    url.split('/').next().unwrap_or(url)
 }
 
 pub fn split_repo_full_name(full_name: &str) -> Option<(&str, &str)> {

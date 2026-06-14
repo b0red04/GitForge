@@ -107,7 +107,7 @@ impl Repository {
 
     /// Spawns a `git` subprocess.
     pub fn unified_diff_between_refs(&self, base_ref: &str, head_ref: &str) -> GitResult<String> {
-        let range = format!("{}..{}", base_ref, head_ref);
+        let range = format!("{}...{}", base_ref, head_ref);
         let output = Command::new("git")
             .args(["diff", "--no-color", &range])
             .current_dir(&self.path)

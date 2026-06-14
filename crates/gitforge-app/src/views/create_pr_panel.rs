@@ -174,6 +174,7 @@ pub fn render_create_pr_overlay(
     let ent_desc3 = entity.clone();
     let fh_title = state.title_focus.clone();
     let fh_desc = state.description_focus.clone();
+    let fh_desc_for_title = state.description_focus.clone();
 
     let from_repo_label = if state.from_repo.is_empty() {
         "Select...".to_string()
@@ -404,7 +405,7 @@ pub fn render_create_pr_overlay(
                 .on_click(move |_ev, window, _cx| {
                     window.focus(&fh_title);
                 })
-                .on_key_down(move |ev: &KeyDownEvent, _window, cx| {
+                .on_key_down(move |ev: &KeyDownEvent, window, cx| {
                     match ev.keystroke.key.as_str() {
                         "escape" => {
                             if let Some(e) = ent_title.upgrade() {
@@ -414,6 +415,7 @@ pub fn render_create_pr_overlay(
                             }
                         }
                         "enter" => {
+                            window.focus(&fh_desc_for_title);
                             if let Some(e) = ent_title2.upgrade() {
                                 e.update(cx, |this, cx| {
                                     this.create_pr.active_field = CreatePrActiveField::Description;
@@ -430,7 +432,10 @@ pub fn render_create_pr_overlay(
                         }
                         _ => {
                             if let Some(ch) = ev.keystroke.key_char.clone() {
-                                if !ev.keystroke.modifiers.platform {
+                                if !ev.keystroke.modifiers.platform
+                                    && !ev.keystroke.modifiers.control
+                                    && !ev.keystroke.modifiers.alt
+                                {
                                     if let Some(e) = ent_title3.upgrade() {
                                         let c = ch;
                                         e.update(cx, |this, cx| {
@@ -491,7 +496,10 @@ pub fn render_create_pr_overlay(
                         }
                         _ => {
                             if let Some(ch) = ev.keystroke.key_char.clone() {
-                                if !ev.keystroke.modifiers.platform {
+                                if !ev.keystroke.modifiers.platform
+                                    && !ev.keystroke.modifiers.control
+                                    && !ev.keystroke.modifiers.alt
+                                {
                                     if let Some(e) = ent_desc3.upgrade() {
                                         let c = ch;
                                         e.update(cx, |this, cx| {

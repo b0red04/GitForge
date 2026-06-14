@@ -165,6 +165,8 @@ impl GitForgeApp {
         self.repo_session.sidebar_state.branches_expanded = draft.sidebar_branches_expanded;
         self.repo_session.sidebar_state.remotes_expanded = draft.sidebar_remotes_expanded;
         self.repo_session.sidebar_state.tags_expanded = draft.sidebar_tags_expanded;
+        self.repo_session.sidebar_state.pull_requests_expanded =
+            draft.sidebar_pull_requests_expanded;
         self.set_theme(&draft.theme, cx);
         self.save_settings();
         let columns_changed = draft.graph_show_graph_column != prev_graph_col

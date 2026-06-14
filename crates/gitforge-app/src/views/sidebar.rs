@@ -1001,14 +1001,13 @@ fn render_pull_requests_header(
                 .text_xs()
                 .text_color(accent)
                 .child("+")
-                .on_click(move |ev, _window, cx| {
+                .on_click(move |_ev, _window, cx| {
                     cx.stop_propagation();
                     if let Some(e) = ent_create.upgrade() {
                         e.update(cx, |this, cx| {
                             this.open_create_pr_dialog(cx);
                         });
                     }
-                    let _ = ev;
                 }),
         )
 }
