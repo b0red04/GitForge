@@ -88,50 +88,36 @@ impl GitForgeApp {
         cx.notify();
     }
     pub fn toggle_sidebar_branches(&mut self, cx: &mut Context<Self>) {
-        self.repo_session.sidebar_state.branches_expanded =
-            !self.repo_session.sidebar_state.branches_expanded;
+        self.repo_session.sidebar_state.toggle_branches();
         self.save_settings();
         cx.notify();
     }
 
     pub fn toggle_sidebar_remotes(&mut self, cx: &mut Context<Self>) {
-        self.repo_session.sidebar_state.remotes_expanded =
-            !self.repo_session.sidebar_state.remotes_expanded;
+        self.repo_session.sidebar_state.toggle_remotes();
         self.save_settings();
         cx.notify();
     }
 
     pub fn toggle_sidebar_tags(&mut self, cx: &mut Context<Self>) {
-        self.repo_session.sidebar_state.tags_expanded =
-            !self.repo_session.sidebar_state.tags_expanded;
+        self.repo_session.sidebar_state.toggle_tags();
         self.save_settings();
         cx.notify();
     }
 
+    pub fn toggle_sidebar_worktrees(&mut self, cx: &mut Context<Self>) {
+        self.repo_session.sidebar_state.toggle_worktrees();
+        cx.notify();
+    }
+
     pub fn toggle_sidebar_pull_requests(&mut self, cx: &mut Context<Self>) {
-        self.repo_session.sidebar_state.pull_requests_expanded =
-            !self.repo_session.sidebar_state.pull_requests_expanded;
+        self.repo_session.sidebar_state.toggle_pull_requests();
         self.save_settings();
         cx.notify();
     }
 
     pub fn toggle_sidebar_remote(&mut self, remote: String, cx: &mut Context<Self>) {
-        if self
-            .repo_session
-            .sidebar_state
-            .expanded_remotes
-            .contains(&remote)
-        {
-            self.repo_session
-                .sidebar_state
-                .expanded_remotes
-                .remove(&remote);
-        } else {
-            self.repo_session
-                .sidebar_state
-                .expanded_remotes
-                .insert(remote);
-        }
+        self.repo_session.sidebar_state.toggle_remote(remote);
         cx.notify();
     }
 
@@ -141,12 +127,12 @@ impl GitForgeApp {
     }
 
     pub fn update_sidebar_filter(&mut self, typed_char: Option<&str>, cx: &mut Context<Self>) {
-        self.repo_session.sidebar_state.filter_input.edit(typed_char);
+        self.repo_session.sidebar_state.update_filter(typed_char);
         cx.notify();
     }
 
     pub fn clear_sidebar_filter(&mut self, cx: &mut Context<Self>) {
-        self.repo_session.sidebar_state.filter_input.clear();
+        self.repo_session.sidebar_state.clear_filter();
         cx.notify();
     }
 
@@ -402,7 +388,7 @@ impl GitForgeApp {
                 Ok(Err(e)) => {
                     tracing::error!("{} failed: {}", label_owned, e);
                     this.update(cx, |this, cx| {
-                        this.report_op_error(&label_owned, &e.to_string(), cx);
+                        this.report_git_error(&label_owned, &e, cx);
                     })
                     .ok();
                 }
@@ -470,7 +456,7 @@ impl GitForgeApp {
                     tracing::error!("{} failed: {}", label_owned, e);
                     this.update(cx, |this, cx| {
                         this.repo_session.remote_status.clear();
-                        this.report_op_error(&label_owned, &e.to_string(), cx);
+                        this.report_git_error(&label_owned, &e, cx);
                     })
                     .ok();
                 }
@@ -686,7 +672,7 @@ impl GitForgeApp {
                     tracing::error!("Clone failed: {}", e);
                     this.update(cx, |this, cx| {
                         this.repo_session.remote_status.clear();
-                        this.report_op_error("Clone", &e.to_string(), cx);
+                        this.report_git_error("Clone", &e, cx);
                     })
                     .ok();
                 }

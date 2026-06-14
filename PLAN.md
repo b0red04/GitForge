@@ -6,6 +6,8 @@ Candidate refactors that turn shallow modules into deep ones. Each is evaluated 
 
 ## Completed
 
+- **gitforge-git Error Type — Structured variants** — done. Expanded `GitError` from 2 to 10 variants (`MergeConflict`, `AuthenticationFailed`, `NetworkError`, `IndexLock`, `EmptyCommit`, `BranchNotFound`, `BranchNotFullyMerged`, `InvalidReference`, plus original `RepositoryNotFound`/`OperationFailed`). Centralised classification in `classify_git_failure(args, output)` in `error.rs`, routed through all 3 `run_git*` methods + 4 hand-rolled `Command::new("git")` sites. App layer: added `report_git_error` using `GitError::toast_message()` + variant-aware toast kind (`EmptyCommit` → Info, not Error). Deleted `clean_error_message` (the string-parsing compensating layer) and its 6 tests. 11 new classifier/toast tests in `error.rs`.
+
 - **RepoSession extraction** — done in `64297f7`, finished by collapsing the duplicated `apply_repo_state` (branch `opencode/finish-repo-session-apply-state`). `RepoSession::apply_repo_state` is now the single seam for installing a fresh `RepoState`.
 - **CommitEditor extraction** — done in `1f89936`. Owns commit message buffer, cursor, AI alternatives, rendering at `views/commit_editor.rs`.
 - **UTF-8 diff truncation** — fixed in `0290776`.
@@ -18,42 +20,17 @@ Candidate refactors that turn shallow modules into deep ones. Each is evaluated 
 - **DiffViewer extraction** — done in PR #16. `views/diff_viewer.rs` owns `DiffViewer` with shared Diff/Code/Blame rendering, line selection, scroll handles, and binary/LFS handling. `DiffPanel` and `StatusPanel` embed it; duplicated path resolution and render scaffolding removed. `file_diff_path_or_empty` deduplicates path labels in stage/unstage ops.
 - **Dead code cleanup** — done in PR #17. Removed `GitError::Io`, `extract_hunk_patch`, dead `HostingProvider` methods (`list_org_repos`, `file_url`, `commit_url`), `find_account`, and `gitforge-ui/src/components.rs`.
 - **`run_git_op` seam generalisation + `run_hosting_op`** — done. Introduced `run_git_op_returning(label, cx, op, on_success)` (`git_ops.rs`) as the general async seam for git ops that produce a value: it owns `cx.spawn` + `spawn_blocking` + repo-handle lock + 3-arm match, hands the value to `on_success`, and hardcodes `report_op_error` on failure. Migrated 7 hand-rolled spawns (`view_file_at_commit`, `select_status_file`, `perform_commit`, `load_status`, `view_blame`, `refresh_repository`, `load_diff_for_selected`). Collapsed the old `run_git_op` into a 4-line specialization (`on_success` = `refresh_repository`); its 26 call sites unchanged. Added `run_hosting_op(label, cx, op, on_success, on_error)` (`hosting_ops.rs`) for the pure-async hosting-client seam and migrated 4 sites (`add_hosting_account`, `open_clone_from_hosting_dialog`, `search_hosting_repos`, `fork_repo`); their pre-flight guards (no account / unknown provider) moved out of the spawn to synchronous early-returns. **Error policy normalized** (the chosen direction): the 5 previously `warn!`-only read fetches and `refresh_repository` (was log-only) now surface failures via `report_op_error` — i.e. read-fetch failures are now user-visible toasts. Investigation corrected the scope: the original item lumped in the hosting pure-async sites, the AI pipeline, and the clones, but those are *different seams*. Left bespoke with rationale: `run_git_op_with_status` (its status-banner lifecycle spans all 3 arms, so it can't delegate without losing the clear-on-error), `clone_repository`/`clone_hosting_repo` (`Repository::clone_repo` constructor — no repo handle to lock), `restart_periodic_fetch` (timer loop), `ai_ops::generate_commit_message` (3-stage diff→provider→generate pipeline). Net −186 lines (1284 → 1098 across the two files).
+- **Sidebar state ownership consolidation** — done (uncommitted, +123/−73 across 6 files). `SidebarState` is now the single seam for its own state: toggle/filter/`set_context_menu` methods own the mutations, matching the peer-panel pattern (DiffPanel/GraphPanel/StatusPanel). `SidebarExpansion` sub-struct centralises the snapshot shape and the "which fields persist" rule (`apply_persisted_from_settings`/`write_persisted_to_settings`). `toggle_sidebar_worktrees` relocated from `dialog_ops.rs` to `git_ops.rs`. Collapsed 3 copies of the Settings↔SidebarState 4-boolean mapping (`app.rs` init + `save_settings` + `settings_ops` draft-apply) and 2 copies of the TabSnapshot 6-field mapping (`repo_session.rs`) into method calls; `TabSnapshot` now embeds one `sidebar_expansion` field. Investigation corrected the PLAN's scope: it understated the problem (missed the two duplicated sync layers — the real payoff) and incorrectly included `navigate_to_ref`, which is a graph-navigation action, not sidebar state, so it was left in `git_ops.rs`. `worktrees_expanded`'s non-persistence is now a visible omission in `write_persisted_to_settings` rather than silent.
 
 ---
 
 ## Active candidates
 
-### 4. gitforge-git Error Type — Single String Variant
-
-**Files:** `gitforge-git/src/error.rs` (2 variants), used across all `*_impl.rs` files
-
-**Problem:** `GitError` has 2 variants: `RepositoryNotFound(String)`, `OperationFailed(String)`. `OperationFailed` absorbs **99%** of constructions (98/99 across 12 files). Structured gix error info is discarded via `.map_err(|e| GitError::OperationFailed(e.to_string()))` — 29 exact-form occurrences plus 22 more `format!`-wrapped variants. (Note: the prior claim that `InvalidReference` and `MergeConflict` variants exist-but-unused was wrong — those variants were never defined. They are candidates to add, not delete.)
-
-**Solution:** Introduce domain-specific variants: `MergeConflict { paths: Vec<String> }`, `AuthenticationFailed { remote: String }`, `NetworkError { source: String }`, `IndexLock { path: PathBuf }`, `EmptyCommit`, `BranchNotFound { name: String }`, plus the missing `InvalidReference`. gix error mapping preserves structured cause.
-
-**Benefits:**
-- **Leverage** — app shows "Merge conflict in 3 files" instead of "Operation failed: ...git merge...exit status 1".
-- **Locality** — error classification concentrates in `gitforge-git` instead of being parsed from strings in the app layer.
-
 ---
 
 ## New candidates
 
-### 7. Sidebar state ownership has no home — mutations scattered across 3 files
-
-**Files:** `ops/git_ops.rs:166-243` (sidebar toggles, filter, navigate_to_ref), `ops/dialog_ops.rs:221-225` (`toggle_sidebar_worktrees` — wrong file), `action_handlers.rs`, rendered by `sidebar.rs` (1093 lines, deep)
-
-**Problem:** `SidebarState` exists to own sidebar state, but its mutations live in `git_ops.rs`, `dialog_ops.rs`, and `action_handlers.rs`. Three of four section toggles are in `git_ops.rs`; the fourth (`worktrees`) is in `dialog_ops.rs`. There is no single seam for sidebar transitions, despite `SidebarState` existing precisely to be that owner.
-
-**Solution:** Move sidebar mutations into `SidebarState` methods. Each current caller (`toggle_sidebar_branches`, `update_sidebar_filter`, etc.) becomes a method on the owner.
-
-**Benefits:**
-- **Locality** — sidebar state transitions concentrate in one module. A reader debugging "why didn't the worktrees section toggle" goes to one place, not three.
-- Each individual toggle fails the deletion test alone (one-liner + notify). As a consolidated group inside `SidebarState`, they pass — the friction is the missing owner.
-
----
-
-### 9. `HostingProvider` trait — 3 parallel implementations
+### 7. `HostingProvider` trait — 3 parallel implementations
 
 **Files:** `gitforge-hosting/src/provider.rs:6-20` (trait, 6 methods), `github.rs`, `gitlab.rs`, `codeberg.rs`
 
@@ -66,7 +43,7 @@ Candidate refactors that turn shallow modules into deep ones. Each is evaluated 
 
 ---
 
-### 10. `patch.rs` — duplicated stage/unstage call sites
+### 8. `patch.rs` — duplicated stage/unstage call sites
 
 **Files:** `gitforge-diff/src/patch.rs:3-84` (`extract_patch_from_selection`), `ops/git_ops.rs:448-474` (`stage_selected_lines`), `:476-502` (`unstage_selected_lines`)
 

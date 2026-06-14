@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -43,12 +42,7 @@ pub(crate) struct TabSnapshot {
     pub commit_message: String,
     pub ai_alternatives: Vec<String>,
     pub view_mode: MainViewMode,
-    pub sidebar_branches_expanded: bool,
-    pub sidebar_remotes_expanded: bool,
-    pub sidebar_tags_expanded: bool,
-    pub sidebar_pull_requests_expanded: bool,
-    pub sidebar_worktrees_expanded: bool,
-    pub sidebar_expanded_remotes: HashSet<String>,
+    pub sidebar_expansion: super::sidebar::SidebarExpansion,
 }
 
 pub(crate) struct RepoSession {
@@ -265,12 +259,7 @@ impl RepoSession {
         let status_view_mode = self.status_panel.view_mode();
         let (commit_message, ai_alternatives) = self.commit_editor.snapshot_data();
         let view_mode = self.view_mode.clone();
-        let sidebar_branches_expanded = self.sidebar_state.branches_expanded;
-        let sidebar_remotes_expanded = self.sidebar_state.remotes_expanded;
-        let sidebar_tags_expanded = self.sidebar_state.tags_expanded;
-        let sidebar_pull_requests_expanded = self.sidebar_state.pull_requests_expanded;
-        let sidebar_worktrees_expanded = self.sidebar_state.worktrees_expanded;
-        let sidebar_expanded_remotes = self.sidebar_state.expanded_remotes.clone();
+        let sidebar_expansion = self.sidebar_state.expansion();
 
         let active_id = match self.active_repo_tab_id {
             Some(id) => id,
@@ -291,12 +280,7 @@ impl RepoSession {
             commit_message,
             ai_alternatives,
             view_mode,
-            sidebar_branches_expanded,
-            sidebar_remotes_expanded,
-            sidebar_tags_expanded,
-            sidebar_pull_requests_expanded,
-            sidebar_worktrees_expanded,
-            sidebar_expanded_remotes,
+            sidebar_expansion,
         });
     }
 
@@ -306,12 +290,7 @@ impl RepoSession {
         let Some(snap) = snapshot else { return };
 
         self.view_mode = snap.view_mode;
-        self.sidebar_state.branches_expanded = snap.sidebar_branches_expanded;
-        self.sidebar_state.remotes_expanded = snap.sidebar_remotes_expanded;
-        self.sidebar_state.tags_expanded = snap.sidebar_tags_expanded;
-        self.sidebar_state.pull_requests_expanded = snap.sidebar_pull_requests_expanded;
-        self.sidebar_state.worktrees_expanded = snap.sidebar_worktrees_expanded;
-        self.sidebar_state.expanded_remotes = snap.sidebar_expanded_remotes;
+        self.sidebar_state.apply_expansion(&snap.sidebar_expansion);
 
         self.commit_editor
             .restore_from_snapshot(snap.commit_message, snap.ai_alternatives);

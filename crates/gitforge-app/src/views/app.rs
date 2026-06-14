@@ -153,10 +153,9 @@ impl GitForgeApp {
         let theme = Theme::load_by_name(&settings.theme).unwrap_or_else(|_| Theme::default_dark());
         let colors = AppColors::from_theme(&theme);
         let mut repo_session = RepoSession::new(cx);
-        repo_session.sidebar_state.branches_expanded = settings.sidebar_branches_expanded;
-        repo_session.sidebar_state.remotes_expanded = settings.sidebar_remotes_expanded;
-        repo_session.sidebar_state.tags_expanded = settings.sidebar_tags_expanded;
-        repo_session.sidebar_state.pull_requests_expanded = settings.sidebar_pull_requests_expanded;
+        repo_session
+            .sidebar_state
+            .apply_persisted_from_settings(&settings);
         let mut app = Self {
             colors,
             repo_session,
@@ -191,11 +190,9 @@ impl GitForgeApp {
         self.open_or_activate_repo_tab(path, cx);
     }
     pub(crate) fn save_settings(&mut self) {
-        self.settings.sidebar_branches_expanded = self.repo_session.sidebar_state.branches_expanded;
-        self.settings.sidebar_remotes_expanded = self.repo_session.sidebar_state.remotes_expanded;
-        self.settings.sidebar_tags_expanded = self.repo_session.sidebar_state.tags_expanded;
-        self.settings.sidebar_pull_requests_expanded =
-            self.repo_session.sidebar_state.pull_requests_expanded;
+        self.repo_session
+            .sidebar_state
+            .write_persisted_to_settings(&mut self.settings);
         self.settings.open_repo_paths = self
             .repo_session
             .open_repo_tabs
@@ -295,21 +292,45 @@ impl GitForgeApp {
         cx.notify();
     }
 
-    /// Reports a failed git/hosting operation as an error toast, cleaning the
-    /// raw error down to its first meaningful line.
+    /// Reports a failed git/hosting operation as an error toast, reducing the
+    /// raw error string to its first line for the toast card.
     pub(crate) fn report_op_error(
         &mut self,
         label: &str,
         err: &str,
         cx: &mut Context<Self>,
     ) {
-        let detail = super::toasts::clean_error_message(err);
+        let detail = err.lines().next().unwrap_or(err).trim();
         let message = if detail.is_empty() {
             format!("{label} failed")
         } else {
             format!("{label}: {detail}")
         };
         self.push_toast(super::toasts::ToastKind::Error, message, cx);
+    }
+
+    /// Reports a `GitError` using its structured `toast_message`, choosing the
+    /// toast kind from the variant (e.g. `EmptyCommit` is informational, not an
+    /// error). This is the structured replacement for the old string-parsing
+    /// toast cleanup path.
+    pub(crate) fn report_git_error(
+        &mut self,
+        label: &str,
+        err: &gitforge_git::GitError,
+        cx: &mut Context<Self>,
+    ) {
+        let kind = if err.is_info() {
+            super::toasts::ToastKind::Info
+        } else {
+            super::toasts::ToastKind::Error
+        };
+        let detail = err.toast_message();
+        let message = if detail.is_empty() {
+            label.to_string()
+        } else {
+            format!("{label}: {detail}")
+        };
+        self.push_toast(kind, message, cx);
     }
 
     pub(crate) fn toggle_dialog_force(&mut self, cx: &mut Context<Self>) {

@@ -1,4 +1,4 @@
-use crate::error::{GitError, GitResult};
+use crate::error::{classify_git_failure, GitError, GitResult};
 use crate::repository::Repository;
 use std::path::Path;
 use std::process::Command;
@@ -82,9 +82,7 @@ impl Repository {
         })?;
 
         if !output.status.success() {
-            return Err(GitError::OperationFailed(
-                String::from_utf8_lossy(&output.stderr).to_string(),
-            ));
+            return Err(classify_git_failure(&["apply"], &output));
         }
         Ok(())
     }
