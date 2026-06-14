@@ -9,7 +9,8 @@ use parking_lot::Mutex;
 
 use super::app::MainViewMode;
 use super::commit_editor::CommitEditor;
-use super::diff_panel::{CommitDiffState, DiffPanel, DiffViewMode};
+use super::diff_panel::{CommitDiffState, DiffPanel};
+use super::diff_viewer::DiffViewMode;
 use super::graph_panel::{GraphPanel, GraphSelection};
 use super::repo_tabs::RepoTabView;
 use super::sidebar::SidebarState;
