@@ -3,6 +3,7 @@ use gpui::*;
 
 use crate::views::app::{GitForgeApp, MainViewMode};
 use crate::views::diff_panel::CommitDiffState;
+use crate::views::diff_viewer::file_diff_path_or_empty;
 use crate::views::status_panel::StatusFileSection;
 
 impl GitForgeApp {
@@ -408,12 +409,7 @@ impl GitForgeApp {
             return;
         }
 
-        let path = diff
-            .new_path
-            .as_deref()
-            .or(diff.old_path.as_deref())
-            .unwrap_or("")
-            .to_string();
+        let path = file_diff_path_or_empty(&diff).to_string();
 
         let hunks = gitforge_diff::extract_patch_from_selection(&diff.lines, &indices);
         if hunks.is_empty() {
@@ -436,12 +432,7 @@ impl GitForgeApp {
             return;
         }
 
-        let path = diff
-            .new_path
-            .as_deref()
-            .or(diff.old_path.as_deref())
-            .unwrap_or("")
-            .to_string();
+        let path = file_diff_path_or_empty(&diff).to_string();
 
         let hunks = gitforge_diff::extract_patch_from_selection(&diff.lines, &indices);
         if hunks.is_empty() {
