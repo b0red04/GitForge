@@ -133,7 +133,7 @@ impl CommitEditor {
                 } else {
                     first_line.to_string()
                 };
-                let is_selected = self.message_input.text() == alt;
+                let is_selected = self.message_input.text() == alt.as_str();
                 let pill_bg = if is_selected { accent } else { surface };
                 let pill_tc = if is_selected {
                     rgba_to_hsla(colors.background)
@@ -237,52 +237,47 @@ impl CommitEditor {
                         })
                 })
                 .child({
-                    let btn_bg = if has_message { accent } else { muted };
+                    let ent_commit = ent2.clone();
                     div()
-                        .id("submit-commit-btn")
-                        .px_4()
+                        .id("commit-btn")
+                        .px_3()
                         .py_1()
                         .rounded(px(4.0))
-                        .bg(btn_bg)
+                        .bg(if has_message { accent } else { muted })
                         .cursor_pointer()
                         .text_xs()
                         .text_color(rgba_to_hsla(colors.background))
-                        .font_weight(FontWeight::SEMIBOLD)
                         .child("Commit")
                         .on_click(move |_ev, _window, cx| {
-                            if has_message {
-                                if let Some(e) = ent2.upgrade() {
-                                    e.update(cx, |this, cx| {
-                                        this.perform_commit(false, cx);
-                                    });
-                                }
+                            if let Some(e) = ent_commit.upgrade() {
+                                e.update(cx, |this, cx| {
+                                    this.perform_commit(false, cx);
+                                });
                             }
                         })
                 })
                 .child({
+                    let ent_cancel = ent3.clone();
                     div()
-                        .id("amend-commit-btn")
-                        .px_4()
+                        .id("cancel-commit-btn")
+                        .px_3()
                         .py_1()
                         .rounded(px(4.0))
                         .border_1()
                         .border_color(border)
                         .cursor_pointer()
                         .text_xs()
-                        .text_color(text_color)
-                        .child("Amend")
+                        .text_color(muted)
+                        .child("Cancel")
                         .on_click(move |_ev, _window, cx| {
-                            if has_message {
-                                if let Some(e) = ent3.upgrade() {
-                                    e.update(cx, |this, cx| {
-                                        this.perform_commit(true, cx);
-                                    });
-                                }
+                            if let Some(e) = ent_cancel.upgrade() {
+                                e.update(cx, |this, cx| {
+                                    this.cancel_commit_dialog(cx);
+                                });
                             }
                         })
                 }),
         );
-
         editor
     }
 }

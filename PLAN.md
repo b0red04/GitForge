@@ -14,24 +14,11 @@ Candidate refactors that turn shallow modules into deep ones. Each is evaluated 
 - **Text Input extraction** — shared `TextInput` module in `gitforge-ui` (`text_input.rs`). Migrated sidebar filter, commit editor, command palette, settings (search, 11 draft fields, API key, PAT), dialogs (generic + worktree with separate focus handles), and create PR panel title/description. Worktree overlay bug (shared focus, missing cursor on field 2) fixed.
 - **`tab_ops.rs` delegation facade** — done (uncommitted). Deleted 12 one-line forwarders to `RepoSession` (the 11 listed plus `push_closed_tab`, which was hidden by `#[allow(dead_code)]` and surfaced on removal). Investigation corrected the scope: the codebase had already migrated to direct `self.repo_session.X()` calls, so only `active_repo_state` still had callers (4 sites in `git_ops.rs`/`dialog_ops.rs`), rewritten direct; `normalize_repo_path` had 2 internal callers repointed to `RepoSession::`. `tab_ops.rs` now holds only tab lifecycle logic (+9/−327).
 - **Dialog system refactor** — done. Pragmatic phased approach (kept `AppDialog` enum as router, not `Box<dyn Dialog>`). Shared primitives in `gitforge-ui/src/dialog.rs` (`DialogColors`, `dialog_overlay`, `dialog_surface`, `dialog_actions`, `attach_dialog_input_keys`). Per-dialog modules under `views/dialogs/` (`simple_input.rs` metadata table for 11 single-input dialogs, plus `credential_add`, `delete_branch`, `fork_confirm`, `worktree`, `remove_worktree`, `hosting_browse`, `create_pr`). `dialog_ops.rs` and `dialog_render.rs` are thin routers (~30 lines each). Create PR overlay moved from `create_pr_panel.rs` to `dialogs/create_pr.rs` with `TextInput` for title/description; unified dispatch in `app.rs`. Overlap with item #1: all dialog text inputs now use shared `TextInput` + `attach_dialog_input_keys`.
+- **TextInput extraction** — done (PR stack #13–#15). `gitforge-ui/src/text_input.rs` owns focus, cursor, placeholder, masked display, and rendering. Migrated: dialogs, command palette, commit editor, sidebar filter, settings window. Added `render_static_text_input` for draft-owned fields. Deleted dead `components.rs`.
 
 ---
 
 ## Active candidates
-
-### 1. Text Input Duplication (remaining sites)
-
-**Files:** `sidebar.rs` (`render_search_bar`), `command_palette.rs` (`CommandPalette::render`), `settings_window.rs` (settings search, `text_field_control`, `api_key_field_control`). Dialog sites removed by item #2 above; `commit_editor.rs` already uses `TextInput`.
-
-**Problem:** Several independent implementations of "GPUI text input" remain outside dialogs. `gitforge-ui` now has `TextInput` (`text_input.rs`) but not all call sites migrated.
-
-**Solution:** Migrate remaining sites to `TextInput` + `render_text_input`. Delete dead `gitforge-ui/src/components.rs` if still present.
-
-**Benefits:**
-- **Locality** — text handling bugs fixed once instead of N times.
-- **Leverage** — remaining inputs gain clipboard paste, multi-byte safety from one interface.
-
----
 
 ### 3. Diff Rendering Split Across Two Panels
 

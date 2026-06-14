@@ -260,10 +260,10 @@ impl GitForgeApp {
     }
 
     pub fn perform_commit(&mut self, amend: bool, cx: &mut Context<Self>) {
-        let message = self.repo_session.take_commit_message();
-        if message.trim().is_empty() {
+        if self.repo_session.commit_editor.message().trim().is_empty() {
             return;
         }
+        let message = self.repo_session.take_commit_message();
 
         let Some(open_repo) = self.repo_session.require_active_repo_handle() else {
             cx.notify();
