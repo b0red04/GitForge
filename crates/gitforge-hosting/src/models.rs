@@ -12,19 +12,16 @@ pub struct HostingAccount {
 }
 
 impl HostingAccount {
-    pub fn token(&self) -> Result<String, keyring::Error> {
-        let entry = keyring::Entry::new("gitforge-hosting", &self.token_key)?;
-        entry.get_password()
+    pub fn token(&self) -> anyhow::Result<String> {
+        crate::secrets::get_token(&self.token_key)
     }
 
-    pub fn store_token(token_key: &str, token: &str) -> Result<(), keyring::Error> {
-        let entry = keyring::Entry::new("gitforge-hosting", token_key)?;
-        entry.set_password(token)
+    pub fn store_token(token_key: &str, token: &str) -> anyhow::Result<()> {
+        crate::secrets::store_token(token_key, token)
     }
 
-    pub fn delete_token(token_key: &str) -> Result<(), keyring::Error> {
-        let entry = keyring::Entry::new("gitforge-hosting", token_key)?;
-        entry.delete_credential()
+    pub fn delete_token(token_key: &str) -> anyhow::Result<()> {
+        crate::secrets::delete_token(token_key)
     }
 }
 

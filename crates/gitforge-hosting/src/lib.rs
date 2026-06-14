@@ -3,6 +3,7 @@ pub mod github;
 pub mod gitlab;
 pub mod models;
 pub mod provider;
+pub mod secrets;
 pub mod urls;
 
 pub use codeberg::CodebergProvider;

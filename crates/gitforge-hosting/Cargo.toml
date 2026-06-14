@@ -13,4 +13,5 @@ anyhow.workspace = true
 tracing.workspace = true
 chrono.workspace = true
 async-trait = "0.1.89"
+dirs.workspace = true
 keyring.workspace = true
