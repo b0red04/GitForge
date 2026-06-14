@@ -600,11 +600,9 @@ impl GitForgeApp {
     }
 
     pub(crate) fn is_current_branch(&self, name: &str) -> bool {
-        self.repo_session
-            .active_repo_state()
-            .and_then(|state| state.head_branch.as_deref())
-            == Some(name)
-            || self.repo_session.active_repo_state().is_some_and(|state| {
+        let active_state = self.repo_session.active_repo_state();
+        active_state.and_then(|state| state.head_branch.as_deref()) == Some(name)
+            || active_state.is_some_and(|state| {
                 state.references.iter().any(|reference| {
                     reference.kind == gitforge_git::RefKind::Branch
                         && reference.is_head
