@@ -1,9 +1,20 @@
 pub mod colors;
 pub mod icon;
+pub mod text_input;
 pub mod theme;
 
 pub use colors::AppColors;
 pub use colors::rgba_to_hsla;
+pub use text_input::TextInput;
+pub use text_input::TextInputDisplay;
+pub use text_input::TextInputEvent;
+pub use text_input::TextInputMode;
+pub use text_input::TextInputRenderOpts;
+pub use text_input::modifier_keys_prevent_typing;
+pub use text_input::parse_key_event;
+pub use text_input::render_static_text_input;
+pub use text_input::render_text_input;
+pub use text_input::typed_character;
 pub use theme::Appearance;
 pub use theme::Theme;
 pub use theme::ThemeEntry;

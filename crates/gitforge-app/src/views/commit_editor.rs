@@ -1,42 +1,42 @@
-use gitforge_ui::{AppColors, rgba_to_hsla};
+use gitforge_ui::{
+    AppColors, TextInput, TextInputEvent, TextInputMode, TextInputRenderOpts, parse_key_event,
+    render_text_input, rgba_to_hsla,
+};
 use gpui::*;
 
 pub struct CommitEditor {
-    message: String,
-    focus_handle: FocusHandle,
+    message_input: TextInput,
     ai_alternatives: Vec<String>,
 }
 
 impl CommitEditor {
     pub fn new(cx: &mut App) -> Self {
         Self {
-            message: String::new(),
-            focus_handle: cx.focus_handle(),
+            message_input: TextInput::new("Enter commit message...", cx).with_mode(TextInputMode::MULTILINE),
             ai_alternatives: Vec::new(),
         }
     }
 
     #[allow(dead_code)]
     pub fn message(&self) -> &str {
-        &self.message
+        self.message_input.text()
     }
 
     pub fn set_message(&mut self, msg: &str) {
-        self.message.clear();
-        self.message.push_str(msg);
+        self.message_input.set_text(msg);
     }
 
     pub fn type_char(&mut self, ch: &str) {
-        self.message.push_str(ch);
+        self.message_input.edit(Some(ch));
     }
 
     pub fn backspace(&mut self) {
-        self.message.pop();
+        self.message_input.edit(None);
     }
 
     pub fn take_message(&mut self) -> String {
-        let msg = self.message.clone();
-        self.message.clear();
+        let msg = self.message_input.text().to_string();
+        self.message_input.clear();
         self.ai_alternatives.clear();
         msg
     }
@@ -58,11 +58,11 @@ impl CommitEditor {
     }
 
     pub fn snapshot_data(&self) -> (String, Vec<String>) {
-        (self.message.clone(), self.ai_alternatives.clone())
+        (self.message_input.text().to_string(), self.ai_alternatives.clone())
     }
 
     pub fn restore_from_snapshot(&mut self, message: String, alternatives: Vec<String>) {
-        self.message = message;
+        self.message_input.set_text(message);
         self.ai_alternatives = alternatives;
     }
 
@@ -81,29 +81,11 @@ impl CommitEditor {
         let accent = rgba_to_hsla(colors.accent);
         let bg = rgba_to_hsla(colors.background);
 
-        let is_focused = self.focus_handle.is_focused(window);
-        let display_text = if self.message.is_empty() && !is_focused {
-            String::from("Enter commit message...")
-        } else {
-            let mut t = self.message.clone();
-            if is_focused && !t.ends_with('\n') {
-                t.push('\u{2502}');
-            }
-            t
-        };
-        let display_color = if self.message.is_empty() && !is_focused {
-            muted
-        } else {
-            text_color
-        };
-        let border_color = if is_focused { accent } else { border };
-        let fh = self.focus_handle.clone();
-
         let ent1 = entity.clone();
         let ent2 = entity.clone();
         let ent3 = entity.clone();
         let ent4 = entity.clone();
-        let has_message = !self.message.trim().is_empty();
+        let has_message = !self.message_input.text().trim().is_empty();
 
         let generate_label = if ai_generating {
             "Generating..."
@@ -151,8 +133,8 @@ impl CommitEditor {
                 } else {
                     first_line.to_string()
                 };
-                let is_selected =
-                    self.message.lines().next().unwrap_or("") == alt.lines().next().unwrap_or("");
+                let is_selected = self.message_input.text().lines().next().unwrap_or("")
+                    == alt.lines().next().unwrap_or("");
                 let pill_bg = if is_selected { accent } else { surface };
                 let pill_tc = if is_selected {
                     rgba_to_hsla(colors.background)
@@ -186,71 +168,39 @@ impl CommitEditor {
             editor = editor.child(alt_row);
         }
 
-        let mut msg_input = div()
-            .id("commit-msg-input")
-            .track_focus(&self.focus_handle)
-            .m_3()
-            .p_2()
-            .min_h(px(if compact { 80.0 } else { 120.0 }))
-            .overflow_y_scroll()
-            .border_1()
-            .border_color(border_color)
-            .rounded(px(4.0))
-            .bg(bg)
-            .on_click(move |_ev, window, _cx| {
-                window.focus(&fh);
-            })
-            .on_key_down(move |ev: &KeyDownEvent, _window, cx| {
-                let key = &ev.keystroke.key;
-                match key.as_str() {
-                    "backspace" => {
-                        if let Some(e) = ent1.upgrade() {
-                            e.update(cx, |this, cx| {
-                                this.edit_commit_message(None, cx);
-                            });
-                        }
-                    }
-                    "enter" => {
-                        if let Some(e) = ent1.upgrade() {
-                            let ch = ev.keystroke.key_char.clone();
-                            e.update(cx, |this, cx| {
-                                if let Some(c) = ch {
+        let min_h = px(if compact { 80.0 } else { 120.0 });
+        let mut msg_opts = TextInputRenderOpts::new(ElementId::Name("commit-msg-input".into()))
+            .min_h(min_h)
+            .font_family("monospace")
+            .background(bg)
+            .no_rounded();
+        if compact {
+            msg_opts = msg_opts.max_h(px(160.0)).overflow_x_hidden();
+        } else {
+            msg_opts = msg_opts.flex_1();
+        }
+
+        let mut msg_input = div().m_3().p_2().child(
+            render_text_input(&self.message_input, colors, window, &msg_opts, |_| {})
+                .overflow_y_scroll()
+                .on_key_down(move |ev, _window, cx| {
+                    if let Some(e) = ent1.upgrade() {
+                        e.update(cx, |this, cx| match parse_key_event(ev) {
+                            TextInputEvent::Backspace => this.edit_commit_message(None, cx),
+                            TextInputEvent::Enter { key_char } => {
+                                if let Some(c) = key_char {
                                     this.edit_commit_message(Some(&c), cx);
                                 } else {
                                     this.edit_commit_message(Some("\n"), cx);
                                 }
-                            });
-                        }
-                    }
-                    "escape" => {
-                        if let Some(e) = ent1.upgrade() {
-                            e.update(cx, |this, cx| {
-                                this.cancel_commit_dialog(cx);
-                            });
-                        }
-                    }
-                    _ => {
-                        let ch = ev.keystroke.key_char.clone();
-                        if let Some(typed) = ch {
-                            if !ev.keystroke.modifiers.platform {
-                                if let Some(e) = ent1.upgrade() {
-                                    let c = typed;
-                                    e.update(cx, |this, cx| {
-                                        this.edit_commit_message(Some(&c), cx);
-                                    });
-                                }
                             }
-                        }
+                            TextInputEvent::Escape => this.cancel_commit_dialog(cx),
+                            TextInputEvent::Typed(c) => this.edit_commit_message(Some(&c), cx),
+                            _ => {}
+                        });
                     }
-                }
-            })
-            .child(
-                div()
-                    .text_sm()
-                    .font_family("monospace")
-                    .text_color(display_color)
-                    .child(display_text),
-            );
+                }),
+        );
         if compact {
             msg_input = msg_input.max_h(px(160.0)).overflow_x_hidden();
         } else {

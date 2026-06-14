@@ -53,18 +53,18 @@ impl GitForgeApp {
     }
 
     pub fn edit_dialog_input(&mut self, typed_char: Option<&str>, cx: &mut Context<Self>) {
-        match typed_char {
-            Some(ch) => self.dialog_input.push_str(ch),
-            None => {
-                self.dialog_input.pop();
-            }
-        }
+        self.dialog_input.edit(typed_char);
+        cx.notify();
+    }
+
+    pub fn edit_dialog_input_2(&mut self, typed_char: Option<&str>, cx: &mut Context<Self>) {
+        self.dialog_input_2.edit(typed_char);
         cx.notify();
     }
 
     pub fn confirm_dialog(&mut self, cx: &mut Context<Self>) {
-        let input = self.dialog_input.trim().to_string();
-        let input_2 = self.dialog_input_2.trim().to_string();
+        let input = self.dialog_input.text().trim().to_string();
+        let input_2 = self.dialog_input_2.text().trim().to_string();
         let dialog_force = self.dialog_force;
         let dialog = self.active_dialog.clone();
         self.active_dialog = AppDialog::None;
@@ -326,7 +326,7 @@ impl GitForgeApp {
             let parent = std::path::PathBuf::from(folder.path());
             this.update(cx, |this, cx| {
                 this.active_dialog = AppDialog::InitRepo { parent };
-                this.dialog_input = "new-repo".to_string();
+                this.dialog_input.set_text("new-repo");
                 cx.notify();
             })
             .ok();

@@ -1,15 +1,17 @@
-use gitforge_ui::{AppColors, rgba_to_hsla};
+use gitforge_ui::{
+    AppColors, TextInput, TextInputEvent, TextInputRenderOpts, parse_key_event, render_text_input,
+    rgba_to_hsla,
+};
 use gpui::*;
 
 use super::commands::{CommandAction, CommandEntry, command_palette_entries};
 
 pub struct CommandPalette {
-    query: String,
+    query_input: TextInput,
     entries: Vec<CommandEntry>,
     filtered: Vec<usize>,
     selected: usize,
     visible: bool,
-    focus_handle: FocusHandle,
 }
 
 impl CommandPalette {
@@ -17,12 +19,11 @@ impl CommandPalette {
         let entries = Self::build_entries();
         let filtered: Vec<usize> = (0..entries.len()).collect();
         Self {
-            query: String::new(),
+            query_input: TextInput::new("Type a command...", cx),
             entries,
             filtered,
             selected: 0,
             visible: false,
-            focus_handle: cx.focus_handle(),
         }
     }
 
@@ -32,7 +33,7 @@ impl CommandPalette {
 
     pub fn show(&mut self, _cx: &mut Context<super::app::GitForgeApp>) {
         self.visible = true;
-        self.query.clear();
+        self.query_input.clear();
         self.filtered = (0..self.entries.len()).collect();
         self.selected = 0;
     }
@@ -52,14 +53,14 @@ impl CommandPalette {
     }
 
     pub fn on_input(&mut self, text: &str, cx: &mut Context<super::app::GitForgeApp>) {
-        self.query.push_str(text);
+        self.query_input.edit(Some(text));
         self.update_filter();
         self.selected = 0;
         cx.notify();
     }
 
     pub fn on_backspace(&mut self, cx: &mut Context<super::app::GitForgeApp>) {
-        self.query.pop();
+        self.query_input.edit(None);
         self.update_filter();
         self.selected = 0;
         cx.notify();
@@ -80,7 +81,7 @@ impl CommandPalette {
     }
 
     fn update_filter(&mut self) {
-        let query = self.query.to_lowercase();
+        let query = self.query_input.text().to_lowercase();
         self.filtered = self
             .entries
             .iter()
@@ -113,37 +114,10 @@ impl CommandPalette {
         let muted = rgba_to_hsla(colors.text_muted);
         let accent = rgba_to_hsla(colors.accent);
         let selection_bg = rgba_to_hsla(colors.selection_bg);
-        let is_focused = self.focus_handle.is_focused(window);
-
-        let mut display_query = self.query.clone();
-        if is_focused {
-            display_query.push('\u{2502}');
-        }
-
-        let query_color = if self.query.is_empty() && !is_focused {
-            muted
-        } else {
-            text_color
-        };
-
-        let placeholder = if self.query.is_empty() && !is_focused {
-            "Type a command..."
-        } else {
-            ""
-        };
-
-        let display_text = if self.query.is_empty() && !is_focused {
-            placeholder.to_string()
-        } else {
-            display_query
-        };
 
         let max_visible = 10.min(self.filtered.len());
         let ent_close = entity.clone();
         let ent_key = entity.clone();
-        let _ent_up = entity.clone();
-        let _ent_down = entity.clone();
-        let _ent_enter = entity.clone();
 
         let mut items = div().flex().flex_col().overflow_hidden().max_h(px(300.0));
         for (i, &entry_idx) in self.filtered.iter().enumerate() {
@@ -194,7 +168,17 @@ impl CommandPalette {
             );
         }
 
-        let focus_handle = self.focus_handle.clone();
+        let focus_handle = self.query_input.focus_handle().clone();
+        let query_display = render_text_input(
+            &self.query_input,
+            colors,
+            window,
+            &TextInputRenderOpts::new(ElementId::Name("command-palette-query".into()))
+                .no_border()
+                .no_rounded()
+                .background(surface),
+            |_| {},
+        );
 
         Some(
             div()
@@ -252,19 +236,20 @@ impl CommandPalette {
                                     e.update(cx, |app, cx| {
                                         app.execute_command_palette_selection(window, cx);
                                     });
-                                } else if *key == "backspace" {
-                                    e.update(cx, |app, cx| {
-                                        app.command_palette.on_backspace(cx);
-                                    });
-                                } else if !key.is_empty()
-                                    && key.len() == 1
-                                    && !mods.platform
-                                    && !mods.control
-                                {
-                                    let ch = key.chars().next().unwrap();
-                                    e.update(cx, |app, cx| {
-                                        app.command_palette.on_input(&ch.to_string(), cx);
-                                    });
+                                } else {
+                                    match parse_key_event(ev) {
+                                        TextInputEvent::Backspace => {
+                                            e.update(cx, |app, cx| {
+                                                app.command_palette.on_backspace(cx);
+                                            });
+                                        }
+                                        TextInputEvent::Typed(c) => {
+                                            e.update(cx, |app, cx| {
+                                                app.command_palette.on_input(&c, cx);
+                                            });
+                                        }
+                                        _ => {}
+                                    }
                                 }
                             }
                         })
@@ -275,9 +260,7 @@ impl CommandPalette {
                                 .py_2()
                                 .border_b_1()
                                 .border_color(border)
-                                .text_sm()
-                                .text_color(query_color)
-                                .child(display_text),
+                                .child(query_display),
                         )
                         .child(items),
                 ),

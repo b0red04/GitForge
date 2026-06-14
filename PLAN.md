@@ -11,25 +11,12 @@ Candidate refactors that turn shallow modules into deep ones. Each is evaluated 
 - **UTF-8 diff truncation** — fixed in `0290776`.
 - **Command dispatch** — already typed. `CommandAction` is an enum (`commands.rs:56-91`), `CommandEntry.action: CommandAction`, dispatch via `.on_action(cx.listener(...))`. The earlier "string-typed" claim was wrong; typos are compile errors. (Note: `FetchAll`, `PushCurrent`, `PullCurrent` are bound and handled but missing from the `CommandAction` enum, so they don't reach the palette/menu — a small consistency gap, not a deepening issue.)
 - **i18n removal + syntax simplification** — done in `56f7c5d`.
+- **Text Input extraction** — shared `TextInput` module in `gitforge-ui` (`text_input.rs`). Migrated sidebar filter, commit editor, command palette, settings (search, 11 draft fields, API key, PAT), dialogs (generic + worktree with separate focus handles), and create PR panel title/description. Worktree overlay bug (shared focus, missing cursor on field 2) fixed.
 - **`tab_ops.rs` delegation facade** — done (uncommitted). Deleted 12 one-line forwarders to `RepoSession` (the 11 listed plus `push_closed_tab`, which was hidden by `#[allow(dead_code)]` and surfaced on removal). Investigation corrected the scope: the codebase had already migrated to direct `self.repo_session.X()` calls, so only `active_repo_state` still had callers (4 sites in `git_ops.rs`/`dialog_ops.rs`), rewritten direct; `normalize_repo_path` had 2 internal callers repointed to `RepoSession::`. `tab_ops.rs` now holds only tab lifecycle logic (+9/−327).
 
 ---
 
 ## Active candidates
-
-### 1. Text Input Duplication (8-9 sites, growing)
-
-**Files:** `sidebar.rs:396-492` (`render_search_bar`), `commit_editor.rs:69-338` (`CommitEditor::render`), `command_palette.rs:99-285` (`CommandPalette::render`), `settings_window.rs:1176-1312` (settings search), `:1643-1703` (`text_field_control`), `:1855-1965` (`api_key_field_control`), `ops/dialog_render.rs:113-215` (main dialog input), `:687-944` (`render_create_worktree_overlay`, two inputs)
-
-**Problem:** Eight independent implementations of "GPUI text input": `FocusHandle` + `track_focus`, display text with cursor character `\u{2502}`, `on_key_down` handling backspace/escape/character, placeholder text. There is no shared `TextInput` in `gitforge-ui` — `crates/gitforge-ui/src/components.rs` is a dead file referencing nonexistent submodules. The duplication has grown from 4 to 8-9 sites since the prior review; new copies appear in `settings_window.rs` (search + API key) and `dialog_render.rs` (generic dialog + two worktree inputs).
-
-**Solution:** A `TextInput` module in `gitforge-ui` owning focus, cursor position, placeholder, and rendering behind an interface like `new(placeholder)`, `set_text(&mut self, &str)`, `text() -> &str`, `handle_key_down(...)`, `render(colors) -> Element`. Each current site becomes a `TextInput` instance.
-
-**Benefits:**
-- **Locality** — text handling bugs fixed once instead of 8-9 times.
-- **Leverage** — sidebar search, commit editor, command palette, settings, dialogs all gain features (selection, clipboard paste, multi-byte safety) from one change. Tests can exercise keyboard → text → render through one interface.
-
----
 
 ### 2. Dialog System — 19-arm dispatcher + 5× button pair
 
