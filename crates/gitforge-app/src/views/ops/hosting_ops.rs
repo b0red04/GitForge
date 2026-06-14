@@ -249,7 +249,11 @@ impl GitForgeApp {
         };
         let Some(p) = gitforge_hosting::get_provider(&account.provider) else {
             self.hosting_repos_loading = false;
-            cx.notify();
+            self.push_toast(
+                crate::views::toasts::ToastKind::Error,
+                "Unknown provider".to_string(),
+                cx,
+            );
             return;
         };
 

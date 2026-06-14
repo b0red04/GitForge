@@ -76,6 +76,8 @@ impl GitForgeApp {
                     cx.notify();
                 } else {
                     tracing::info!("File not found at commit");
+                    this.repo_session.diff_panel.set_diff_mode();
+                    cx.notify();
                 }
             },
         );
