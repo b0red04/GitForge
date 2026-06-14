@@ -28,7 +28,9 @@ pub fn confirm(
         AppDialog::CloneFromHosting { .. } => {}
         d if simple_input::is_simple(d) => simple_input::confirm(app, dialog, input, input_2, cx),
         AppDialog::CredentialAdd => credential_add::confirm(app, input, input_2, cx),
-        AppDialog::DeleteBranch { .. } => delete_branch::confirm_from_dialog(app, dialog, dialog_force, cx),
+        AppDialog::DeleteBranch { .. } => {
+            delete_branch::confirm_from_dialog(app, dialog, dialog_force, cx)
+        }
         AppDialog::ForkRepo { .. } => fork_confirm::confirm_from_dialog(app, dialog, cx),
         AppDialog::CreateWorktree => worktree::confirm_from_dialog(app, dialog, input, input_2, cx),
         AppDialog::RemoveWorktree { .. } => remove_worktree::confirm_from_dialog(app, dialog, cx),

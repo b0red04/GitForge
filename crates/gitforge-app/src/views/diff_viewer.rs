@@ -452,12 +452,7 @@ fn append_working_tree_header_actions(
         );
     }
 
-    header.child(
-        div()
-            .text_xs()
-            .text_color(muted)
-            .child(section_label),
-    )
+    header.child(div().text_xs().text_color(muted).child(section_label))
 }
 
 pub fn render_diff_viewer(

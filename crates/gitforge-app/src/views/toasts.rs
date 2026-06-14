@@ -197,13 +197,7 @@ pub(crate) fn render_toasts(
                     e.update(cx, |this, cx| this.dismiss_toast(id, cx));
                 }
             })
-            .child(
-                div()
-                    .w(px(3.0))
-                    .flex_shrink_0()
-                    .bg(color)
-                    .rounded(px(2.0)),
-            )
+            .child(div().w(px(3.0)).flex_shrink_0().bg(color).rounded(px(2.0)))
             .child(div().flex_1().text_xs().text_color(text_color).child(msg))
             .child(
                 div()

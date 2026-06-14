@@ -1,7 +1,7 @@
 use gitforge_hosting::RemoteRepo;
 use gitforge_ui::{
     AppColors, DialogColors, TextInput, TextInputEvent, TextInputMode, TextInputRenderOpts,
-    attach_dialog_input_keys, dialog_overlay, dialog_surface, rgba_to_hsla, render_text_input,
+    attach_dialog_input_keys, dialog_overlay, dialog_surface, render_text_input, rgba_to_hsla,
 };
 use gpui::*;
 
@@ -106,8 +106,17 @@ pub fn render(
     let ent_ai = entity.clone();
     let ent_draft = entity.clone();
 
-    let providers = [("github", "GitHub"), ("gitlab", "GitLab"), ("codeberg", "Codeberg")];
-    let mut tabs = div().flex().gap_4().border_b_1().border_color(border).pb_2();
+    let providers = [
+        ("github", "GitHub"),
+        ("gitlab", "GitLab"),
+        ("codeberg", "Codeberg"),
+    ];
+    let mut tabs = div()
+        .flex()
+        .gap_4()
+        .border_b_1()
+        .border_color(border)
+        .pb_2();
     for (id, label) in providers {
         let is_active = state.provider == id;
         let ent_tab = entity.clone();
@@ -123,7 +132,11 @@ pub fn render(
                 .text_xs()
                 .text_color(if is_active { text_color } else { muted })
                 .border_b_2()
-                .border_color(if is_active { accent } else { gpui::transparent_black() })
+                .border_color(if is_active {
+                    accent
+                } else {
+                    gpui::transparent_black()
+                })
                 .pb_1()
                 .child(label)
                 .on_click(move |_ev, _window, cx| {
@@ -319,18 +332,14 @@ pub fn render(
                         )),
                 ),
         )
-        .child(
-            div()
-                .relative()
-                .child({
-                    let dropdown = render_open_dropdown(state, colors, entity.clone());
-                    if let Some(menu) = dropdown {
-                        div().relative().child(menu)
-                    } else {
-                        div()
-                    }
-                }),
-        )
+        .child(div().relative().child({
+            let dropdown = render_open_dropdown(state, colors, entity.clone());
+            if let Some(menu) = dropdown {
+                div().relative().child(menu)
+            } else {
+                div()
+            }
+        }))
         .child(
             div()
                 .flex()
@@ -395,12 +404,7 @@ pub fn render(
                         .text_xs()
                         .child(if state.draft { "\u{2713}" } else { "" }),
                 )
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(muted)
-                        .child("Submit as draft"),
-                ),
+                .child(div().text_xs().text_color(muted).child("Submit as draft")),
         )
         .child(
             div()
@@ -502,7 +506,11 @@ fn render_dropdown_trigger(
         .child(
             div()
                 .text_xs()
-                .text_color(if label == "Select..." { muted } else { text_color })
+                .text_color(if label == "Select..." {
+                    muted
+                } else {
+                    text_color
+                })
                 .overflow_hidden()
                 .text_ellipsis()
                 .child(label.to_string()),

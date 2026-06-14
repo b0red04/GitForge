@@ -3,8 +3,8 @@ use super::layout::{TITLEBAR_HEIGHT, WINDOW_CORNER_RADIUS};
 use super::settings::{AppSettings, RepoBehaviorSettings};
 use super::window_chrome::{apply_top_corner_radius, seal_rounded_corners};
 use gitforge_ui::{
-    AppColors, Appearance, TextInput, TextInputDisplay, TextInputEvent, TextInputRenderOpts,
-    Theme, ThemeEntry, modifier_keys_prevent_typing, parse_key_event, render_static_text_input,
+    AppColors, Appearance, TextInput, TextInputDisplay, TextInputEvent, TextInputRenderOpts, Theme,
+    ThemeEntry, modifier_keys_prevent_typing, parse_key_event, render_static_text_input,
     render_text_input, rgba_to_hsla, typed_character,
 };
 use gpui::prelude::FluentBuilder;
@@ -469,7 +469,8 @@ impl SettingsWindow {
             search_input: TextInput::new("Search settings...", cx),
             focused_field: SettingsTextField::Editor,
             input_focus: cx.focus_handle(),
-            api_key_input: TextInput::new("API key", cx).with_display(TextInputDisplay::MaskedBullets),
+            api_key_input: TextInput::new("API key", cx)
+                .with_display(TextInputDisplay::MaskedBullets),
             api_key_configured: false,
             pending_account_provider: None,
             pat_input: TextInput::new("Personal Access Token", cx)
@@ -609,12 +610,7 @@ impl SettingsWindow {
                     Ok(models) => {
                         this.models_error = None;
                         this.available_models = models;
-                        if !this.available_models.is_empty()
-                            && !this
-                                .available_models
-                                .iter()
-                                .any(|m| m == &this.draft.ai_model)
-                        {
+                        if this.draft.ai_model.is_empty() && !this.available_models.is_empty() {
                             this.draft.ai_model = this.available_models[0].clone();
                             this.commit(cx);
                         }
@@ -645,7 +641,12 @@ impl SettingsWindow {
     }
 
     pub fn set_section(&mut self, section: SettingsSection, cx: &mut Context<Self>) {
+        let entering_ai =
+            section == SettingsSection::Ai && self.active_section != SettingsSection::Ai;
         self.active_section = section;
+        if entering_ai && !self.models_loading {
+            self.fetch_models_if_applicable(cx);
+        }
         cx.notify();
     }
 
@@ -723,10 +724,9 @@ impl SettingsWindow {
                         edit_repo_fetch_interval_field(draft, ch);
                         return;
                     }
-                    SettingsTextField::AiApiKey | SettingsTextField::Search
-                    | SettingsTextField::HostingPat => {
-                        &mut draft.editor_command
-                    }
+                    SettingsTextField::AiApiKey
+                    | SettingsTextField::Search
+                    | SettingsTextField::HostingPat => &mut draft.editor_command,
                 };
                 if field == SettingsTextField::Search
                     || field == SettingsTextField::AiApiKey
@@ -1901,6 +1901,39 @@ fn models_dropdown_control(
     row
 }
 
+fn model_row_control(
+    inner: impl IntoElement,
+    accent: Hsla,
+    entity: WeakEntity<SettingsWindow>,
+    show_refresh: bool,
+    loading: bool,
+) -> impl IntoElement {
+    div()
+        .flex()
+        .items_center()
+        .gap_2()
+        .child(inner)
+        .when(show_refresh && !loading, |row| {
+            let ent = entity;
+            row.child(
+                div()
+                    .id("settings-ai-refresh-models")
+                    .cursor_pointer()
+                    .child(
+                        svg()
+                            .size(px(14.0))
+                            .path("icons/refresh.svg")
+                            .text_color(accent),
+                    )
+                    .on_click(move |_ev, _window, cx| {
+                        if let Some(e) = ent.upgrade() {
+                            e.update(cx, |this, cx| this.fetch_models(cx));
+                        }
+                    }),
+            )
+        })
+}
+
 fn api_key_field_control(
     api_key_input: &TextInput,
     configured: bool,
@@ -2545,38 +2578,42 @@ fn render_ai_section(
     }
 
     if current != "disabled" {
-        if !ai_ui.available_models.is_empty() {
-            body = body.child(setting_row(
-                "Model",
-                "Model used for commit message generation.",
-                models_dropdown_control(
-                    &draft.ai_model,
-                    &ai_ui.available_models,
-                    colors,
+        let show_refresh = provider_supports_model_list(current);
+        let has_models = !ai_ui.available_models.is_empty();
+        body = body.child(setting_row(
+            "Model",
+            "Model used for commit message generation. Pick from the list or type a custom name.",
+            div()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .when(has_models, |c| {
+                    c.child(models_dropdown_control(
+                        &draft.ai_model,
+                        &ai_ui.available_models,
+                        colors,
+                        entity.clone(),
+                    ))
+                })
+                .child(model_row_control(
+                    text_field_control(
+                        &draft.ai_model,
+                        SettingsTextField::AiModel,
+                        focused == SettingsTextField::AiModel && input_focused,
+                        "model name",
+                        colors,
+                        entity.clone(),
+                        input_focus,
+                    ),
+                    accent,
                     entity.clone(),
-                ),
-                border,
-                text,
-                muted,
-            ));
-        } else {
-            body = body.child(setting_row(
-                "Model",
-                "Model used for commit message generation.",
-                text_field_control(
-                    &draft.ai_model,
-                    SettingsTextField::AiModel,
-                    focused == SettingsTextField::AiModel && input_focused,
-                    "model name",
-                    colors,
-                    entity.clone(),
-                    input_focus,
-                ),
-                border,
-                text,
-                muted,
-            ));
-        }
+                    show_refresh,
+                    ai_ui.models_loading,
+                )),
+            border,
+            text,
+            muted,
+        ));
 
         if ai_ui.models_loading {
             body = body.child(
@@ -2595,28 +2632,6 @@ fn render_ai_section(
                     .text_xs()
                     .text_color(rgba_to_hsla(colors.error))
                     .child(err.clone()),
-            );
-        }
-
-        if provider_supports_model_list(current)
-            && !ai_ui.models_loading
-            && ai_ui.available_models.is_empty()
-        {
-            let ent_refresh = entity.clone();
-            body = body.child(
-                div().px_6().pb_2().child(
-                    div()
-                        .id("settings-ai-refresh-models")
-                        .text_xs()
-                        .text_color(accent)
-                        .cursor_pointer()
-                        .on_click(move |_ev, _window, cx| {
-                            if let Some(e) = ent_refresh.upgrade() {
-                                e.update(cx, |this, cx| this.fetch_models(cx));
-                            }
-                        })
-                        .child("Refresh model list"),
-                ),
             );
         }
     }
@@ -3245,12 +3260,7 @@ fn render_accounts_section(
                 window,
             ));
         if let Some(err) = pat_error {
-            form = form.child(
-                div()
-                    .text_xs()
-                    .text_color(warning)
-                    .child(err.to_string()),
-            );
+            form = form.child(div().text_xs().text_color(warning).child(err.to_string()));
         }
         body = body.child(form);
     }

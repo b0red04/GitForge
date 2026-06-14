@@ -1,4 +1,6 @@
-use gitforge_ui::{AppColors, DialogColors, dialog_label, dialog_overlay, dialog_surface, rgba_to_hsla};
+use gitforge_ui::{
+    AppColors, DialogColors, dialog_label, dialog_overlay, dialog_surface, rgba_to_hsla,
+};
 use gpui::*;
 
 use crate::views::app::AppDialog;

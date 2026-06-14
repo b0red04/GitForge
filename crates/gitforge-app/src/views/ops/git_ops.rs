@@ -163,7 +163,10 @@ impl GitForgeApp {
     }
 
     pub fn update_sidebar_filter(&mut self, typed_char: Option<&str>, cx: &mut Context<Self>) {
-        self.repo_session.sidebar_state.filter_input.edit(typed_char);
+        self.repo_session
+            .sidebar_state
+            .filter_input
+            .edit(typed_char);
         cx.notify();
     }
 

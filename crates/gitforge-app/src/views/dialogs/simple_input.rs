@@ -1,7 +1,8 @@
 use gitforge_git::RefKind;
 use gitforge_ui::{
-    AppColors, DialogColors, TextInput, TextInputEvent, TextInputRenderOpts, attach_dialog_input_keys,
-    dialog_actions, dialog_overlay, dialog_surface, dialog_title, render_text_input,
+    AppColors, DialogColors, TextInput, TextInputEvent, TextInputRenderOpts,
+    attach_dialog_input_keys, dialog_actions, dialog_overlay, dialog_surface, dialog_title,
+    render_text_input,
 };
 use gpui::*;
 
@@ -213,7 +214,8 @@ pub fn render(
             dialog_input,
             colors,
             window,
-            &TextInputRenderOpts::new(ElementId::Name("dialog-input".into())).placeholder(placeholder),
+            &TextInputRenderOpts::new(ElementId::Name("dialog-input".into()))
+                .placeholder(placeholder),
             |_| {},
         ),
         entity.clone(),

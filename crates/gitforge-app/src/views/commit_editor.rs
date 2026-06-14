@@ -12,7 +12,8 @@ pub struct CommitEditor {
 impl CommitEditor {
     pub fn new(cx: &mut App) -> Self {
         Self {
-            message_input: TextInput::new("Enter commit message...", cx).with_mode(TextInputMode::MULTILINE),
+            message_input: TextInput::new("Enter commit message...", cx)
+                .with_mode(TextInputMode::MULTILINE),
             ai_alternatives: Vec::new(),
         }
     }
@@ -58,7 +59,10 @@ impl CommitEditor {
     }
 
     pub fn snapshot_data(&self) -> (String, Vec<String>) {
-        (self.message_input.text().to_string(), self.ai_alternatives.clone())
+        (
+            self.message_input.text().to_string(),
+            self.ai_alternatives.clone(),
+        )
     }
 
     pub fn restore_from_snapshot(&mut self, message: String, alternatives: Vec<String>) {
