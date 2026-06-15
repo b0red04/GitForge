@@ -52,6 +52,7 @@ actions!(
         ManageAccounts,
         OpenAiSettings,
         CreatePullRequest,
+        CheckForUpdates,
     ]
 );
 
@@ -138,6 +139,8 @@ pub struct GitForgeApp {
     pub(crate) periodic_fetch_generation: u64,
     pub(crate) toasts: super::toasts::Toasts,
     pub(crate) create_pr: CreatePrState,
+    pub(crate) update_indicator: Entity<super::update_indicator::UpdateIndicator>,
+    pub(crate) shown_update_notification: bool,
 }
 
 impl Focusable for GitForgeApp {
@@ -152,6 +155,8 @@ impl GitForgeApp {
         let settings = AppSettings::load();
         let theme = Theme::load_by_name(&settings.theme).unwrap_or_else(|_| Theme::default_dark());
         let colors = AppColors::from_theme(&theme);
+        let update_indicator = cx.new(|cx| super::update_indicator::UpdateIndicator::new(colors.clone(), cx));
+        gitforge_update::set_auto_update_enabled(settings.auto_update, cx);
         let mut repo_session = RepoSession::new(cx);
         repo_session
             .sidebar_state
@@ -181,6 +186,8 @@ impl GitForgeApp {
             periodic_fetch_generation: 0,
             toasts: super::toasts::Toasts::new(),
             create_pr: CreatePrState::new(cx),
+            update_indicator,
+            shown_update_notification: false,
         };
         app.load_ssh_state();
         app.load_hosting_accounts();
@@ -345,6 +352,26 @@ impl Render for GitForgeApp {
             window.remove_window();
         }
 
+        if !self.shown_update_notification {
+            self.shown_update_notification = true;
+            let entity = cx.entity().downgrade();
+            gitforge_update::notify_if_app_was_updated(cx, |version, cx| {
+                if let Some(app) = entity.upgrade() {
+                    app.update(cx, |app, cx| {
+                        app.push_toast(
+                            super::toasts::ToastKind::Success,
+                            format!("Updated to GitForge {version}"),
+                            cx,
+                        );
+                    });
+                }
+            });
+        }
+
+        self.update_indicator.update(cx, |indicator, cx| {
+            indicator.set_colors(self.colors.clone(), cx);
+        });
+
         let bg = rgba_to_hsla(self.colors.background);
         let text = rgba_to_hsla(self.colors.text);
         let entity = cx.entity().downgrade();
@@ -454,6 +481,7 @@ impl Render for GitForgeApp {
             self.titlebar_menus_visible,
             self.active_titlebar_menu,
             self.local_branch_dropdown_open,
+            self.update_indicator.clone(),
         );
         let titlebar_divider = super::titlebar::render_titlebar_divider(&self.colors);
 
@@ -607,6 +635,7 @@ impl Render for GitForgeApp {
             .on_action(cx.listener(Self::handle_open_in_file_manager))
             .on_action(cx.listener(Self::handle_open_in_browser))
             .on_action(cx.listener(Self::handle_preferences))
+            .on_action(cx.listener(Self::handle_check_for_updates))
             .on_action(cx.listener(Self::handle_quit))
             .on_action(cx.listener(Self::handle_clone))
             .on_action(cx.listener(Self::handle_clone_github))

@@ -18,6 +18,7 @@ pub mod status_panel;
 pub mod titlebar;
 pub mod toasts;
 pub mod toolbar;
+pub mod update_indicator;
 pub mod window_chrome;
 
 pub use app::GitForgeApp;

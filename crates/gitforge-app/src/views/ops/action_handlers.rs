@@ -1,7 +1,7 @@
 use gpui::*;
 
 use crate::views::app::{
-    AddRemote, AppDialog, BackToDiff, CloneFromGithub, CloneFromGitlab, CloneRepo, CloseDialog,
+    AddRemote, AppDialog, BackToDiff, CheckForUpdates, CloneFromGithub, CloneFromGitlab, CloneRepo, CloseDialog,
     CloseTab, CreateBranch, CreatePullRequest, CreateWorktree, FetchAll, GitForgeApp, InitRepo,
     MainViewMode, ManageAccounts, NewTab, OpenAiSettings, OpenInBrowser, OpenInEditor,
     OpenInFileManager, OpenInTerminal, OpenRepoManagement, OpenRepository, OpenSshKey, Preferences,
@@ -493,6 +493,15 @@ impl GitForgeApp {
         cx: &mut Context<Self>,
     ) {
         self.open_settings_window(None, cx);
+    }
+
+    pub(crate) fn handle_check_for_updates(
+        &mut self,
+        _action: &CheckForUpdates,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        gitforge_update::check(&gitforge_update::Check, window, cx);
     }
 
     pub(crate) fn handle_quit(

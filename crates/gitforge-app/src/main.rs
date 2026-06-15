@@ -23,6 +23,8 @@ fn main() {
     Application::new()
         .with_assets(assets::EmbeddedAssets::new())
         .run(|cx: &mut App| {
+            gitforge_update::init(cx);
+
             cx.bind_keys([
                 KeyBinding::new("ctrl-o", views::OpenRepository, None),
                 KeyBinding::new("ctrl-t", views::NewTab, None),

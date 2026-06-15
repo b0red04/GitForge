@@ -6,7 +6,7 @@ use crate::views::app::{
     OpenInBrowser, OpenInEditor, OpenInFileManager, OpenInTerminal, OpenRepoManagement,
     OpenRepository, OpenSshKey, Preferences, QuitApp, RefreshRepository, ReopenClosedTab,
     SelectNextCommit, SelectPrevCommit, ShowCommandPalette, ShowHistory, ShowStatusPanel,
-    SoftReset, StashPop, StashPush, ToggleTheme, ViewFileAtCommit,
+    SoftReset, StashPop, StashPush, ToggleTheme, ViewFileAtCommit, CheckForUpdates,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -89,6 +89,7 @@ pub enum CommandAction {
     ShowStatus,
     CommandPalette,
     ToggleTheme,
+    CheckForUpdates,
 }
 
 impl CommandAction {
@@ -128,6 +129,7 @@ impl CommandAction {
             Self::ShowStatus => Box::new(ShowStatusPanel),
             Self::CommandPalette => Box::new(ShowCommandPalette),
             Self::ToggleTheme => Box::new(ToggleTheme),
+            Self::CheckForUpdates => Box::new(CheckForUpdates),
         }
     }
 }
@@ -235,6 +237,12 @@ const FILE_MENU: &[MenuEntry] = &[
         action: CommandAction::Accounts,
         keybinding: None,
     }),
+    MenuEntry::Item(CommandEntry {
+        label: "Check for Updates",
+        action: CommandAction::CheckForUpdates,
+        keybinding: None,
+    }),
+    MenuEntry::Separator,
     MenuEntry::Item(CommandEntry {
         label: "Quit GitForge",
         action: CommandAction::Quit,

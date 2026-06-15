@@ -161,6 +161,7 @@ impl GitForgeApp {
         let prev_time_col = self.settings.graph_show_time_column;
         let prev_author_col = self.settings.graph_show_author_column;
         let prev_periodic = self.active_repo_behavior_settings();
+        let prev_auto_update = self.settings.auto_update;
         draft.apply_to(&mut self.settings);
         self.repo_session
             .sidebar_state
@@ -183,6 +184,9 @@ impl GitForgeApp {
         }
         if periodic_changed {
             self.restart_periodic_fetch(cx);
+        }
+        if draft.auto_update != prev_auto_update {
+            gitforge_update::set_auto_update_enabled(self.settings.auto_update, cx);
         }
         cx.notify();
     }

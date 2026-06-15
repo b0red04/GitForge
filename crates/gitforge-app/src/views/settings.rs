@@ -39,6 +39,8 @@ pub struct AppSettings {
     pub custom_commands: Vec<CustomCommand>,
     #[serde(default)]
     pub repo_settings: HashMap<String, RepoBehaviorSettings>,
+    #[serde(default = "default_true")]
+    pub auto_update: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -234,6 +236,7 @@ impl Default for AppSettings {
             tools: ToolSettings::default(),
             custom_commands: Vec::new(),
             repo_settings: HashMap::new(),
+            auto_update: true,
         }
     }
 }

@@ -22,10 +22,11 @@ pub enum SettingsSection {
     Ai,
     Repositories,
     Accounts,
+    About,
 }
 
 impl SettingsSection {
-    pub const ALL: [SettingsSection; 7] = [
+    pub const ALL: [SettingsSection; 8] = [
         SettingsSection::General,
         SettingsSection::ExternalTools,
         SettingsSection::Sidebar,
@@ -33,6 +34,7 @@ impl SettingsSection {
         SettingsSection::Ai,
         SettingsSection::Repositories,
         SettingsSection::Accounts,
+        SettingsSection::About,
     ];
 
     fn label(self) -> &'static str {
@@ -44,6 +46,7 @@ impl SettingsSection {
             SettingsSection::Ai => "AI",
             SettingsSection::Repositories => "Repositories",
             SettingsSection::Accounts => "Accounts",
+            SettingsSection::About => "About",
         }
     }
 
@@ -108,6 +111,7 @@ impl SettingsSection {
             ],
             SettingsSection::Repositories => &["recent", "tabs", "repo", "open", "closed"],
             SettingsSection::Accounts => &["github", "gitlab", "codeberg", "hosting", "pat"],
+            SettingsSection::About => &["version", "update", "about", "release"],
         };
         words.iter().map(|s| s.to_string()).collect()
     }
@@ -153,6 +157,7 @@ pub struct SettingsDraft {
     pub repo_fetch_interval_minutes: u64,
     pub repo_fetch_interval_text: String,
     pub repo_auto_push_on_commit: bool,
+    pub auto_update: bool,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -206,6 +211,7 @@ impl SettingsDraft {
             repo_fetch_interval_minutes: 15,
             repo_fetch_interval_text: "15".to_string(),
             repo_auto_push_on_commit: false,
+            auto_update: settings.auto_update,
         }
     }
 
@@ -265,6 +271,7 @@ impl SettingsDraft {
             repo.fetch_interval_minutes = self.repo_fetch_interval_minutes.max(1);
             repo.auto_push_on_commit = self.repo_auto_push_on_commit;
         }
+        settings.auto_update = self.auto_update;
     }
 }
 
@@ -1494,6 +1501,9 @@ fn render_content(
             pat_error,
             window,
         ),
+        SettingsSection::About => {
+            render_about_section(section_body, draft, colors, entity.clone())
+        }
     };
 
     div()
@@ -1664,6 +1674,11 @@ fn pill_toggle(
                             }
                             "repo-auto-push" => {
                                 draft.repo_auto_push_on_commit = !draft.repo_auto_push_on_commit
+                            }
+                            "auto-update" => {
+                                if gitforge_update::auto_update_supported() {
+                                    draft.auto_update = !draft.auto_update;
+                                }
                             }
                             _ => {}
                         },
@@ -2181,6 +2196,76 @@ fn render_general_section(
         "Theme",
         "Choose the application color scheme.",
         theme_control,
+        text,
+        muted,
+    ))
+}
+
+fn render_about_section(
+    mut body: Stateful<Div>,
+    draft: &SettingsDraft,
+    colors: &AppColors,
+    entity: WeakEntity<SettingsWindow>,
+) -> Stateful<Div> {
+    let border = rgba_to_hsla(colors.border);
+    let text = rgba_to_hsla(colors.text);
+    let muted = rgba_to_hsla(colors.text_muted);
+    let accent = rgba_to_hsla(colors.accent);
+    let hover_bg = rgba_to_hsla(colors.surface_high);
+    let version = env!("CARGO_PKG_VERSION");
+
+    body = body.child(setting_row(
+        "Version",
+        "Installed GitForge release.",
+        div()
+            .text_sm()
+            .text_color(text)
+            .child(format!("GitForge {version}")),
+        border,
+        text,
+        muted,
+    ));
+
+    let update_supported = gitforge_update::auto_update_supported();
+    let update_description = if let Some(reason) = gitforge_update::update_block_reason() {
+        reason.message().to_string()
+    } else {
+        "Automatically check for updates and install them in the background.".to_string()
+    };
+
+    body = body.child(setting_row(
+        "Automatic Updates",
+        &update_description,
+        pill_toggle(
+            draft.auto_update && update_supported,
+            entity.clone(),
+            "auto-update",
+            colors,
+        ),
+        border,
+        text,
+        muted,
+    ));
+
+    body.child(setting_row(
+        "Check for Updates",
+        "Look for a newer release on GitHub.",
+        div()
+            .id("settings-check-for-updates")
+            .px_3()
+            .py_1()
+            .rounded(px(4.0))
+            .border_1()
+            .border_color(border)
+            .cursor_pointer()
+            .text_xs()
+            .text_color(accent)
+            .hover(|s| s.bg(hover_bg))
+            .child("Check for Updates")
+            .on_click(move |_ev, window, cx| {
+                gitforge_update::check(&gitforge_update::Check, window, cx);
+            }),
+        border,
         text,
         muted,
     ))

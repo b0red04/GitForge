@@ -36,33 +36,22 @@ jobs:
       - name: Build release binary
         run: cargo build -p gitforge-app --release
 
-      - name: Generate AppImage
-        run: bash scripts/build-appimage.sh
-        continue-on-error: true
-
-      - name: Build .deb package
-        run: |
-          cargo install cargo-deb
-          cargo deb -p gitforge-app
-        continue-on-error: true
+      - name: Build update tarball
+        run: bash scripts/build-update-tarball.sh "${GITHUB_REF_NAME#v}"
 
       - name: Compute checksums
         run: |
           cd target/release
           sha256sum gitforge > gitforge.sha256
-          if [ -f ../gitforge-app_*.deb ]; then
-            sha256sum ../gitforge-app_*.deb > ../gitforge-app.deb.sha256
-          fi
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           files: |
             target/release/gitforge
             target/release/gitforge.sha256
-            target/gitforge-app_*.deb
-            target/gitforge-app.deb.sha256
-            GitForge-*.AppImage
+            GitForge-*.tar.gz
+            GitForge-*.tar.gz.sha256
           generate_release_notes: true
           draft: false
           prerelease: ${{ contains(github.ref, '-rc') || contains(github.ref, '-beta') || contains(github.ref, '-alpha') }}
