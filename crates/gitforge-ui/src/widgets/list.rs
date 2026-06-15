@@ -16,7 +16,7 @@ pub fn list_row<H: Fn(&ClickEvent, &mut Window, &mut App) + 'static>(
     on_click: Option<H>,
     colors: WidgetColors,
 ) -> Stateful<Div> {
-    let mut row = div().id(id.into()).w_full().flex().items_center().cursor_pointer();
+    let mut row = div().id(id.into()).w_full().flex().items_center();
 
     row = match padding {
         RowPadding::Normal => row.px_2(),
@@ -32,10 +32,12 @@ pub fn list_row<H: Fn(&ClickEvent, &mut Window, &mut App) + 'static>(
     } else {
         colors.sidebar_background
     };
-    row = row.bg(bg).hover(move |s| s.bg(hover_bg));
+    row = row.bg(bg);
 
     if let Some(handler) = on_click {
-        row.on_click(handler)
+        row.cursor_pointer()
+            .hover(move |s| s.bg(hover_bg))
+            .on_click(handler)
     } else {
         row
     }
