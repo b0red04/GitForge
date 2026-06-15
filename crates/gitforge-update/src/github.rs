@@ -164,6 +164,10 @@ mod tests {
       {
         "name": "GitForge-1.2.3-aarch64.tar.gz",
         "browser_download_url": "https://example.com/GitForge-1.2.3-aarch64.tar.gz"
+      },
+      {
+        "name": "GitForge-1.2.3-x86_64.tar.gz.sha256",
+        "browser_download_url": "https://example.com/GitForge-1.2.3-x86_64.tar.gz.sha256"
       }
     ]
   }"#;
@@ -172,7 +176,7 @@ mod tests {
     fn parses_release_json() {
         let release = parse_release(FIXTURE).unwrap();
         assert_eq!(release.tag_name, "v1.2.3");
-        assert_eq!(release.assets.len(), 2);
+        assert_eq!(release.assets.len(), 3);
     }
 
     #[test]
@@ -183,6 +187,16 @@ mod tests {
         assert_eq!(
             asset.url,
             "https://example.com/GitForge-1.2.3-x86_64.tar.gz"
+        );
+    }
+
+    #[test]
+    fn selects_checksum_url() {
+        let release = parse_release(FIXTURE).unwrap();
+        let checksum_url = select_checksum_url(&release, "x86_64").unwrap();
+        assert_eq!(
+            checksum_url,
+            "https://example.com/GitForge-1.2.3-x86_64.tar.gz.sha256"
         );
     }
 
