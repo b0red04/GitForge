@@ -2,109 +2,83 @@
 
 A Linux-first Git GUI client built with [GPUI](https://github.com/zed-industries/zed) (Zed's GPU-accelerated UI framework) and [gix](https://github.com/GitoxideLabs/gitoxide) (pure Rust Git backend).
 
-## Features
+## Quick start
 
-- **Interactive commit graph** — GPU-accelerated DAG visualization with bezier curves, virtual scrolling, and smooth 60fps performance on repos with 100k+ commits
-- **Full diff viewer** — Unified diff view with syntax highlighting (tree-sitter), rubber-band line selection for partial staging
-- **Stage & commit** — File-level and line-level staging, commit, amend, undo commit, discard changes
-- **Branch management** — Create, delete, rename, checkout branches; merge, rebase, cherry-pick, revert
-- **Remote operations** — Fetch, pull, push, clone with SSH key management and credential handling
-- **Hosting integration** — GitHub, GitLab, and Codeberg account management, clone from hosting, fork repos, open in browser
-- **AI-powered commit messages** — Local ollama or cloud backends (OpenAI, Anthropic) generate commit messages from your staged diff
-- **Sidebar** — Branches, remotes, tags, worktrees with drag-and-drop checkout
-- **Theme engine** — JSON-defined color themes with 40+ color tokens, runtime theme switching
-- **Command palette** — Ctrl+Shift+P to access all actions with fuzzy search
-- **External tools** — Configurable editor, terminal, diff/merge tool integration
-- **Worktree support** — Create, remove, and switch between git worktrees
-
-## Screenshots
-
-_(Coming soon)_
-
-## Building
-
-### Prerequisites
-
-**Rust 1.85+** (required for Rust Edition 2024)
-
-**System dependencies** (Ubuntu/Debian):
-
-```bash
-sudo apt install libssl-dev libfreetype-dev libfontconfig-dev libwayland-dev \
-  libx11-dev libegl-dev libvulkan-dev libclang-dev pkg-config
-```
-
-**System dependencies** (Fedora):
-
-```bash
-sudo dnf install openssl-devel freetype-devel fontconfig-devel wayland-devel \
-  libX11-devel mesa-libEGL-devel vulkan-devel clang-devel pkgconfig
-```
-
-**System dependencies** (Arch Linux):
-
-```bash
-sudo pacman -S openssl freetype2 fontconfig wayland libx11 mesa vulkan-devel clang pkg-config
-```
-
-### Build & Run
-
-```bash
-cargo build -p gitforge-app --release
-./target/release/gitforge
-```
-
-For development:
-
-```bash
-cargo run -p gitforge-app
-```
-
-## Install
-
-Install the latest release into `~/.local` (same layout the in-app auto-updater uses):
+Install the latest release into `~/.local`:
 
 ```bash
 curl -f https://raw.githubusercontent.com/b0red04/gitforge/main/scripts/install.sh | sh
 ```
 
-Then run `gitforge` (add `~/.local/bin` to your PATH if needed). GitForge checks GitHub hourly and applies updates automatically.
-
-### Install Desktop Entry
+Then run GitForge:
 
 ```bash
-./scripts/install-desktop.sh
+~/.local/bin/gitforge
 ```
 
-This installs the .desktop file and icons so GitForge appears in your app launcher.
+If `gitforge` is not on your PATH, add `~/.local/bin` to your shell profile (the install script prints the exact command for your shell).
 
-## Keyboard Shortcuts
+The install script downloads `GitForge-{version}-{arch}.tar.gz` from [GitHub Releases](https://github.com/b0red04/GitForge/releases), extracts it to `~/.local/gitforge.app/`, symlinks `~/.local/bin/gitforge`, and installs a `.desktop` entry so GitForge appears in your app launcher.
+
+Supported platforms: **Linux x86_64 and aarch64**.
+
+## Auto-updates
+
+Release builds installed via the install script check GitHub hourly for newer releases and apply them automatically. Updates require `rsync` on your system (`sudo pacman -S rsync` on Arch).
+
+- Updates are enabled by default. Toggle them in **Settings → General → Auto-update**.
+- You can also trigger a manual check from the update indicator in the title bar.
+- The updater compares semver versions, downloads the matching tarball, verifies its SHA-256 checksum, and replaces `~/.local/gitforge.app/` in place. Restart GitForge when prompted.
+
+Auto-updates are disabled in debug builds (`cargo run`). Use a release install to test the updater.
+
+### Testing the updater
+
+If you have `v0.1.0` installed and `v0.1.1` is published on GitHub, launch the installed app and either wait for the hourly check or trigger one manually. The app should download `GitForge-0.1.1-x86_64.tar.gz` (or `aarch64`), verify the checksum, install, and prompt to restart.
+
+## Features
+
+- **Interactive commit graph** — GPU-accelerated DAG visualization with bezier curves, virtual scrolling, and smooth performance on large repos
+- **Full diff viewer** — Unified diff view with syntax highlighting (tree-sitter), rubber-band line selection for partial staging
+- **Stage & commit** — File-level and line-level staging, commit, amend, undo commit, discard changes
+- **Branch management** — Create, delete, rename, checkout branches; merge, rebase, cherry-pick, revert
+- **Remote operations** — Fetch, pull, push, clone with SSH key management and credential handling
+- **Hosting integration** — GitHub, GitLab, and Codeberg account management, clone from hosting, fork repos, open in browser
+- **AI-powered commit messages** — Local Ollama or cloud backends (OpenAI, Anthropic) generate commit messages from your staged diff
+- **Sidebar** — Branches, remotes, tags, worktrees with drag-and-drop checkout
+- **Theme engine** — JSON-defined color themes with 40+ color tokens, runtime theme switching
+- **Command palette** — `Ctrl+Shift+P` to access all actions with fuzzy search
+- **External tools** — Configurable editor, terminal, diff/merge tool integration
+- **Worktree support** — Create, remove, and switch between git worktrees
+
+## Keyboard shortcuts
 
 | Shortcut       | Action           |
 | -------------- | ---------------- |
-| `Ctrl+O`       | Open Repository  |
-| `Ctrl+N`       | Create Branch    |
-| `Ctrl+Shift+P` | Command Palette  |
-| `Ctrl+Shift+T` | Toggle Theme     |
-| `Ctrl+Shift+F` | Fetch All        |
+| `Ctrl+O`       | Open repository  |
+| `Ctrl+N`       | Create branch    |
+| `Ctrl+Shift+P` | Command palette  |
+| `Ctrl+Shift+T` | Cycle theme      |
+| `Ctrl+Shift+F` | Fetch all        |
 | `Ctrl+Shift+U` | Pull             |
 | `Ctrl+Shift+H` | Push             |
-| `Ctrl+Shift+S` | Stash Changes    |
-| `Ctrl+Shift+O` | Pop Stash        |
-| `↑/↓`          | Navigate commits |
+| `Ctrl+Shift+S` | Stash changes    |
+| `Ctrl+Shift+O` | Pop stash        |
+| `Ctrl+,`       | Open settings    |
+| `↑` / `↓`      | Navigate commits |
 | `Escape`       | Close dialog     |
+
+See [docs/KEYBOARD-SHORTCUTS.md](docs/KEYBOARD-SHORTCUTS.md) for the full list.
 
 ## Configuration
 
-Configuration is stored at `~/.config/gitforge/settings.json`.
+Settings are stored at `~/.config/gitforge/settings.json`.
 
-### Custom Themes
+### Custom themes
 
-Place theme JSON files in `~/.config/gitforge/themes/`. Each theme defines 40+ color tokens. See the [Theme Format](docs/THEMES.md) documentation for details.
+Place theme JSON files in `~/.config/gitforge/themes/`. Each theme defines 40+ color tokens. See [docs/THEMES.md](docs/THEMES.md).
 
-### External Tools
-
-Configure in `~/.config/gitforge/settings.json`:
+### External tools
 
 ```json
 {
@@ -117,7 +91,7 @@ Configure in `~/.config/gitforge/settings.json`:
 }
 ```
 
-### Custom Commands
+### Custom commands
 
 ```json
 {
@@ -133,18 +107,89 @@ Configure in `~/.config/gitforge/settings.json`:
 
 Placeholders: `{file}`, `{line}`, `{commit}`, `{repo}`
 
-## Packaging
+## Building from source
 
-Primary distribution is the install script and release tarball (`GitForge-{version}-{arch}.tar.gz`).
+### Prerequisites
 
-Build the update tarball locally:
+**Rust 1.85+** (Rust Edition 2024)
+
+**Ubuntu / Debian:**
+
+```bash
+sudo apt install libssl-dev libfreetype-dev libfontconfig-dev libwayland-dev \
+  libx11-dev libxkbcommon-dev libxkbcommon-x11-dev libegl-dev libvulkan-dev \
+  libclang-dev pkg-config
+```
+
+**Fedora:**
+
+```bash
+sudo dnf install openssl-devel freetype-devel fontconfig-devel wayland-devel \
+  libX11-devel libxkbcommon-devel libxkbcommon-x11-devel mesa-libEGL-devel \
+  vulkan-devel clang-devel pkgconfig
+```
+
+**Arch Linux:**
+
+```bash
+sudo pacman -S openssl freetype2 fontconfig wayland libx11 libxkbcommon \
+  libxkbcommon-x11 mesa vulkan-devel clang pkg-config
+```
+
+### Build & run
 
 ```bash
 cargo build -p gitforge-app --release
-./scripts/build-update-tarball.sh
+./target/release/gitforge
 ```
 
-Legacy packaging scripts (`build-appimage.sh`, `build-deb.sh`, Flatpak, AUR) remain in `packaging/` but are not the supported install path.
+For development:
+
+```bash
+cargo run -p gitforge-app
+```
+
+### Install a local build
+
+After building, create an update tarball and install it without GitHub:
+
+```bash
+./scripts/build-update-tarball.sh 0.1.1
+GITFORGE_BUNDLE_PATH="$(pwd)/GitForge-0.1.1-$(uname -m).tar.gz" bash scripts/install.sh
+```
+
+## Releasing (maintainers)
+
+GitForge is distributed via GitHub Releases. Each release must include:
+
+| Asset                                     | Purpose                                 |
+| ----------------------------------------- | --------------------------------------- |
+| `GitForge-{version}-x86_64.tar.gz`        | Install script and auto-updater payload |
+| `GitForge-{version}-x86_64.tar.gz.sha256` | Checksum verification for the updater   |
+
+The version in `Cargo.toml`, the git tag (`v0.1.1`), and the tarball filename must all match.
+
+### Publish a release
+
+1. Bump `version` in `Cargo.toml` and commit.
+2. Create and push a tag:
+   ```bash
+   git tag v0.1.1
+   git push origin v0.1.1
+   ```
+3. Go to **Actions → Release → Run workflow** and select the tag (not `main`).
+4. The workflow builds the binary, creates the tarball and checksums, and uploads them to the GitHub Release.
+
+The tag pins the exact commit that gets built — including the workflow file at that commit. If CI fails, fix the issue on `main`, then either move the tag or cut a new patch version.
+
+### Build release artifacts locally
+
+```bash
+cargo build -p gitforge-app --release
+./scripts/build-update-tarball.sh 0.1.1
+```
+
+Legacy packaging (AppImage, `.deb`, Flatpak, AUR) lives in `packaging/` but is not the supported install path.
 
 ## Architecture
 
@@ -155,8 +200,9 @@ gitforge-git        gix wrapper, porcelain API, status, diff, worktree operation
 gitforge-graph      Commit graph layout algorithm (pure logic, no UI)
 gitforge-diff       Diff parsing, highlighting, patch generation
 gitforge-hosting    GitHub/GitLab/Codeberg API clients
-gitforge-ai         AI backend — local ollama + cloud APIs
+gitforge-ai         AI backend — local Ollama + cloud APIs
 gitforge-syntax     Syntax highlighting (tree-sitter)
+gitforge-update     GitHub release fetching, checksum verification, auto-update install
 ```
 
 ## License
