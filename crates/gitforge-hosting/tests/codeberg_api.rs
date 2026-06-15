@@ -64,7 +64,7 @@ async fn authenticate_falls_back_to_login_when_full_name_missing() {
 }
 
 #[tokio::test]
-async fn list_repos_paginates_with_data_envelope_and_limit_50() {
+async fn list_repos_paginates_with_bare_array_and_limit_50() {
     let server = MockServer::start_async().await;
     let account = test_account("codeberg", "alice");
 
@@ -75,17 +75,17 @@ async fn list_repos_paginates_with_data_envelope_and_limit_50() {
 
     server.mock(|when, then| {
         when.method(GET)
-            .path("/repos/search")
+            .path("/user/repos")
             .query_param("page", "1")
             .query_param("limit", "50");
-        then.status(200).body(serde_json::json!({"data": page1}).to_string());
+        then.status(200).body(serde_json::to_string(&page1).unwrap());
     });
     server.mock(|when, then| {
         when.method(GET)
-            .path("/repos/search")
+            .path("/user/repos")
             .query_param("page", "2")
             .query_param("limit", "50");
-        then.status(200).body(serde_json::json!({"data": page2}).to_string());
+        then.status(200).body(serde_json::to_string(&page2).unwrap());
     });
 
     let repos = provider(&server).list_repos(&account).await.expect("list");
@@ -219,7 +219,7 @@ async fn error_on_non_2xx() {
     let account = test_account("codeberg", "alice");
 
     server.mock(|when, then| {
-        when.method(GET).path("/repos/search");
+        when.method(GET).path("/user/repos");
         then.status(401).body("unauthorized");
     });
 

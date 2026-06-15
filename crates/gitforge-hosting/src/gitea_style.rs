@@ -71,9 +71,9 @@ const CODEBERG: GiteaStyleConfig = GiteaStyleConfig {
     sort_repos: false,
     stars_key: "stars_count",
     display_name_key: "full_name",
-    list_repos_path: "/repos/search",
+    list_repos_path: "/user/repos",
     search_repos_path: "/repos/search",
-    list_repos_envelope: "data",
+    list_repos_envelope: "",
     search_repos_envelope: "data",
 };
 
