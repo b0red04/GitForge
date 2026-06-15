@@ -2192,7 +2192,7 @@ dependencies = [
 
 [[package]]
 name = "gitforge-ai"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2207,7 +2207,7 @@ dependencies = [
 
 [[package]]
 name = "gitforge-app"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2232,7 +2232,7 @@ dependencies = [
 
 [[package]]
 name = "gitforge-diff"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "regex-lite",
  "serde",
@@ -2240,7 +2240,7 @@ dependencies = [
 
 [[package]]
 name = "gitforge-git"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "chrono",
  "dirs 6.0.0",
@@ -2259,7 +2259,7 @@ dependencies = [
 
 [[package]]
 name = "gitforge-graph"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "criterion",
  "serde",
@@ -2268,7 +2268,7 @@ dependencies = [
 
 [[package]]
 name = "gitforge-hosting"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2285,7 +2285,7 @@ dependencies = [
 
 [[package]]
 name = "gitforge-syntax"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "tree-sitter",
  "tree-sitter-bash",
@@ -2304,7 +2304,7 @@ dependencies = [
 
 [[package]]
 name = "gitforge-ui"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "dirs 6.0.0",
@@ -2318,7 +2318,7 @@ dependencies = [
 
 [[package]]
 name = "gitforge-update"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "gpui",
