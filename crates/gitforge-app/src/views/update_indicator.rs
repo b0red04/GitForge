@@ -38,6 +38,9 @@ impl UpdateIndicator {
   }
 
   pub fn set_colors(&mut self, colors: AppColors, cx: &mut Context<Self>) {
+    if self.colors == colors {
+      return;
+    }
     self.colors = colors;
     cx.notify();
   }
@@ -86,7 +89,7 @@ impl Render for UpdateIndicator {
         },
       )
       .into_any_element(),
-      AutoUpdateStatus::Idle | AutoUpdateStatus::Checking { .. } => div().into_any_element(),
+      AutoUpdateStatus::Idle | AutoUpdateStatus::Checking => div().into_any_element(),
     }
   }
 }

@@ -7,7 +7,11 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_ID="dev.gitforge.GitForge"
 BINARY="${ROOT}/target/release/gitforge"
 STAGING="${ROOT}/target/update-tarball/gitforge.app"
-VERSION="${1:-$(cargo metadata --manifest-path "${ROOT}/Cargo.toml" --format-version 1 2>/dev/null | grep -o '"version":"[^"]*"' | head -1 | cut -d'"' -f4 || echo "0.1.0")}"
+VERSION="${1:-$(cargo pkgid -p gitforge-app --manifest-path "${ROOT}/Cargo.toml" 2>/dev/null | cut -d@ -f2)}"
+if [[ -z "${VERSION}" ]]; then
+  echo "error: version required (pass release tag version as first argument)" >&2
+  exit 1
+fi
 ARCH="$(uname -m)"
 
 if [[ ! -f "${BINARY}" ]]; then

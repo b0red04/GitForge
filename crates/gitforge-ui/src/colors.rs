@@ -2,7 +2,7 @@ pub fn rgba_to_hsla(c: gpui::Rgba) -> gpui::Hsla {
     c.into()
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AppColors {
     pub background: gpui::Rgba,
     pub surface: gpui::Rgba,

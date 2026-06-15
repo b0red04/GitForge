@@ -1708,7 +1708,11 @@ fn pill_toggle(
                             "repo-auto-push" => {
                                 draft.repo_auto_push_on_commit = !draft.repo_auto_push_on_commit
                             }
-                            "auto-update" => draft.auto_update = !draft.auto_update,
+                            "auto-update" => {
+                                if gitforge_update::auto_update_supported() {
+                                    draft.auto_update = !draft.auto_update;
+                                }
+                            }
                             _ => {}
                         },
                         cx,
