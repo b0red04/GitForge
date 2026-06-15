@@ -1,7 +1,9 @@
 name: Release
 
-# Disabled automatic runs — trigger manually from Actions → Release → Run workflow.
 on:
+  push:
+    tags:
+      - "v*"
   workflow_dispatch:
 
 env:
@@ -14,6 +16,15 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+
+      - name: Verify tag matches Cargo.toml version
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          CARGO_VERSION="$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)"
+          if [ "${TAG_VERSION}" != "${CARGO_VERSION}" ]; then
+            echo "Tag version (${TAG_VERSION}) does not match Cargo.toml (${CARGO_VERSION})" >&2
+            exit 1
+          fi
 
       - name: Install system dependencies
         run: |
@@ -49,6 +60,7 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
+          tag_name: ${{ github.ref_name }}
           files: |
             target/release/gitforge
             target/release/gitforge.sha256
@@ -56,4 +68,4 @@ jobs:
             GitForge-*.tar.gz.sha256
           generate_release_notes: true
           draft: false
-          prerelease: ${{ contains(github.ref, '-rc') || contains(github.ref, '-beta') || contains(github.ref, '-alpha') }}
+          prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-alpha') }}

@@ -34,7 +34,7 @@ Auto-updates are disabled in debug builds (`cargo run`). Use a release install t
 
 ### Testing the updater
 
-If you have `v0.1.0` installed and `v0.1.1` is published on GitHub, launch the installed app and either wait for the hourly check or trigger one manually. The app should download `GitForge-0.1.1-x86_64.tar.gz` (or `aarch64`), verify the checksum, install, and prompt to restart.
+If you have `v0.1.1` installed and `v0.1.2` is published on GitHub, launch the installed app and either wait for the hourly check or trigger one manually. The app should download the new tarball, verify the checksum, install, and prompt to restart.
 
 ## Features
 
@@ -154,8 +154,8 @@ cargo run -p gitforge-app
 After building, create an update tarball and install it without GitHub:
 
 ```bash
-./scripts/build-update-tarball.sh 0.1.1
-GITFORGE_BUNDLE_PATH="$(pwd)/GitForge-0.1.1-$(uname -m).tar.gz" bash scripts/install.sh
+./scripts/build-update-tarball.sh 0.1.2
+GITFORGE_BUNDLE_PATH="$(pwd)/GitForge-0.1.2-$(uname -m).tar.gz" bash scripts/install.sh
 ```
 
 ## Releasing (maintainers)
@@ -167,26 +167,27 @@ GitForge is distributed via GitHub Releases. Each release must include:
 | `GitForge-{version}-x86_64.tar.gz`        | Install script and auto-updater payload |
 | `GitForge-{version}-x86_64.tar.gz.sha256` | Checksum verification for the updater   |
 
-The version in `Cargo.toml`, the git tag (`v0.1.1`), and the tarball filename must all match.
+The version in `Cargo.toml`, the git tag (`v0.1.2`), and the tarball filename must all match.
 
 ### Publish a release
 
-1. Bump `version` in `Cargo.toml` and commit.
-2. Create and push a tag:
+1. Bump `version` in `Cargo.toml` and commit to `main`.
+2. Create and push a tag — this automatically starts the Release workflow:
    ```bash
-   git tag v0.1.1
-   git push origin v0.1.1
+   git tag v0.1.2
+   git push origin v0.1.2
    ```
-3. Go to **Actions → Release → Run workflow** and select the tag (not `main`).
-4. The workflow builds the binary, creates the tarball and checksums, and uploads them to the GitHub Release.
+3. Watch progress under **Actions → Release**. The workflow builds the binary, creates the tarball and checksums, and publishes the GitHub Release.
 
-The tag pins the exact commit that gets built — including the workflow file at that commit. If CI fails, fix the issue on `main`, then either move the tag or cut a new patch version.
+You can still trigger the workflow manually from the Actions tab if needed (`workflow_dispatch`), but pushing a `v*` tag is the normal path.
+
+The tag pins the exact commit that gets built. If CI fails, fix the issue on `main`, then either move the tag or cut a new patch version.
 
 ### Build release artifacts locally
 
 ```bash
 cargo build -p gitforge-app --release
-./scripts/build-update-tarball.sh 0.1.1
+./scripts/build-update-tarball.sh 0.1.2
 ```
 
 Legacy packaging (AppImage, `.deb`, Flatpak, AUR) lives in `packaging/` but is not the supported install path.

@@ -15,6 +15,7 @@ use crate::github::{
     verify_downloaded_checksum,
 };
 use crate::install::{install_release_linux, linux_rsync_install_hint};
+use crate::restart::set_pending_restart_path;
 
 const POLL_INTERVAL: Duration = Duration::from_secs(60 * 60);
 const SHOULD_SHOW_UPDATE_NOTIFICATION_KEY: &str = "gitforge-update-should-show-notification";
@@ -102,7 +103,7 @@ struct GlobalAutoUpdate(Option<Entity<AutoUpdater>>);
 
 impl Global for GlobalAutoUpdate {}
 
-struct GlobalUpdateState(std::collections::HashMap<String, String>);
+pub(crate) struct GlobalUpdateState(pub(crate) std::collections::HashMap<String, String>);
 
 impl Default for GlobalUpdateState {
     fn default() -> Self {
@@ -155,6 +156,16 @@ pub fn check(_: &Check, window: &mut Window, cx: &mut App) {
     }
 
     if let Some(updater) = AutoUpdater::get(cx) {
+        if updater.read(cx).status().is_updated() {
+            drop(window.prompt(
+                gpui::PromptLevel::Info,
+                "Update ready",
+                Some("Restart GitForge to finish applying the update."),
+                &["OK"],
+                cx,
+            ));
+            return;
+        }
         updater.update(cx, |updater, cx| updater.poll(UpdateCheckType::Manual, cx));
     } else {
         drop(window.prompt(
@@ -205,6 +216,12 @@ impl AutoUpdater {
     }
 
     pub fn poll(&mut self, check_type: UpdateCheckType, cx: &mut Context<Self>) {
+        if matches!(self.status, AutoUpdateStatus::Updated { .. })
+            && check_type == UpdateCheckType::Automatic
+        {
+            return;
+        }
+
         if self.pending_poll.is_some() {
             if self.update_check_type == UpdateCheckType::Automatic {
                 self.update_check_type = check_type;
@@ -215,6 +232,7 @@ impl AutoUpdater {
         self.update_check_type = check_type;
         cx.notify();
 
+        let status_before_poll = self.status.clone();
         self.pending_poll = Some(cx.spawn(async move |this, cx| {
             let result = Self::update(this.upgrade()?, cx).await;
             this.update(cx, |this, cx| {
@@ -229,9 +247,17 @@ impl AutoUpdater {
                                 error: Arc::new(error),
                             }
                         }
+                        UpdateCheckType::Automatic if status_before_poll.is_updated() => {
+                            tracing::info!("auto-update check failed while update is pending restart: {error:?}");
+                            status_before_poll.clone()
+                        }
                         UpdateCheckType::Automatic => {
                             tracing::info!("auto-update check failed: {error:?}");
                             AutoUpdateStatus::Idle
+                        }
+                        UpdateCheckType::Manual if status_before_poll.is_updated() => {
+                            tracing::info!("manual update check skipped; restart is required");
+                            status_before_poll.clone()
                         }
                         UpdateCheckType::Manual => {
                             tracing::error!("auto-update failed: {error:?}");
@@ -310,6 +336,10 @@ impl AutoUpdater {
             )
         })?;
 
+        if matches!(previous_status, AutoUpdateStatus::Updated { .. }) {
+            return Ok(());
+        }
+
         Self::check_dependencies()?;
 
         let _ = this.update(cx, |this, cx| {
@@ -374,7 +404,10 @@ impl AutoUpdater {
             .with_context(|| format!("failed to install update at: {}", target_path.display()))?;
 
         if let Some(new_binary_path) = new_binary_path {
-            let _ = cx.update(|cx| cx.set_restart_path(new_binary_path));
+            let _ = cx.update(|cx| {
+                cx.set_restart_path(new_binary_path.clone());
+                set_pending_restart_path(new_binary_path, cx);
+            });
         }
 
         let _ = this.update(cx, |this, cx| {
