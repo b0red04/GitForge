@@ -77,8 +77,15 @@ pub struct DiffPanel {
 /// then handed to [`DiffViewMirror`] (a cached GPUI view). Because scrolling
 /// the commit history does not change the snapshot, the mirror's painted output
 /// is recycled by GPUI instead of being rebuilt every scroll frame.
+///
+/// The snapshot is also the single derivation point for [`DiffViewKey`]: the
+/// mirror's stored key is always [`DiffSnapshot::key`], never a separate
+/// hand-maintained projection. Adding a visible field to the snapshot requires
+/// adding it to `key()` so the cache refreshes — they live in the same file, a
+/// few lines apart.
 #[derive(Clone)]
 pub struct DiffSnapshot {
+    pub theme: String,
     pub colors: AppColors,
     pub loading: bool,
     pub selected_commit: Option<CommitInfo>,
@@ -92,6 +99,36 @@ pub struct DiffSnapshot {
     pub scroll_handle: UniformListScrollHandle,
     pub code_scroll_handle: UniformListScrollHandle,
     pub app: WeakEntity<super::app::GitForgeApp>,
+}
+
+impl DiffSnapshot {
+    /// Derive the cache fingerprint from this snapshot. This is the
+    /// **authoritative** key: [`DiffViewMirror`] always stores the key
+    /// returned here, never a separately-built one, so the stored key and the
+    /// stored snapshot can never drift apart.
+    ///
+    /// The cheap pre-check in [`DiffPanel::build_key`] is an independent
+    /// optimization that avoids building the full snapshot on cache hits.
+    /// It must produce the same value as this method for the same panel
+    /// state; if it drifts, the worst case is an unnecessary rebuild, never
+    /// stale rendering (the stored key is always correct).
+    pub fn key(&self) -> DiffViewKey {
+        DiffViewKey {
+            theme: self.theme.clone(),
+            loading: self.loading,
+            selected_commit_id: self.selected_commit.as_ref().map(|c| c.id.clone()),
+            diff_commit_id: self.diff_state.as_ref().map(|d| d.commit_id.clone()),
+            selected_file_idx: self.diff_state.as_ref().and_then(|d| d.selected_file_idx),
+            view_mode_tag: self.view_mode.tag(),
+            code_view_file: self.code_view_file.clone(),
+            blame_file: if self.view_mode == DiffViewMode::Blame {
+                self.blame.as_ref().map(|b| b.file_path.clone())
+            } else {
+                None
+            },
+            selection: self.selection.clone(),
+        }
+    }
 }
 
 /// A cheap, comparable fingerprint of the diff panel's visible state. When this
@@ -131,8 +168,8 @@ impl DiffViewMirror {
         &self.key
     }
 
-    pub fn update_snapshot(&mut self, key: DiffViewKey, snapshot: DiffSnapshot) {
-        self.key = key;
+    pub fn update_snapshot(&mut self, snapshot: DiffSnapshot) {
+        self.key = snapshot.key();
         self.snapshot = Some(snapshot);
     }
 }
@@ -265,9 +302,12 @@ impl DiffPanel {
 
     /// Capture a render-ready snapshot of the diff panel. Cloning is cheap: the
     /// diff content lives behind `Arc`s and blame data is only copied while the
-    /// blame view is active.
+    /// blame view is active. The `theme` label is stored alongside `colors` so
+    /// that [`DiffSnapshot::key`] can derive the cache fingerprint without a
+    /// reverse color→name lookup.
     pub fn build_snapshot(
         &self,
+        theme: String,
         colors: AppColors,
         loading: bool,
         selected_commit: Option<CommitInfo>,
@@ -275,6 +315,7 @@ impl DiffPanel {
     ) -> DiffSnapshot {
         let ctx = self.viewer.render_ctx();
         DiffSnapshot {
+            theme,
             colors,
             loading,
             selected_commit,

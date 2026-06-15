@@ -91,18 +91,44 @@ impl GitError {
 
 pub type GitResult<T> = Result<T, GitError>;
 
-macro_rules! impl_from_gix_error {
-    ($t:ty) => {
-        impl From<$t> for GitError {
-            fn from(e: $t) -> Self {
-                GitError::RepositoryNotFound(e.to_string())
+/// Inspects the gix error kind rather than collapsing every open failure to
+/// `RepositoryNotFound`. Only [`gix::open::Error::NotARepository`] (the path
+/// exists but isn't a git dir) is genuinely "not found"; everything else —
+/// permission denied, unsafe ownership, corrupt config, I/O — becomes
+/// `OperationFailed` so the toast surfaces the real cause instead of the
+/// misleading "Repository not found".
+impl From<gix::open::Error> for GitError {
+    fn from(e: gix::open::Error) -> Self {
+        match e {
+            gix::open::Error::NotARepository { path, .. } => {
+                GitError::RepositoryNotFound(path.display().to_string())
             }
+            other => GitError::OperationFailed(other.to_string()),
         }
-    };
+    }
 }
 
-impl_from_gix_error!(gix::open::Error);
-impl_from_gix_error!(gix::discover::Error);
+/// Splits discover failures the same way as open: only the `NoGitRepository*`
+/// upwards variants are genuine "not found"; trust failures, inaccessible
+/// directories, and ceiling mismatches become `OperationFailed`. The wrapped
+/// [`gix::discover::Error::Open`] variant recurses through
+/// [`From<gix::open::Error>`] so the open-side classification still applies
+/// when a repo is found but can't be opened.
+impl From<gix::discover::Error> for GitError {
+    fn from(e: gix::discover::Error) -> Self {
+        match e {
+            gix::discover::Error::Open(open_err) => GitError::from(open_err),
+            gix::discover::Error::Discover(upwards_err) => match upwards_err {
+                gix::discover::upwards::Error::NoGitRepository { path }
+                | gix::discover::upwards::Error::NoGitRepositoryWithinCeiling { path, .. }
+                | gix::discover::upwards::Error::NoGitRepositoryWithinFs { path, .. } => {
+                    GitError::RepositoryNotFound(path.display().to_string())
+                }
+                other => GitError::OperationFailed(other.to_string()),
+            },
+        }
+    }
+}
 
 /// Classifies a failed `git` subprocess invocation into the most specific
 /// `GitError` variant, falling back to `OperationFailed`. This is the single
@@ -439,5 +465,97 @@ mod tests {
             stderr: "...".into(),
         };
         assert_eq!(e.toast_message(), "Merge conflict in 3 file(s)");
+    }
+
+    // --- gix::open::Error classification ---
+
+    #[test]
+    fn open_io_permission_denied_is_not_repository_not_found() {
+        // Regression: a permission-denied error used to be reported as
+        // "Repository not found", hiding the real cause from the user.
+        let io_err = std::io::Error::from_raw_os_error(13); // EACCES
+        let open_err: gix::open::Error = io_err.into();
+        let git_err: GitError = open_err.into();
+        match git_err {
+            GitError::OperationFailed(msg) => {
+                assert!(
+                    msg.contains("Permission denied") || msg.contains("13"),
+                    "expected permission-denied message, got: {msg}"
+                );
+            }
+            other => panic!("expected OperationFailed for permission denied, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn open_unsafe_git_dir_is_operation_failed() {
+        // An untrusted git dir (owned by another user) is a security
+        // condition, not "not found" — the repo IS there.
+        let open_err = gix::open::Error::UnsafeGitDir {
+            path: std::path::PathBuf::from("/some/repo"),
+        };
+        let git_err: GitError = open_err.into();
+        match git_err {
+            GitError::OperationFailed(msg) => {
+                assert!(
+                    msg.contains("unsafe") || msg.contains("owned"),
+                    "expected unsafe-ownership message, got: {msg}"
+                );
+            }
+            other => panic!("expected OperationFailed for UnsafeGitDir, got {other:?}"),
+        }
+    }
+
+    // --- gix::discover::Error classification ---
+
+    #[test]
+    fn discover_no_git_repository_is_repository_not_found() {
+        // The genuine "not found" case must still classify correctly.
+        let upwards_err = gix::discover::upwards::Error::NoGitRepository {
+            path: std::path::PathBuf::from("/no/repo/here"),
+        };
+        let discover_err: gix::discover::Error = upwards_err.into();
+        let git_err: GitError = discover_err.into();
+        match git_err {
+            GitError::RepositoryNotFound(path) => {
+                assert_eq!(path, "/no/repo/here");
+            }
+            other => panic!("expected RepositoryNotFound, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn discover_untrusted_repo_is_operation_failed() {
+        // NoTrustedGitRepository is a security/trust failure, not "not found".
+        let upwards_err = gix::discover::upwards::Error::NoTrustedGitRepository {
+            path: std::path::PathBuf::from("/untrusted/repo"),
+            candidate: std::path::PathBuf::from("/untrusted/repo/.git"),
+            required: gix::sec::Trust::Full,
+        };
+        let discover_err: gix::discover::Error = upwards_err.into();
+        let git_err: GitError = discover_err.into();
+        match git_err {
+            GitError::OperationFailed(msg) => {
+                assert!(
+                    msg.contains("trusted") || msg.contains("discarded"),
+                    "expected trust-related message, got: {msg}"
+                );
+            }
+            other => panic!("expected OperationFailed for untrusted repo, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn discover_open_recurses_into_open_classification() {
+        // When discover finds a repo but can't open it, the wrapped
+        // open::Error must still get kind-aware classification.
+        let io_err = std::io::Error::from_raw_os_error(13); // EACCES
+        let open_err: gix::open::Error = io_err.into();
+        let discover_err: gix::discover::Error = gix::discover::Error::Open(open_err);
+        let git_err: GitError = discover_err.into();
+        assert!(
+            matches!(git_err, GitError::OperationFailed(_)),
+            "expected OperationFailed (not RepositoryNotFound) for permission-denied open inside discover, got {git_err:?}"
+        );
     }
 }
