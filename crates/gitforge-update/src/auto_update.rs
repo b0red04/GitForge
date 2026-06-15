@@ -15,7 +15,6 @@ use crate::github::{
     verify_downloaded_checksum,
 };
 use crate::install::{install_release_linux, linux_rsync_install_hint};
-use crate::restart::set_pending_restart_path;
 
 const POLL_INTERVAL: Duration = Duration::from_secs(60 * 60);
 const SHOULD_SHOW_UPDATE_NOTIFICATION_KEY: &str = "gitforge-update-should-show-notification";
@@ -103,7 +102,7 @@ struct GlobalAutoUpdate(Option<Entity<AutoUpdater>>);
 
 impl Global for GlobalAutoUpdate {}
 
-pub(crate) struct GlobalUpdateState(pub(crate) std::collections::HashMap<String, String>);
+struct GlobalUpdateState(std::collections::HashMap<String, String>);
 
 impl Default for GlobalUpdateState {
     fn default() -> Self {
@@ -404,10 +403,7 @@ impl AutoUpdater {
             .with_context(|| format!("failed to install update at: {}", target_path.display()))?;
 
         if let Some(new_binary_path) = new_binary_path {
-            let _ = cx.update(|cx| {
-                cx.set_restart_path(new_binary_path.clone());
-                set_pending_restart_path(new_binary_path, cx);
-            });
+            let _ = cx.update(|cx| cx.set_restart_path(new_binary_path));
         }
 
         let _ = this.update(cx, |this, cx| {
