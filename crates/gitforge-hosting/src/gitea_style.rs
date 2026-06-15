@@ -211,11 +211,12 @@ impl HostingProvider for GiteaStyleProvider {
         let client = self.make_client(&token);
         let response = client
             .get(format!(
-                "{}{}?q={}&{}=30&sort=updated",
+                "{}{}?q={}&{}={}&sort=updated",
                 self.base_url,
                 self.config.search_repos_path,
                 http::url_encode_query(query),
-                self.config.page_param
+                self.config.page_param,
+                self.config.page_size
             ))
             .send()
             .await?;
