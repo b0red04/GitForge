@@ -24,6 +24,8 @@ jobs:
             libfontconfig-dev \
             libwayland-dev \
             libx11-dev \
+            libxkbcommon-dev \
+            libxkbcommon-x11-dev \
             libegl-dev \
             libvulkan-dev \
             libclang-dev \
