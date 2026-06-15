@@ -1,6 +1,6 @@
 use gitforge_git::{CommitInfo, RefInfo, RefKind};
 use gitforge_graph::{CommitLineSegment, CurveKind, Graph};
-use gitforge_ui::{AppColors, rgba_to_hsla};
+use gitforge_ui::{AppColors, ShellWidth, panel_shell, rgba_to_hsla};
 use gpui::*;
 use std::collections::HashMap;
 use std::ops::Range;
@@ -1061,15 +1061,7 @@ fn draw_commit_circle(
 }
 
 fn history_panel_shell(bg: Hsla, border: Hsla) -> Div {
-    div()
-        .w_full()
-        .h_full()
-        .bg(bg)
-        .border_r_1()
-        .border_color(border)
-        .relative()
-        .flex()
-        .flex_col()
+    panel_shell(ShellWidth::Full, bg, true, true).border_color(border)
 }
 
 fn render_resize_event_listener(entity: WeakEntity<super::app::GitForgeApp>) -> impl IntoElement {

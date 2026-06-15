@@ -1,6 +1,7 @@
 use gitforge_ui::{
-    AppColors, TextInput, TextInputEvent, TextInputMode, TextInputRenderOpts, parse_key_event,
-    render_text_input, rgba_to_hsla,
+    AppColors, ButtonKind, ButtonSize, HeaderBorder, HeaderPadding, TextInput, TextInputEvent,
+    TextInputMode, TextInputRenderOpts, WidgetColors, action_button, entity_on_click,
+    parse_key_event, primary_button, render_text_input, rgba_to_hsla, section_header,
 };
 use gpui::*;
 
@@ -108,17 +109,14 @@ impl CommitEditor {
         } else {
             editor = editor.flex_1().h_full();
         }
-        editor = editor.child(
-            div()
-                .px_3()
-                .py_2()
-                .border_b_1()
-                .border_color(border)
-                .text_xs()
-                .font_weight(FontWeight::BOLD)
-                .text_color(muted)
-                .child("COMMIT"),
-        );
+        editor = editor.child(section_header(
+            "commit-editor-header",
+            "COMMIT",
+            HeaderPadding::Loose,
+            HeaderBorder::Bottom,
+            None,
+            WidgetColors::from_app(colors),
+        ));
 
         if self.ai_alternatives.len() > 1 {
             let mut alt_row = div()
@@ -242,44 +240,26 @@ impl CommitEditor {
                 })
                 .child({
                     let ent_commit = ent2.clone();
-                    div()
-                        .id("commit-btn")
-                        .px_3()
-                        .py_1()
-                        .rounded(px(4.0))
-                        .bg(if has_message { accent } else { muted })
-                        .cursor_pointer()
-                        .text_xs()
-                        .text_color(rgba_to_hsla(colors.background))
-                        .child("Commit")
-                        .on_click(move |_ev, _window, cx| {
-                            if let Some(e) = ent_commit.upgrade() {
-                                e.update(cx, |this, cx| {
-                                    this.perform_commit(false, cx);
-                                });
-                            }
-                        })
+                    primary_button(
+                        "commit-btn",
+                        "Commit",
+                        ButtonSize::Medium,
+                        !has_message,
+                        entity_on_click(ent_commit, |this, cx| this.perform_commit(false, cx)),
+                        WidgetColors::from_app(colors),
+                    )
                 })
                 .child({
                     let ent_cancel = ent3.clone();
-                    div()
-                        .id("cancel-commit-btn")
-                        .px_3()
-                        .py_1()
-                        .rounded(px(4.0))
-                        .border_1()
-                        .border_color(border)
-                        .cursor_pointer()
-                        .text_xs()
-                        .text_color(muted)
-                        .child("Cancel")
-                        .on_click(move |_ev, _window, cx| {
-                            if let Some(e) = ent_cancel.upgrade() {
-                                e.update(cx, |this, cx| {
-                                    this.cancel_commit_dialog(cx);
-                                });
-                            }
-                        })
+                    action_button(
+                        "cancel-commit-btn",
+                        "Cancel",
+                        ButtonKind::Muted,
+                        ButtonSize::Medium,
+                        false,
+                        entity_on_click(ent_cancel, |this, cx| this.cancel_commit_dialog(cx)),
+                        WidgetColors::from_app(colors),
+                    )
                 }),
         );
         editor

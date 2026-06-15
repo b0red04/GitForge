@@ -1,7 +1,10 @@
 use gitforge_diff::{DiffLineType, FileDiff};
 use gitforge_git::BlameLine;
 use gitforge_git::CommitInfo;
-use gitforge_ui::{AppColors, rgba_to_hsla};
+use gitforge_ui::{
+    AppColors, ButtonKind, ButtonSize, HeaderBorder, HeaderPadding, ShellWidth, WidgetColors,
+    action_button, empty_state, entity_on_click, panel_shell, rgba_to_hsla, section_header,
+};
 use gpui::*;
 use std::ops::Range;
 use std::rc::Rc;
@@ -350,14 +353,10 @@ fn render_diff_panel(snap: &DiffSnapshot) -> Div {
                     render_commit_detail(commit, colors, border, text_color, muted, entity.clone());
 
                 if diff_state.file_diffs.is_empty() {
-                    return diff_panel_root(surface).child(commit_detail).child(
-                        div().flex_1().flex().items_center().justify_center().child(
-                            div()
-                                .text_sm()
-                                .text_color(muted)
-                                .child("No changes in this commit"),
-                        ),
-                    );
+                    return diff_panel_root(surface).child(commit_detail).child(empty_state(
+                        "No changes in this commit",
+                        WidgetColors::from_app(&colors),
+                    ));
                 }
 
                 let selected_file = diff_state.selected_file_idx;
@@ -374,17 +373,14 @@ fn render_diff_panel(snap: &DiffSnapshot) -> Div {
                     .flex()
                     .flex_col();
 
-                file_list = file_list.child(
-                    div()
-                        .px_2()
-                        .py_1()
-                        .border_b_1()
-                        .border_color(border)
-                        .text_xs()
-                        .font_weight(FontWeight::BOLD)
-                        .text_color(muted)
-                        .child(format!("FILES ({})", file_diffs.len())),
-                );
+                file_list = file_list.child(section_header(
+                    "diff-files-header",
+                    "FILES",
+                    HeaderPadding::Compact,
+                    HeaderBorder::Bottom,
+                    Some(file_diffs.len()),
+                    WidgetColors::from_app(&colors),
+                ));
 
                 for (fi, fd) in file_diffs.iter().enumerate() {
                     let path = file_diff_path_label(fd);
@@ -554,13 +550,14 @@ pub fn diff_view_cache_style() -> StyleRefinement {
 }
 
 fn diff_panel_root(surface: Hsla) -> Div {
-    div()
-        .w_full()
-        .h_full()
-        .min_w(px(RIGHT_MIN_WIDTH))
-        .bg(surface)
-        .flex()
-        .flex_col()
+    panel_shell(
+        ShellWidth::Flexible {
+            min_w: px(RIGHT_MIN_WIDTH),
+        },
+        surface,
+        false,
+        false,
+    )
 }
 
 fn author_initials(name: &str) -> String {
@@ -580,10 +577,7 @@ fn render_commit_detail(
     entity: WeakEntity<super::app::GitForgeApp>,
 ) -> Div {
     let accent = rgba_to_hsla(colors.accent);
-    let surface_high = rgba_to_hsla(colors.surface_high);
-    let action_border = border;
-    let action_text = muted;
-    let action_hover_bg = surface_high;
+    let wc = WidgetColors::from_app(colors);
 
     let parents = match commit.parent_ids.len() {
         0 => String::new(),
@@ -682,49 +676,29 @@ fn render_commit_detail(
         div()
             .flex()
             .gap_1()
-            .child(
-                div()
-                    .id("diff-cherry-pick")
-                    .px_1()
-                    .py_0()
-                    .rounded(px(2.0))
-                    .border_1()
-                    .border_color(action_border)
-                    .cursor_pointer()
-                    .text_xs()
-                    .text_color(action_text)
-                    .hover(|s| s.bg(action_hover_bg))
-                    .child("Cherry-pick")
-                    .on_click(move |_ev, _window, cx| {
-                        if let Some(e) = ent_cp.upgrade() {
-                            let sha = sha_cp.clone();
-                            e.update(cx, |this, cx| {
-                                this.cherry_pick(sha, cx);
-                            });
-                        }
-                    }),
-            )
-            .child(
-                div()
-                    .id("diff-revert")
-                    .px_1()
-                    .py_0()
-                    .rounded(px(2.0))
-                    .border_1()
-                    .border_color(action_border)
-                    .cursor_pointer()
-                    .text_xs()
-                    .text_color(action_text)
-                    .hover(|s| s.bg(action_hover_bg))
-                    .child("Revert")
-                    .on_click(move |_ev, _window, cx| {
-                        if let Some(e) = ent_rv.upgrade() {
-                            let sha = sha_rv.clone();
-                            e.update(cx, |this, cx| {
-                                this.revert_commit(sha, cx);
-                            });
-                        }
-                    }),
-            ),
+            .child(action_button(
+                "diff-cherry-pick",
+                "Cherry-pick",
+                ButtonKind::Muted,
+                ButtonSize::Compact,
+                false,
+                entity_on_click(ent_cp.clone(), move |this, cx| {
+                    let sha = sha_cp.clone();
+                    this.cherry_pick(sha, cx);
+                }),
+                wc,
+            ))
+            .child(action_button(
+                "diff-revert",
+                "Revert",
+                ButtonKind::Muted,
+                ButtonSize::Compact,
+                false,
+                entity_on_click(ent_rv.clone(), move |this, cx| {
+                    let sha = sha_rv.clone();
+                    this.revert_commit(sha, cx);
+                }),
+                wc,
+            )),
     )
 }

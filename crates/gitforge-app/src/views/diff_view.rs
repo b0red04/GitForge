@@ -1,6 +1,6 @@
 use gitforge_diff::{DiffLine, DiffLineType};
 use gitforge_syntax::highlight::HighlightedLine;
-use gitforge_ui::{AppColors, rgba_to_hsla};
+use gitforge_ui::{AppColors, WidgetColors, empty_state_with_bg, rgba_to_hsla};
 use gpui::*;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -145,20 +145,12 @@ pub fn render_highlighted_segments(
 
 pub fn render_diff_empty_state(colors: &AppColors) -> Div {
     let surface = rgba_to_hsla(colors.surface);
-    let muted = rgba_to_hsla(colors.text_muted);
-    div()
-        .flex_1()
-        .h_full()
-        .flex()
-        .items_center()
-        .justify_center()
-        .bg(surface)
-        .child(
-            div()
-                .text_sm()
-                .text_color(muted)
-                .child("Select a file to view diff"),
-        )
+    empty_state_with_bg(
+        "Select a file to view diff",
+        surface,
+        WidgetColors::from_app(colors),
+    )
+    .h_full()
 }
 
 pub fn render_diff_lines(

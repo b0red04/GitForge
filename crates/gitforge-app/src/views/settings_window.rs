@@ -5,7 +5,7 @@ use super::window_chrome::{apply_top_corner_radius, seal_rounded_corners};
 use gitforge_ui::{
     AppColors, Appearance, TextInput, TextInputDisplay, TextInputEvent, TextInputRenderOpts, Theme,
     ThemeEntry, modifier_keys_prevent_typing, parse_key_event, render_static_text_input,
-    render_text_input, rgba_to_hsla, typed_character,
+    render_text_input, rgba_to_hsla, typed_character, window_control_button,
 };
 use gpui::prelude::FluentBuilder;
 use gpui::*;
@@ -934,39 +934,6 @@ impl Focusable for SettingsWindow {
     }
 }
 
-fn settings_window_control_button(
-    id: impl Into<ElementId>,
-    icon_path: &'static str,
-    icon_color: Hsla,
-    icon_hover: Hsla,
-    hover_bg: Hsla,
-    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-) -> Stateful<Div> {
-    div()
-        .id(id.into())
-        .group("")
-        .flex()
-        .items_center()
-        .justify_center()
-        .w(px(20.0))
-        .h(px(20.0))
-        .rounded(px(10.0))
-        .cursor_pointer()
-        .hover(|s| s.bg(hover_bg))
-        .active(|s| s.bg(hover_bg))
-        .child(
-            svg()
-                .flex_none()
-                .size(px(16.0))
-                .path(icon_path)
-                .text_color(icon_color)
-                .group_hover("", |s| s.text_color(icon_hover)),
-        )
-        .on_click(on_click)
-        .on_mouse_move(|_, _, cx| cx.stop_propagation())
-        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-}
-
 fn render_settings_window_controls(
     window: &Window,
     icon_color: Hsla,
@@ -994,7 +961,7 @@ fn render_settings_window_controls(
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation());
 
     if controls.minimize {
-        row = row.child(settings_window_control_button(
+        row = row.child(window_control_button(
             "settings-titlebar-minimize",
             "icons/generic_minimize.svg",
             icon_color,
@@ -1005,7 +972,7 @@ fn render_settings_window_controls(
     }
 
     if controls.maximize {
-        row = row.child(settings_window_control_button(
+        row = row.child(window_control_button(
             "settings-titlebar-maximize",
             max_icon,
             icon_color,
@@ -1015,7 +982,7 @@ fn render_settings_window_controls(
         ));
     }
 
-    row = row.child(settings_window_control_button(
+    row = row.child(window_control_button(
         "settings-titlebar-close",
         "icons/generic_close.svg",
         icon_color,
