@@ -4,6 +4,7 @@ pub mod bg;
 pub mod browser_ops;
 pub mod dialog_ops;
 pub mod dialog_render;
+pub mod dispatch;
 pub mod external_tools;
 pub mod git_ops;
 pub mod hosting_ops;

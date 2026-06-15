@@ -207,9 +207,10 @@ impl GraphPanel {
             return;
         };
 
-        let target_ref = self.references.iter().find(|r| {
-            r.name == *branch_name || (r.kind == RefKind::RemoteBranch && r.name == *branch_name)
-        });
+        let target_ref = self
+            .references
+            .iter()
+            .find(|r| r.name == *branch_name);
 
         let Some(target) = target_ref else { return };
 
