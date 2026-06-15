@@ -5,8 +5,10 @@ use semver::Version;
 use serde::Deserialize;
 
 pub const GITHUB_REPO: &str = "b0red04/gitforge";
-pub const LATEST_RELEASE_URL: &str =
-    "https://api.github.com/repos/b0red04/gitforge/releases/latest";
+
+fn latest_release_url() -> String {
+    format!("https://api.github.com/repos/{GITHUB_REPO}/releases/latest")
+}
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct GitHubRelease {
@@ -133,7 +135,7 @@ pub async fn verify_downloaded_checksum(
 
 pub async fn fetch_latest_release(client: &reqwest::Client) -> Result<GitHubRelease> {
     let response = client
-        .get(LATEST_RELEASE_URL)
+        .get(latest_release_url())
         .header("Accept", "application/vnd.github+json")
         .send()
         .await
