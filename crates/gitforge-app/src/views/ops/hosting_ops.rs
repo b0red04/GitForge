@@ -188,19 +188,14 @@ impl GitForgeApp {
             .unwrap_or_default()
             .join("Projects")
             .join(&repo_name);
+        let open_path = path.clone();
         self.run_blocking_op_returning(
             "Clone",
             cx,
             move || gitforge_git::Repository::clone_repo(&clone_url, &path, false, None),
             move |this, _output, cx| {
                 this.repo_session.remote_status.clear();
-                this.open_repo_from_path(
-                    dirs::home_dir()
-                        .unwrap_or_default()
-                        .join("Projects")
-                        .join(&repo_name),
-                    cx,
-                );
+                this.open_repo_from_path(open_path, cx);
             },
             |this, _cx| {
                 this.repo_session.remote_status.clear();

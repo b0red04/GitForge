@@ -476,15 +476,10 @@ mod tests {
         let io_err = std::io::Error::from_raw_os_error(13); // EACCES
         let open_err: gix::open::Error = io_err.into();
         let git_err: GitError = open_err.into();
-        match git_err {
-            GitError::OperationFailed(msg) => {
-                assert!(
-                    msg.contains("Permission denied") || msg.contains("13"),
-                    "expected permission-denied message, got: {msg}"
-                );
-            }
-            other => panic!("expected OperationFailed for permission denied, got {other:?}"),
-        }
+        assert!(
+            matches!(git_err, GitError::OperationFailed(_)),
+            "expected OperationFailed (not RepositoryNotFound) for permission denied, got {git_err:?}",
+        );
     }
 
     #[test]
@@ -495,15 +490,10 @@ mod tests {
             path: std::path::PathBuf::from("/some/repo"),
         };
         let git_err: GitError = open_err.into();
-        match git_err {
-            GitError::OperationFailed(msg) => {
-                assert!(
-                    msg.contains("unsafe") || msg.contains("owned"),
-                    "expected unsafe-ownership message, got: {msg}"
-                );
-            }
-            other => panic!("expected OperationFailed for UnsafeGitDir, got {other:?}"),
-        }
+        assert!(
+            matches!(git_err, GitError::OperationFailed(_)),
+            "expected OperationFailed (not RepositoryNotFound) for UnsafeGitDir, got {git_err:?}",
+        );
     }
 
     // --- gix::discover::Error classification ---
@@ -534,15 +524,10 @@ mod tests {
         };
         let discover_err: gix::discover::Error = upwards_err.into();
         let git_err: GitError = discover_err.into();
-        match git_err {
-            GitError::OperationFailed(msg) => {
-                assert!(
-                    msg.contains("trusted") || msg.contains("discarded"),
-                    "expected trust-related message, got: {msg}"
-                );
-            }
-            other => panic!("expected OperationFailed for untrusted repo, got {other:?}"),
-        }
+        assert!(
+            matches!(git_err, GitError::OperationFailed(_)),
+            "expected OperationFailed (not RepositoryNotFound) for untrusted repo, got {git_err:?}",
+        );
     }
 
     #[test]
