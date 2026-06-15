@@ -8,6 +8,7 @@ members = [
     "crates/gitforge-hosting",
     "crates/gitforge-ai",
     "crates/gitforge-syntax",
+    "crates/gitforge-update",
 ]
 resolver = "2"
 
@@ -51,3 +52,6 @@ keyring = "3"
 fluent = "0.16"
 fluent-bundle = "0.15"
 sys-locale = "0.3"
+semver = "1"
+tempfile = "3"
+which = "7"

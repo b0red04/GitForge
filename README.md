@@ -19,7 +19,7 @@ A Linux-first Git GUI client built with [GPUI](https://github.com/zed-industries
 
 ## Screenshots
 
-*(Coming soon)*
+_(Coming soon)_
 
 ## Building
 
@@ -28,18 +28,21 @@ A Linux-first Git GUI client built with [GPUI](https://github.com/zed-industries
 **Rust 1.85+** (required for Rust Edition 2024)
 
 **System dependencies** (Ubuntu/Debian):
+
 ```bash
 sudo apt install libssl-dev libfreetype-dev libfontconfig-dev libwayland-dev \
   libx11-dev libegl-dev libvulkan-dev libclang-dev pkg-config
 ```
 
 **System dependencies** (Fedora):
+
 ```bash
 sudo dnf install openssl-devel freetype-devel fontconfig-devel wayland-devel \
   libX11-devel mesa-libEGL-devel vulkan-devel clang-devel pkgconfig
 ```
 
 **System dependencies** (Arch Linux):
+
 ```bash
 sudo pacman -S openssl freetype2 fontconfig wayland libx11 mesa vulkan-devel clang pkg-config
 ```
@@ -52,9 +55,20 @@ cargo build -p gitforge-app --release
 ```
 
 For development:
+
 ```bash
 cargo run -p gitforge-app
 ```
+
+## Install
+
+Install the latest release into `~/.local` (same layout the in-app auto-updater uses):
+
+```bash
+curl -f https://raw.githubusercontent.com/b0red04/gitforge/main/scripts/install.sh | sh
+```
+
+Then run `gitforge` (add `~/.local/bin` to your PATH if needed). GitForge checks GitHub hourly and applies updates automatically.
 
 ### Install Desktop Entry
 
@@ -66,19 +80,19 @@ This installs the .desktop file and icons so GitForge appears in your app launch
 
 ## Keyboard Shortcuts
 
-| Shortcut | Action |
-|---|---|
-| `Ctrl+O` | Open Repository |
-| `Ctrl+N` | Create Branch |
-| `Ctrl+Shift+P` | Command Palette |
-| `Ctrl+Shift+T` | Toggle Theme |
-| `Ctrl+Shift+F` | Fetch All |
-| `Ctrl+Shift+U` | Pull |
-| `Ctrl+Shift+H` | Push |
-| `Ctrl+Shift+S` | Stash Changes |
-| `Ctrl+Shift+O` | Pop Stash |
-| `↑/↓` | Navigate commits |
-| `Escape` | Close dialog |
+| Shortcut       | Action           |
+| -------------- | ---------------- |
+| `Ctrl+O`       | Open Repository  |
+| `Ctrl+N`       | Create Branch    |
+| `Ctrl+Shift+P` | Command Palette  |
+| `Ctrl+Shift+T` | Toggle Theme     |
+| `Ctrl+Shift+F` | Fetch All        |
+| `Ctrl+Shift+U` | Pull             |
+| `Ctrl+Shift+H` | Push             |
+| `Ctrl+Shift+S` | Stash Changes    |
+| `Ctrl+Shift+O` | Pop Stash        |
+| `↑/↓`          | Navigate commits |
+| `Escape`       | Close dialog     |
 
 ## Configuration
 
@@ -121,23 +135,16 @@ Placeholders: `{file}`, `{line}`, `{commit}`, `{repo}`
 
 ## Packaging
 
-### AppImage
+Primary distribution is the install script and release tarball (`GitForge-{version}-{arch}.tar.gz`).
+
+Build the update tarball locally:
+
 ```bash
-./scripts/build-appimage.sh
+cargo build -p gitforge-app --release
+./scripts/build-update-tarball.sh
 ```
 
-### Debian Package
-```bash
-./scripts/build-deb.sh
-```
-
-### Flatpak
-```bash
-flatpak-builder build-dir packaging/flatpak/dev.gitforge.GitForge.yml
-```
-
-### Arch AUR
-See `packaging/aur/PKGBUILD`.
+Legacy packaging scripts (`build-appimage.sh`, `build-deb.sh`, Flatpak, AUR) remain in `packaging/` but are not the supported install path.
 
 ## Architecture
 
