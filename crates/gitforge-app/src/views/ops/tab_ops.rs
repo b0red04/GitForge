@@ -108,35 +108,18 @@ impl GitForgeApp {
 
         let load_options = self.load_options();
 
-        cx.spawn(async move |this, cx| {
-            let result = tokio::task::spawn_blocking(move || {
-                RepoState::discover_with_repo(&path, load_options)
-            })
-            .await;
-
-            match result {
-                Ok(Ok((repo, repo_state_data))) => {
-                    *repo_handle.lock() = Some(repo);
-                    this.update(cx, |this, cx| {
-                        this.finish_repo_tab_load(tab_id, Ok(repo_state_data), cx);
-                    })
-                    .ok();
-                }
-                Ok(Err(e)) => {
-                    this.update(cx, |this, cx| {
-                        this.finish_repo_tab_load(tab_id, Err(format!("{}", e)), cx);
-                    })
-                    .ok();
-                }
-                Err(e) => {
-                    this.update(cx, |this, cx| {
-                        this.finish_repo_tab_load(tab_id, Err(format!("Task panicked: {}", e)), cx);
-                    })
-                    .ok();
-                }
-            }
-        })
-        .detach();
+        self.run_blocking_op_silent(
+            "Load repository",
+            cx,
+            move || RepoState::discover_with_repo(&path, load_options),
+            move |this, (repo, repo_state_data), cx| {
+                *repo_handle.lock() = Some(repo);
+                this.finish_repo_tab_load(tab_id, Ok(repo_state_data), cx);
+            },
+            move |this, err_msg, cx| {
+                this.finish_repo_tab_load(tab_id, Err(err_msg), cx);
+            },
+        );
     }
 
     pub(crate) fn finish_repo_tab_load(

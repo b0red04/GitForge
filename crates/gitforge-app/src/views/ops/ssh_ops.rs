@@ -9,39 +9,19 @@ impl GitForgeApp {
     }
 
     pub fn generate_ssh_key(&mut self, key_type: String, email: String, cx: &mut Context<Self>) {
-        cx.spawn(async move |this, cx| {
-            let result = tokio::task::spawn_blocking(move || {
-                gitforge_git::ssh::generate_ssh_key(&key_type, &email, None, None)
-            })
-            .await;
-
-            match result {
-                Ok(Ok(_path)) => {
-                    this.update(cx, |this, cx| {
-                        this.load_ssh_state();
-                        this.repo_session.remote_status =
-                            "SSH key generated successfully".to_string();
-                        cx.notify();
-                    })
-                    .ok();
-                }
-                Ok(Err(e)) => {
-                    this.update(cx, |this, cx| {
-                        this.repo_session.remote_status.clear();
-                        this.report_git_error("SSH key generation", &e, cx);
-                    })
-                    .ok();
-                }
-                Err(e) => {
-                    this.update(cx, |this, cx| {
-                        this.repo_session.remote_status.clear();
-                        this.report_op_error("SSH key generation", &e.to_string(), cx);
-                    })
-                    .ok();
-                }
-            }
-        })
-        .detach();
+        self.run_blocking_op_returning(
+            "SSH key generation",
+            cx,
+            move || gitforge_git::ssh::generate_ssh_key(&key_type, &email, None, None),
+            |this, _path, cx| {
+                this.load_ssh_state();
+                this.repo_session.remote_status = "SSH key generated successfully".to_string();
+                cx.notify();
+            },
+            |this, _cx| {
+                this.repo_session.remote_status.clear();
+            },
+        );
     }
 
     pub fn test_ssh_connection(&mut self, host: String, cx: &mut Context<Self>) {
@@ -49,37 +29,17 @@ impl GitForgeApp {
         self.repo_session.remote_status = format!("Testing SSH connection to {}...", host);
         cx.notify();
 
-        cx.spawn(async move |this, cx| {
-            let h = host;
-            let result =
-                tokio::task::spawn_blocking(move || gitforge_git::ssh::test_ssh_connection(&h))
-                    .await;
-
-            match result {
-                Ok(Ok(msg)) => {
-                    let display = host_display;
-                    this.update(cx, |this, cx| {
-                        this.repo_session.remote_status = format!("SSH test {}: {}", display, msg);
-                        cx.notify();
-                    })
-                    .ok();
-                }
-                Ok(Err(e)) => {
-                    this.update(cx, |this, cx| {
-                        this.repo_session.remote_status.clear();
-                        this.report_git_error("SSH test", &e, cx);
-                    })
-                    .ok();
-                }
-                Err(e) => {
-                    this.update(cx, |this, cx| {
-                        this.repo_session.remote_status.clear();
-                        this.report_op_error("SSH test", &e.to_string(), cx);
-                    })
-                    .ok();
-                }
-            }
-        })
-        .detach();
+        self.run_blocking_op_returning(
+            "SSH test",
+            cx,
+            move || gitforge_git::ssh::test_ssh_connection(&host),
+            move |this, msg, cx| {
+                this.repo_session.remote_status = format!("SSH test {}: {}", host_display, msg);
+                cx.notify();
+            },
+            |this, _cx| {
+                this.repo_session.remote_status.clear();
+            },
+        );
     }
 }

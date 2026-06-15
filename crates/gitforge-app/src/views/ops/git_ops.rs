@@ -337,9 +337,11 @@ impl GitForgeApp {
     }
     /// General async seam for git operations that produce a value.
     ///
-    /// Owns the `cx.spawn` + `spawn_blocking` + repo-handle lock + 3-arm
-    /// result match. On success, `on_success` receives the value; on either
-    /// failure (op error or task panic), `report_op_error` surfaces a toast.
+    /// Owns the `cx.spawn` + `spawn_blocking` + repo-handle lock, then routes
+    /// the result through [`super::bg::dispatch_bg_result`]. On success,
+    /// `on_success` receives the value; on either failure arm the dispatcher
+    /// surfaces a toast (structured `report_git_error` for op errors, lossy
+    /// `report_op_error` for task panics).
     pub(crate) fn run_git_op_returning<F, T>(
         &mut self,
         label: &str,
@@ -366,28 +368,17 @@ impl GitForgeApp {
                 op(repo)
             })
             .await;
-            match result {
-                Ok(Ok(value)) => {
-                    this.update(cx, |this, cx| {
-                        on_success(this, value, cx);
-                    })
-                    .ok();
-                }
-                Ok(Err(e)) => {
-                    tracing::error!("{} failed: {}", label_owned, e);
-                    this.update(cx, |this, cx| {
-                        this.report_git_error(&label_owned, &e, cx);
-                    })
-                    .ok();
-                }
-                Err(e) => {
-                    tracing::error!("{} task panicked: {}", label_owned, e);
-                    this.update(cx, |this, cx| {
-                        this.report_op_error(&label_owned, &e.to_string(), cx);
-                    })
-                    .ok();
-                }
-            }
+            this.update(cx, |this, cx| {
+                super::bg::dispatch_bg_result(
+                    this,
+                    cx,
+                    &label_owned,
+                    result,
+                    on_success,
+                    |_, _| {},
+                );
+            })
+            .ok();
         })
         .detach();
     }
@@ -404,6 +395,12 @@ impl GitForgeApp {
         });
     }
 
+    /// Git-op seam that sets `remote_status` before spawn and clears it in
+    /// every arm (success or failure). Routed through
+    /// [`super::bg::dispatch_bg_result`] so the 3-arm match and dual reporter
+    /// are shared with [`Self::run_git_op_returning`]; the only addition is
+    /// the `remote_status` set/clear side effect, threaded via `on_success`
+    /// and `on_error`.
     pub(crate) fn run_git_op_with_status<F, R>(
         &mut self,
         label: &str,
@@ -432,31 +429,22 @@ impl GitForgeApp {
                 op(repo)
             })
             .await;
-            match result {
-                Ok(Ok(_)) => {
-                    this.update(cx, |this, cx| {
+            this.update(cx, |this, cx| {
+                super::bg::dispatch_bg_result(
+                    this,
+                    cx,
+                    &label_owned,
+                    result,
+                    |this, _value: R, cx| {
                         this.repo_session.remote_status.clear();
                         this.refresh_repository(cx);
-                    })
-                    .ok();
-                }
-                Ok(Err(e)) => {
-                    tracing::error!("{} failed: {}", label_owned, e);
-                    this.update(cx, |this, cx| {
+                    },
+                    |this, _cx| {
                         this.repo_session.remote_status.clear();
-                        this.report_git_error(&label_owned, &e, cx);
-                    })
-                    .ok();
-                }
-                Err(e) => {
-                    tracing::error!("{} error: {}", label_owned, e);
-                    this.update(cx, |this, cx| {
-                        this.repo_session.remote_status.clear();
-                        this.report_op_error(&label_owned, &e.to_string(), cx);
-                    })
-                    .ok();
-                }
-            }
+                    },
+                );
+            })
+            .ok();
         })
         .detach();
     }
@@ -641,40 +629,19 @@ impl GitForgeApp {
         self.repo_session.remote_status = format!("Cloning {}...", url);
         cx.notify();
 
-        cx.spawn(async move |this, cx| {
-            let path_buf = std::path::PathBuf::from(&path);
-            let result = tokio::task::spawn_blocking(move || {
-                gitforge_git::Repository::clone_repo(&url, &path_buf, false, None)
-            })
-            .await;
-
-            match result {
-                Ok(Ok(_output)) => {
-                    this.update(cx, |this, cx| {
-                        this.repo_session.remote_status.clear();
-                        this.open_repo_from_path(std::path::PathBuf::from(path), cx);
-                    })
-                    .ok();
-                }
-                Ok(Err(e)) => {
-                    tracing::error!("Clone failed: {}", e);
-                    this.update(cx, |this, cx| {
-                        this.repo_session.remote_status.clear();
-                        this.report_git_error("Clone", &e, cx);
-                    })
-                    .ok();
-                }
-                Err(e) => {
-                    tracing::error!("Clone task panicked: {}", e);
-                    this.update(cx, |this, cx| {
-                        this.repo_session.remote_status.clear();
-                        this.report_op_error("Clone", &e.to_string(), cx);
-                    })
-                    .ok();
-                }
-            }
-        })
-        .detach();
+        let path_buf = std::path::PathBuf::from(&path);
+        self.run_blocking_op_returning(
+            "Clone",
+            cx,
+            move || gitforge_git::Repository::clone_repo(&url, &path_buf, false, None),
+            move |this, _output, cx| {
+                this.repo_session.remote_status.clear();
+                this.open_repo_from_path(std::path::PathBuf::from(path), cx);
+            },
+            |this, _cx| {
+                this.repo_session.remote_status.clear();
+            },
+        );
     }
 
     pub fn add_remote(&mut self, name: String, url: String, cx: &mut Context<Self>) {

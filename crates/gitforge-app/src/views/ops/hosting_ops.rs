@@ -184,45 +184,23 @@ impl GitForgeApp {
         self.repo_session.remote_status = format!("Cloning {}...", repo_name);
         cx.notify();
 
-        cx.spawn(async move |this, cx| {
-            let path = dirs::home_dir()
-                .unwrap_or_default()
-                .join("Projects")
-                .join(&repo_name);
-            let path_display = path.display().to_string();
-            let url = clone_url;
-
-            let result = tokio::task::spawn_blocking(move || {
-                gitforge_git::Repository::clone_repo(&url, &path, false, None)
-            })
-            .await;
-
-            match result {
-                Ok(Ok(_)) => {
-                    let p = std::path::PathBuf::from(path_display);
-                    this.update(cx, |this, cx| {
-                        this.repo_session.remote_status.clear();
-                        this.open_repo_from_path(p, cx);
-                    })
-                    .ok();
-                }
-                Ok(Err(e)) => {
-                    this.update(cx, |this, cx| {
-                        this.repo_session.remote_status.clear();
-                        this.report_op_error("Clone", &e.to_string(), cx);
-                    })
-                    .ok();
-                }
-                Err(e) => {
-                    this.update(cx, |this, cx| {
-                        this.repo_session.remote_status.clear();
-                        this.report_op_error("Clone", &e.to_string(), cx);
-                    })
-                    .ok();
-                }
-            }
-        })
-        .detach();
+        let path = dirs::home_dir()
+            .unwrap_or_default()
+            .join("Projects")
+            .join(&repo_name);
+        let open_path = path.clone();
+        self.run_blocking_op_returning(
+            "Clone",
+            cx,
+            move || gitforge_git::Repository::clone_repo(&clone_url, &path, false, None),
+            move |this, _output, cx| {
+                this.repo_session.remote_status.clear();
+                this.open_repo_from_path(open_path, cx);
+            },
+            |this, _cx| {
+                this.repo_session.remote_status.clear();
+            },
+        );
     }
 
     pub fn search_hosting_repos(

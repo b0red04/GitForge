@@ -252,6 +252,7 @@ impl GitForgeApp {
         }
 
         let snapshot = self.repo_session.diff_panel.build_snapshot(
+            self.settings.theme.clone(),
             self.colors.clone(),
             loading,
             selected_commit,
@@ -260,7 +261,7 @@ impl GitForgeApp {
         let diff_view = self.repo_session.diff_view.clone();
         cx.defer(move |cx| {
             diff_view.update(cx, |mirror, cx| {
-                mirror.update_snapshot(key, snapshot);
+                mirror.update_snapshot(snapshot);
                 cx.notify();
             });
         });

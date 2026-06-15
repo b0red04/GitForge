@@ -91,39 +91,22 @@ pub fn render(
 }
 
 fn store_credential(
-    _app: &mut GitForgeApp,
+    app: &mut GitForgeApp,
     host: String,
     username: String,
     password: String,
     cx: &mut Context<GitForgeApp>,
 ) {
-    cx.spawn(async move |this, cx| {
-        let result = tokio::task::spawn_blocking(move || {
+    app.run_blocking_op_returning(
+        "Store credential",
+        cx,
+        move || {
             gitforge_git::credential::store_credential(&host, &username, &password, None)
-        })
-        .await;
-
-        match result {
-            Ok(Ok(())) => {
-                this.update(cx, |this, cx| {
-                    this.repo_session.remote_status = "Credential stored in keyring".to_string();
-                    cx.notify();
-                })
-                .ok();
-            }
-            Ok(Err(e)) => {
-                this.update(cx, |this, cx| {
-                    this.report_git_error("Store credential", &e, cx);
-                })
-                .ok();
-            }
-            Err(e) => {
-                this.update(cx, |this, cx| {
-                    this.report_op_error("Store credential", &e.to_string(), cx);
-                })
-                .ok();
-            }
-        }
-    })
-    .detach();
+        },
+        |this, _value, cx| {
+            this.repo_session.remote_status = "Credential stored in keyring".to_string();
+            cx.notify();
+        },
+        |_, _| {},
+    );
 }

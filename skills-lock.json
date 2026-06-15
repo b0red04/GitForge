@@ -1,12 +1,6 @@
 {
   "version": 1,
   "skills": {
-    "better-auth-best-practices": {
-      "source": "better-auth/skills",
-      "sourceType": "github",
-      "skillPath": "better-auth/best-practices/SKILL.md",
-      "computedHash": "a4c830509e85557b59339d8d93a4e243e9e59c686e7678854d39230e12c2a6dc"
-    },
     "code-review": {
       "source": "coderabbitai/skills",
       "sourceType": "github",
@@ -37,23 +31,11 @@
       "skillPath": "skills/find-bugs/SKILL.md",
       "computedHash": "7bf00be700d1d205b747126aa96d3587bbc2855cd09897614676e179eebe35ed"
     },
-    "frontend-design": {
-      "source": "anthropics/skills",
-      "sourceType": "github",
-      "skillPath": "skills/frontend-design/SKILL.md",
-      "computedHash": "4eabc66183767153e404b39d1b839b1c37f2d82d86f0a0d7e880a579d8d62336"
-    },
     "grill-me": {
       "source": "mattpocock/skills",
       "sourceType": "github",
       "skillPath": "skills/productivity/grill-me/SKILL.md",
       "computedHash": "784f0dbb7403b0f00324bce9a112f715342777a0daee7bbb7385f9c6f0a170ea"
-    },
-    "grill-with-docs": {
-      "source": "mattpocock/skills",
-      "sourceType": "github",
-      "skillPath": "skills/engineering/grill-with-docs/SKILL.md",
-      "computedHash": "eb0e91e84277283dc2b23ed544399e53afd6b5287e5b6929f25fe8aa608e164b"
     },
     "handoff": {
       "source": "mattpocock/skills",
@@ -72,23 +54,6 @@
       "sourceType": "github",
       "skillPath": "skills/engineering/prototype/SKILL.md",
       "computedHash": "e4d0c8f8cb3fc096ee99405a15491da466545cf4a3694bee5a0c9db2fa621a43"
-    },
-    "sentry-cli": {
-      "source": "cli.sentry.dev",
-      "sourceType": "well-known",
-      "computedHash": "1044e36116a2d58f1ffdc9b5ff14020ee8d9f15041a3f17c91d2df31af470bf6"
-    },
-    "svelte-code-writer": {
-      "source": "sveltejs/ai-tools",
-      "sourceType": "github",
-      "skillPath": "plugins/claude/svelte/skills/svelte-code-writer/SKILL.md",
-      "computedHash": "c0e2cce9855f8e312cbb0a05aef164b4659c672d7723e4e598ffa6bc94890542"
-    },
-    "svelte-core-bestpractices": {
-      "source": "sveltejs/ai-tools",
-      "sourceType": "github",
-      "skillPath": "plugins/claude/svelte/skills/svelte-core-bestpractices/SKILL.md",
-      "computedHash": "bec11e369679027edf9d4acbe6d9788f8da33dc14b48b874f231d3ba13705324"
     },
     "tdd": {
       "source": "mattpocock/skills",

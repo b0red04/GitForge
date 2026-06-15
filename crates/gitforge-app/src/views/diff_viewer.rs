@@ -24,6 +24,18 @@ pub enum DiffViewMode {
     Blame,
 }
 
+impl DiffViewMode {
+    /// Cheap discriminator used by [`DiffViewKey`](super::diff_panel::DiffViewKey)
+    /// so the fingerprint derives `PartialEq` without importing the enum.
+    pub fn tag(&self) -> u8 {
+        match self {
+            DiffViewMode::Diff => 0,
+            DiffViewMode::Code => 1,
+            DiffViewMode::Blame => 2,
+        }
+    }
+}
+
 struct BlameState {
     lines: Vec<BlameLine>,
     file_path: String,
@@ -205,11 +217,7 @@ impl DiffViewer {
     }
 
     pub fn view_mode_tag(&self) -> u8 {
-        match self.view_mode {
-            DiffViewMode::Diff => 0,
-            DiffViewMode::Code => 1,
-            DiffViewMode::Blame => 2,
-        }
+        self.view_mode.tag()
     }
 
     pub fn blame_file_for_key(&self) -> Option<String> {
@@ -863,4 +871,22 @@ fn render_blame_view(
         .flex_col()
         .child(file_header)
         .child(div().flex_1().child(blame_rows))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn view_mode_tag_is_stable_and_distinct() {
+        // The tag is used as a PartialEq discriminator inside DiffViewKey.
+        // If these numbers change, cached diffs will wrongly invalidate (or
+        // fail to invalidate) across versions — so they are part of the
+        // cache contract.
+        assert_eq!(DiffViewMode::Diff.tag(), 0);
+        assert_eq!(DiffViewMode::Code.tag(), 1);
+        assert_eq!(DiffViewMode::Blame.tag(), 2);
+        assert_ne!(DiffViewMode::Diff.tag(), DiffViewMode::Code.tag());
+        assert_ne!(DiffViewMode::Code.tag(), DiffViewMode::Blame.tag());
+    }
 }
