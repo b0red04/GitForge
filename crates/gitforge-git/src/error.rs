@@ -477,8 +477,8 @@ mod tests {
         let open_err: gix::open::Error = io_err.into();
         let git_err: GitError = open_err.into();
         assert!(
-            matches!(git_err, GitError::OperationFailed(_)),
-            "expected OperationFailed (not RepositoryNotFound) for permission denied, got {git_err:?}",
+            matches!(&git_err, GitError::OperationFailed(msg) if !msg.is_empty()),
+            "expected OperationFailed with a non-empty cause message for permission denied, got {git_err:?}",
         );
     }
 
@@ -491,8 +491,8 @@ mod tests {
         };
         let git_err: GitError = open_err.into();
         assert!(
-            matches!(git_err, GitError::OperationFailed(_)),
-            "expected OperationFailed (not RepositoryNotFound) for UnsafeGitDir, got {git_err:?}",
+            matches!(&git_err, GitError::OperationFailed(msg) if !msg.is_empty()),
+            "expected OperationFailed with a non-empty cause message for UnsafeGitDir, got {git_err:?}",
         );
     }
 
@@ -525,8 +525,8 @@ mod tests {
         let discover_err: gix::discover::Error = upwards_err.into();
         let git_err: GitError = discover_err.into();
         assert!(
-            matches!(git_err, GitError::OperationFailed(_)),
-            "expected OperationFailed (not RepositoryNotFound) for untrusted repo, got {git_err:?}",
+            matches!(&git_err, GitError::OperationFailed(msg) if !msg.is_empty()),
+            "expected OperationFailed with a non-empty cause message for untrusted repo, got {git_err:?}",
         );
     }
 
