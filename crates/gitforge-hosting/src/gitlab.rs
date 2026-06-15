@@ -1,3 +1,4 @@
+use crate::http;
 use crate::models::{CreatePullRequestRequest, HostingAccount, PullRequest, RemoteRepo};
 use crate::provider::HostingProvider;
 use anyhow::Result;
@@ -29,15 +30,9 @@ impl Default for GitLabProvider {
 }
 
 fn make_client(token: &str) -> reqwest::Client {
-    reqwest::Client::builder()
-        .user_agent("gitforge")
-        .default_headers({
-            let mut headers = reqwest::header::HeaderMap::new();
-            headers.insert("PRIVATE-TOKEN", token.parse().unwrap());
-            headers
-        })
-        .build()
-        .unwrap_or_default()
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert("PRIVATE-TOKEN", token.parse().unwrap());
+    http::make_client(headers)
 }
 
 fn url_encode(s: &str) -> String {
@@ -55,14 +50,11 @@ async fn fetch_project_id(
         .get(format!("{}/projects/{}", base_url, url_encode(full_path)))
         .send()
         .await?;
-
-    if !response.status().is_success() {
-        anyhow::bail!(
-            "Failed to resolve GitLab project id for {}: {}",
-            full_path,
-            response.status()
-        );
-    }
+    let response = http::ensure_success(
+        response,
+        &format!("Failed to resolve GitLab project id for {}", full_path),
+    )
+    .await?;
 
     let project: serde_json::Value = response.json().await?;
     project["id"]
@@ -83,10 +75,7 @@ impl HostingProvider for GitLabProvider {
     async fn authenticate(&self, token: &str) -> Result<HostingAccount> {
         let client = make_client(token);
         let response = client.get(format!("{}/user", self.base_url)).send().await?;
-
-        if !response.status().is_success() {
-            anyhow::bail!("GitLab authentication failed: {}", response.status());
-        }
+        let response = http::ensure_success(response, "GitLab authentication failed").await?;
 
         let user: serde_json::Value = response.json().await?;
         let username = user["username"].as_str().unwrap_or("unknown").to_string();
@@ -109,38 +98,20 @@ impl HostingProvider for GitLabProvider {
     async fn list_repos(&self, account: &HostingAccount) -> Result<Vec<RemoteRepo>> {
         let token = account.token()?;
         let client = make_client(&token);
-        let mut all_repos = Vec::new();
-        let mut page = 1;
-
-        loop {
-            let response = client
-                .get(format!(
+        http::paginate(
+            &client,
+            |page| {
+                format!(
                     "{}/projects?membership=true&page={}&per_page=100&order_by=updated_at",
                     self.base_url, page
-                ))
-                .send()
-                .await?;
-
-            if !response.status().is_success() {
-                anyhow::bail!("Failed to list GitLab projects: {}", response.status());
-            }
-
-            let projects: Vec<serde_json::Value> = response.json().await?;
-            if projects.is_empty() {
-                break;
-            }
-
-            for project in &projects {
-                all_repos.push(json_to_remote_repo(project));
-            }
-
-            page += 1;
-            if projects.len() < 100 {
-                break;
-            }
-        }
-
-        Ok(all_repos)
+                )
+            },
+            100,
+            "Failed to list GitLab projects",
+            |json| json.as_array().cloned().unwrap_or_default(),
+            |item| Some(json_to_remote_repo(item)),
+        )
+        .await
     }
 
     async fn search_repos(&self, account: &HostingAccount, query: &str) -> Result<Vec<RemoteRepo>> {
@@ -149,14 +120,13 @@ impl HostingProvider for GitLabProvider {
         let response = client
             .get(format!(
                 "{}/projects?search={}&per_page=30&order_by=updated_at",
-                self.base_url, query
+                self.base_url,
+                http::url_encode_query(query)
             ))
             .send()
             .await?;
-
-        if !response.status().is_success() {
-            anyhow::bail!("Failed to search GitLab projects: {}", response.status());
-        }
+        let response =
+            http::ensure_success(response, "Failed to search GitLab projects").await?;
 
         let projects: Vec<serde_json::Value> = response.json().await?;
         Ok(projects.iter().map(json_to_remote_repo).collect())
@@ -175,12 +145,11 @@ impl HostingProvider for GitLabProvider {
             .post(format!("{}/projects/{}/fork", self.base_url, project_path))
             .send()
             .await?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            anyhow::bail!("Failed to fork {}/{}: {} - {}", owner, repo, status, body);
-        }
+        let response = http::ensure_success(
+            response,
+            &format!("Failed to fork {}/{}", owner, repo),
+        )
+        .await?;
 
         let fork: serde_json::Value = response.json().await?;
         Ok(json_to_remote_repo(&fork))
@@ -234,12 +203,8 @@ impl HostingProvider for GitLabProvider {
             .json(&body)
             .send()
             .await?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let text = response.text().await.unwrap_or_default();
-            anyhow::bail!("Failed to create merge request: {} - {}", status, text);
-        }
+        let response =
+            http::ensure_success(response, "Failed to create merge request").await?;
 
         let mr: serde_json::Value = response.json().await?;
         Ok(json_to_pull_request(&mr))
@@ -254,38 +219,20 @@ impl HostingProvider for GitLabProvider {
         let token = account.token()?;
         let client = make_client(&token);
         let project_path = url_encode(&format!("{}/{}", owner, repo));
-        let mut all_prs = Vec::new();
-        let mut page = 1;
-
-        loop {
-            let response = client
-                .get(format!(
+        http::paginate(
+            &client,
+            |page| {
+                format!(
                     "{}/projects/{}/merge_requests?state=opened&page={}&per_page=100",
                     self.base_url, project_path, page
-                ))
-                .send()
-                .await?;
-
-            if !response.status().is_success() {
-                anyhow::bail!("Failed to list merge requests: {}", response.status());
-            }
-
-            let mrs: Vec<serde_json::Value> = response.json().await?;
-            if mrs.is_empty() {
-                break;
-            }
-
-            for mr in &mrs {
-                all_prs.push(json_to_pull_request(mr));
-            }
-
-            page += 1;
-            if mrs.len() < 100 {
-                break;
-            }
-        }
-
-        Ok(all_prs)
+                )
+            },
+            100,
+            "Failed to list merge requests",
+            |json| json.as_array().cloned().unwrap_or_default(),
+            |item| Some(json_to_pull_request(item)),
+        )
+        .await
     }
 
     async fn list_branches(
@@ -297,40 +244,20 @@ impl HostingProvider for GitLabProvider {
         let token = account.token()?;
         let client = make_client(&token);
         let project_path = url_encode(&format!("{}/{}", owner, repo));
-        let mut all_branches = Vec::new();
-        let mut page = 1;
-
-        loop {
-            let response = client
-                .get(format!(
+        http::paginate(
+            &client,
+            |page| {
+                format!(
                     "{}/projects/{}/repository/branches?page={}&per_page=100",
                     self.base_url, project_path, page
-                ))
-                .send()
-                .await?;
-
-            if !response.status().is_success() {
-                anyhow::bail!("Failed to list branches: {}", response.status());
-            }
-
-            let branches: Vec<serde_json::Value> = response.json().await?;
-            if branches.is_empty() {
-                break;
-            }
-
-            for branch in &branches {
-                if let Some(name) = branch["name"].as_str() {
-                    all_branches.push(name.to_string());
-                }
-            }
-
-            page += 1;
-            if branches.len() < 100 {
-                break;
-            }
-        }
-
-        Ok(all_branches)
+                )
+            },
+            100,
+            "Failed to list branches",
+            |json| json.as_array().cloned().unwrap_or_default(),
+            |b| b["name"].as_str().map(|s| s.to_string()),
+        )
+        .await
     }
 }
 
@@ -370,7 +297,7 @@ fn json_to_remote_repo(project: &serde_json::Value) -> RemoteRepo {
         clone_url: http_url,
         ssh_url,
         html_url: web_url,
-        is_fork: false,
+        is_fork: project["forked_from_project"].is_object(),
         is_private: project["visibility"].as_str() == Some("private"),
         default_branch: project["default_branch"].as_str().map(|s| s.to_string()),
         stars: project["star_count"].as_u64().unwrap_or(0),
