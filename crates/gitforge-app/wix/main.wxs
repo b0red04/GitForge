@@ -1,0 +1,118 @@
+<?xml version='1.0' encoding='windows-1252'?>
+<!--
+  WiX source for the GitForge MSI installer (built via `cargo wix`).
+
+  Install scope is **per-user** (`%LOCALAPPDATA%\Programs\gitforge`) so that
+  the in-app auto-updater can swap files without elevation.
+
+  This file is the source template; cargo-wix feeds it through candle+light
+  after substituting the `$(var.*)` preprocessor variables.
+-->
+<Wix xmlns='http://schemas.microsoft.com/wix/2006/wi'>
+  <Product
+    Id='*'
+    Name='GitForge'
+    Manufacturer='GitForge'
+    Language='1033'
+    Codepage='1252'
+    Version='$(var.Version)'
+    UpgradeCode='7B8A3E2F-1C4D-4E5B-9F6A-2D3E4B5C6D7E'>
+
+    <Package
+      Id='*'
+      Keywords='Installer'
+      Description='GitForge $(var.Version) installer'
+      Manufacturer='GitForge'
+      InstallerVersion='200'
+      Languages='1033'
+      Compressed='yes'
+      InstallScope='perUser'
+      InstallPrivileges='limited'
+      SummaryCodepage='1252' />
+
+    <MajorUpgrade
+      Schedule='afterInstallInitialize'
+      DowngradeErrorMessage='A newer version of GitForge is already installed.' />
+
+    <Media Id='1' Cabinet='gitforge.cab' EmbedCab='yes' />
+
+    <Directory Id='TARGETDIR' Name='SourceDir'>
+      <Directory Id='LocalAppDataFolder'>
+        <Directory Id='PROGRAMSFOLDER' Name='Programs'>
+          <Directory Id='INSTALLFOLDER' Name='gitforge'>
+            <Component Id='MainBinary' Guid='A1B2C3D4-E5F6-4A5B-9C8D-7E1F2A3B4C5D' Win64='yes'>
+              <File
+                Id='MainExe'
+                Name='gitforge.exe'
+                DiskId='1'
+                Source='$(var.CargoTargetBinDir)\gitforge.exe'
+                KeyPath='yes' />
+              <RegistryValue
+                Root='HKCU'
+                Key='Software\GitForge\GitForge'
+                Name='MainBinary'
+                Type='integer'
+                Value='1'
+                KeyPath='no' />
+            </Component>
+
+            <Component Id='UpdateHelper' Guid='D4E5F6A7-B8C9-4D5E-AF12-3B4C5D6E7F80' Win64='yes'>
+              <File
+                Id='HelperExe'
+                Name='gitforge-update-helper.exe'
+                DiskId='1'
+                Source='$(var.CargoTargetBinDir)\gitforge-update-helper.exe'
+                KeyPath='no' />
+            </Component>
+
+            <Component Id='ProgramMenuDir' Guid='B2C3D4E5-F6A7-4B5C-AD9E-8F1A2B3C4D5E' Win64='yes'>
+              <Shortcut
+                Id='StartMenuShortcut'
+                Name='GitForge'
+                WorkingDirectory='INSTALLFOLDER'
+                Directory='ProgramMenuFolder'
+                Target='[INSTALLFOLDER]gitforge.exe'
+                Show='normal' />
+              <RemoveFolder Id='StartMenuShortcut' On='uninstall' />
+              <RegistryValue
+                Root='HKCU'
+                Key='Software\GitForge\GitForge'
+                Name='Shortcut'
+                Type='integer'
+                Value='1'
+                KeyPath='yes' />
+            </Component>
+          </Directory>
+        </Directory>
+      </Directory>
+
+      <Directory Id='ProgramMenuFolder' />
+    </Directory>
+
+    <Feature
+      Id='Complete'
+      Title='GitForge'
+      Description='The complete package.'
+      Display='expand'
+      Level='1'
+      ConfigurableDirectory='INSTALLFOLDER'>
+      <Feature Id='MainProgram' Title='GitForge' Description='Main executable' Level='1'>
+        <ComponentRef Id='MainBinary' />
+        <ComponentRef Id='UpdateHelper' />
+        <ComponentRef Id='ProgramMenuDir' />
+      </Feature>
+    </Feature>
+
+    <Property Id='ARPHELPLINK' Value='https://github.com/b0red04/gitforge' />
+    <Property Id='WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT' Value='Launch GitForge' />
+    <Property Id='WIXUI_EXITDIALOGOPTIONALCHECKBOX' Value='1' />
+    <Property Id='WixShellExecTarget' Value='[INSTALLFOLDER]gitforge.exe' />
+    <CustomAction Id='LaunchGitForge' BinaryKey='WixCA' DllEntry='WixShellExec' Impersonate='yes' />
+    <InstallExecuteSequence>
+      <Custom Action='LaunchGitForge' After='InstallFinalize'>&amp;MainBinary=3</Custom>
+    </InstallExecuteSequence>
+    <UI>
+      <UIRef Id='WixUI_Minimal' />
+    </UI>
+  </Product>
+</Wix>

@@ -1407,7 +1407,7 @@ fn render_content(
                 .hover(|s| s.bg(rgba_to_hsla(colors.surface_high)))
                 .on_click(move |_ev, _window, cx| {
                     let path = AppSettings::settings_path();
-                    let _ = std::process::Command::new("xdg-open").arg(&path).spawn();
+                    crate::platform::open(&path);
                     if let Some(e) = ent_json.upgrade() {
                         e.update(cx, |_, cx| cx.notify());
                     }
@@ -1501,9 +1501,7 @@ fn render_content(
             pat_error,
             window,
         ),
-        SettingsSection::About => {
-            render_about_section(section_body, draft, colors, entity.clone())
-        }
+        SettingsSection::About => render_about_section(section_body, draft, colors, entity.clone()),
     };
 
     div()

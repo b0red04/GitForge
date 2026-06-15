@@ -144,33 +144,74 @@ pub struct ToolSettings {
 fn default_editor_command() -> String {
     std::env::var("EDITOR")
         .or_else(|_| std::env::var("VISUAL"))
-        .unwrap_or_else(|_| "xdg-open".into())
+        .unwrap_or_else(|_| default_editor_command_for_platform().to_string())
+}
+
+fn default_editor_command_for_platform() -> &'static str {
+    #[cfg(target_os = "windows")]
+    {
+        "notepad"
+    }
+    #[cfg(target_os = "macos")]
+    {
+        "open"
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        "xdg-open"
+    }
 }
 
 fn default_terminal_command() -> String {
-    std::env::var("TERMINAL").unwrap_or_else(|_| {
-        for cmd in &[
-            "alacritty",
-            "kitty",
-            "wezterm",
-            "gnome-terminal",
-            "konsole",
-            "xterm",
-        ] {
-            if which_exists(cmd) {
-                return cmd.to_string();
-            }
+    std::env::var("TERMINAL").unwrap_or_else(|_| default_terminal_command_for_platform())
+}
+
+fn default_terminal_command_for_platform() -> String {
+    let candidates: &[&str] = {
+        #[cfg(target_os = "windows")]
+        {
+            &["wt", "cmd"]
         }
-        "xterm".into()
-    })
+        #[cfg(all(unix, not(target_os = "macos")))]
+        {
+            &[
+                "alacritty",
+                "kitty",
+                "wezterm",
+                "gnome-terminal",
+                "konsole",
+                "xterm",
+            ]
+        }
+        #[cfg(target_os = "macos")]
+        {
+            &["Terminal"]
+        }
+    };
+    let fallback = {
+        #[cfg(target_os = "windows")]
+        {
+            "cmd"
+        }
+        #[cfg(all(unix, not(target_os = "macos")))]
+        {
+            "xterm"
+        }
+        #[cfg(target_os = "macos")]
+        {
+            "Terminal"
+        }
+    };
+    candidates
+        .iter()
+        .find(|c| which_exists(c))
+        .copied()
+        .unwrap_or(fallback)
+        .to_string()
 }
 
 fn which_exists(cmd: &str) -> bool {
-    std::process::Command::new("which")
-        .arg(cmd)
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+    which::which(cmd).is_ok()
 }
 
 impl Default for ToolSettings {

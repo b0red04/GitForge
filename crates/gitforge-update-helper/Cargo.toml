@@ -1,0 +1,17 @@
+[package]
+name = "gitforge-update-helper"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "gitforge-update-helper"
+path = "src/main.rs"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+anyhow.workspace = true
+scopeguard.workspace = true
+windows = { version = "0.61", features = [
+    "Win32_System_RestartManager",
+    "Win32_Foundation",
+] }

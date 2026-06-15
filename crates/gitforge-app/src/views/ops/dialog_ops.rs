@@ -151,6 +151,6 @@ impl GitForgeApp {
     }
 
     pub fn open_in_file_manager(&mut self, path: std::path::PathBuf, _cx: &mut Context<Self>) {
-        let _ = std::process::Command::new("xdg-open").arg(&path).spawn();
+        crate::platform::open(&path);
     }
 }

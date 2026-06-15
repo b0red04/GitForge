@@ -230,7 +230,17 @@ fn user_themes_dir() -> PathBuf {
 }
 
 fn system_themes_dir() -> PathBuf {
-    PathBuf::from("/usr/share/gitforge/themes")
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        PathBuf::from("/usr/share/gitforge/themes")
+    }
+    #[cfg(not(all(unix, not(target_os = "macos"))))]
+    {
+        dirs::data_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("gitforge")
+            .join("themes")
+    }
 }
 
 fn load_user_theme(name: &str) -> Option<Theme> {

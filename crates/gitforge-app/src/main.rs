@@ -1,4 +1,5 @@
 mod assets;
+mod platform;
 mod views;
 
 use gpui::*;

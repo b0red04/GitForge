@@ -1,4 +1,4 @@
-use std::env::consts::ARCH;
+use std::env::consts::{ARCH, OS};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -14,6 +14,9 @@ use crate::github::{
     ReleaseAsset, fetch_latest_release, is_newer_version, make_http_client, select_checksum_url,
     verify_downloaded_checksum,
 };
+#[cfg(target_os = "windows")]
+use crate::install::install_release_windows;
+#[cfg(not(target_os = "windows"))]
 use crate::install::{install_release_linux, linux_rsync_install_hint};
 
 const POLL_INTERVAL: Duration = Duration::from_secs(60 * 60);
@@ -95,6 +98,8 @@ pub struct AutoUpdater {
     pending_poll: Option<Task<Option<()>>>,
     polling_task: Option<Task<Result<()>>>,
     update_check_type: UpdateCheckType,
+    #[cfg(target_os = "windows")]
+    _quit_subscription: gpui::Subscription,
 }
 
 #[derive(Default)]
@@ -122,6 +127,10 @@ pub fn init(cx: &mut App) {
         pending_poll: None,
         polling_task: None,
         update_check_type: UpdateCheckType::Automatic,
+        #[cfg(target_os = "windows")]
+        _quit_subscription: _cx.on_app_quit(|_this, _cx| async {
+            crate::install::finalize_auto_update_on_quit();
+        }),
     });
     cx.set_global(GlobalAutoUpdate(Some(auto_updater)));
     cx.set_global(GlobalUpdateState(std::collections::HashMap::new()));
@@ -319,7 +328,7 @@ impl AutoUpdater {
         });
 
         let release = fetch_latest_release(&http_client).await?;
-        let asset = crate::github::select_update_asset(&release, ARCH)?;
+        let asset = crate::github::select_update_asset(&release, OS, ARCH)?;
         let newer_version = Self::check_if_fetched_version_is_newer(
             &installed_version,
             &asset.version,
@@ -349,13 +358,18 @@ impl AutoUpdater {
             .prefix("gitforge-auto-update")
             .tempdir()
             .context("failed to create installer dir")?;
-        let target_path = installer_dir.path().join("gitforge.tar.gz");
+        let archive_name = if cfg!(target_os = "windows") {
+            "gitforge-update.zip"
+        } else {
+            "gitforge.tar.gz"
+        };
+        let target_path = installer_dir.path().join(archive_name);
         download_release(&target_path, &asset, &http_client)
             .await
             .with_context(|| format!("failed to download update to {}", target_path.display()))?;
         verify_downloaded_checksum(
             &target_path,
-            select_checksum_url(&release, ARCH)?,
+            select_checksum_url(&release, OS, ARCH)?,
             &http_client,
         )
         .await
@@ -369,7 +383,7 @@ impl AutoUpdater {
         });
 
         let running_app_path = cx.update(|cx| cx.app_path())??;
-        let new_binary_path = install_release_linux(&target_path, running_app_path)
+        let new_binary_path = install_release(&target_path, running_app_path)
             .await
             .with_context(|| format!("failed to install update at: {}", target_path.display()))?;
 
@@ -405,14 +419,34 @@ impl AutoUpdater {
     }
 
     fn check_dependencies() -> Result<()> {
-        if which::which("rsync").is_err() {
-            let install_hint = linux_rsync_install_hint();
-            return Err(MissingDependencyError(format!(
-                "rsync is required for auto-updates but is not installed. {install_hint}"
-            ))
-            .into());
+        #[cfg(not(target_os = "windows"))]
+        {
+            if which::which("rsync").is_err() {
+                let install_hint = linux_rsync_install_hint();
+                return Err(MissingDependencyError(format!(
+                    "rsync is required for auto-updates but is not installed. {install_hint}"
+                ))
+                .into());
+            }
         }
         Ok(())
+    }
+}
+
+/// Dispatches to the platform-specific installer. On Linux this calls
+/// `install_release_linux` (tarball + rsync); on Windows it calls
+/// `install_release_windows` (zip extraction + helper swap).
+async fn install_release(
+    downloaded_archive: &std::path::Path,
+    running_app_path: PathBuf,
+) -> Result<Option<PathBuf>> {
+    #[cfg(target_os = "windows")]
+    {
+        install_release_windows(downloaded_archive, running_app_path).await
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        install_release_linux(downloaded_archive, running_app_path).await
     }
 }
 

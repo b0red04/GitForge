@@ -8,7 +8,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  release:
+  linux:
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -46,7 +46,7 @@ jobs:
           cd target/release
           sha256sum gitforge > gitforge.sha256
 
-      - name: Create GitHub Release
+      - name: Upload Linux assets
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           files: |
@@ -54,6 +54,61 @@ jobs:
             target/release/gitforge.sha256
             GitForge-*.tar.gz
             GitForge-*.tar.gz.sha256
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref, '-rc') || contains(github.ref, '-beta') || contains(github.ref, '-alpha') }}
+
+  windows:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build release binaries
+        run: cargo build -p gitforge-app -p gitforge-update-helper --release
+
+      - name: Install cargo-wix
+        run: cargo install cargo-wix
+
+      - name: Build MSI
+        run: cargo wix -p gitforge-app --nocapture
+
+      - name: Build update zip
+        shell: pwsh
+        run: pwsh scripts/build-windows-zip.ps1 -Version "${{ github.ref_name }}"
+
+      - name: Rename MSI to release asset convention
+        shell: pwsh
+        run: |
+          $Version = "${{ github.ref_name }}" -replace '^v', ''
+          $Arch = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "aarch64" } else { "x86_64" }
+          $Src = Get-ChildItem "target/wix/gitforge-*.msi" | Select-Object -First 1
+          if (-not $Src) { throw "MSI not found in target/wix" }
+          $Dst = "GitForge-$Version-windows-$Arch.msi"
+          Copy-Item $Src.FullName $Dst
+          $Hash = (Get-FileHash $Dst -Algorithm SHA256).Hash.ToLower()
+          "$Hash  $Dst" | Out-File -Encoding ascii -FilePath "$Dst.sha256"
+
+      - name: Compute zip checksum
+        shell: pwsh
+        run: |
+          # build-windows-zip.ps1 already writes the .sha256 next to the zip;
+          # this step is a no-op confirmation that the file exists.
+          Get-ChildItem "GitForge-*-windows-*.zip.sha256" | Select-Object -ExpandProperty Name
+
+      - name: Upload Windows assets
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          files: |
+            GitForge-*-windows-*.zip
+            GitForge-*-windows-*.zip.sha256
+            GitForge-*-windows-*.msi
+            GitForge-*-windows-*.msi.sha256
           generate_release_notes: true
           draft: false
           prerelease: ${{ contains(github.ref, '-rc') || contains(github.ref, '-beta') || contains(github.ref, '-alpha') }}

@@ -8,7 +8,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
+  linux:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -38,6 +38,30 @@ jobs:
 
       - name: Build
         run: cargo build -p gitforge-app --release
+
+      - name: Run tests
+        run: cargo test --workspace
+
+      - name: Clippy
+        run: cargo clippy --workspace -- -D warnings
+
+      - name: Check formatting
+        run: cargo fmt --check --all
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-targets: true
+          cache-on-failure: true
+
+      - name: Build
+        run: cargo build -p gitforge-app -p gitforge-update-helper --release
 
       - name: Run tests
         run: cargo test --workspace

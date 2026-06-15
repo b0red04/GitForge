@@ -8,6 +8,10 @@ license.workspace = true
 name = "gitforge"
 path = "src/main.rs"
 
+[package.metadata.wix]
+name = "GitForge"
+manufacturer = "GitForge"
+
 [package.metadata.deb]
 name = "gitforge"
 maintainer = "Jason <jason@gitforge.dev>"
@@ -43,3 +47,4 @@ serde_json.workspace = true
 dirs.workspace = true
 rfd = "0.15"
 anyhow.workspace = true
+which.workspace = true

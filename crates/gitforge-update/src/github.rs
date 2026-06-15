@@ -39,9 +39,9 @@ pub fn tag_to_version(tag_name: &str) -> Result<Version> {
         .with_context(|| format!("invalid release tag version: {tag_name}"))
 }
 
-pub fn select_update_asset(release: &GitHubRelease, arch: &str) -> Result<ReleaseAsset> {
+pub fn select_update_asset(release: &GitHubRelease, os: &str, arch: &str) -> Result<ReleaseAsset> {
     let version = tag_to_version(&release.tag_name)?;
-    let expected_name = tarball_asset_name(&version, arch);
+    let expected_name = update_asset_name(os, &version, arch);
     let asset = release
         .assets
         .iter()
@@ -53,8 +53,18 @@ pub fn select_update_asset(release: &GitHubRelease, arch: &str) -> Result<Releas
     })
 }
 
-pub fn tarball_asset_name(version: &Version, arch: &str) -> String {
-    format!("GitForge-{version}-{arch}.tar.gz")
+/// Returns the release asset filename for the given OS/arch/version.
+///
+/// Naming is intentionally asymmetric for backward compatibility:
+/// - **Linux** uses the legacy name without an OS segment (`GitForge-{version}-{arch}.tar.gz`)
+///   so that deployed auto-update clients continue to find their asset.
+/// - **Windows** uses an OS-segmented name with a `.zip` extension
+///   (`GitForge-{version}-windows-{arch}.zip`).
+pub fn update_asset_name(os: &str, version: &Version, arch: &str) -> String {
+    match os {
+        "windows" => format!("GitForge-{version}-windows-{arch}.zip"),
+        _ => format!("GitForge-{version}-{arch}.tar.gz"),
+    }
 }
 
 pub fn normalize_installed_version(mut version: Version) -> Version {
@@ -69,13 +79,13 @@ pub fn is_newer_version(installed: &Version, fetched: &Version) -> bool {
     fetched > installed
 }
 
-pub fn checksum_asset_name(version: &Version, arch: &str) -> String {
-    format!("{}.sha256", tarball_asset_name(version, arch))
+pub fn update_checksum_name(os: &str, version: &Version, arch: &str) -> String {
+    format!("{}.sha256", update_asset_name(os, version, arch))
 }
 
-pub fn select_checksum_url(release: &GitHubRelease, arch: &str) -> Result<String> {
+pub fn select_checksum_url(release: &GitHubRelease, os: &str, arch: &str) -> Result<String> {
     let version = tag_to_version(&release.tag_name)?;
-    let expected_name = checksum_asset_name(&version, arch);
+    let expected_name = update_checksum_name(os, &version, arch);
     release
         .assets
         .iter()
@@ -170,6 +180,14 @@ mod tests {
       {
         "name": "GitForge-1.2.3-x86_64.tar.gz.sha256",
         "browser_download_url": "https://example.com/GitForge-1.2.3-x86_64.tar.gz.sha256"
+      },
+      {
+        "name": "GitForge-1.2.3-windows-x86_64.zip",
+        "browser_download_url": "https://example.com/GitForge-1.2.3-windows-x86_64.zip"
+      },
+      {
+        "name": "GitForge-1.2.3-windows-x86_64.zip.sha256",
+        "browser_download_url": "https://example.com/GitForge-1.2.3-windows-x86_64.zip.sha256"
       }
     ]
   }"#;
@@ -178,13 +196,13 @@ mod tests {
     fn parses_release_json() {
         let release = parse_release(FIXTURE).unwrap();
         assert_eq!(release.tag_name, "v1.2.3");
-        assert_eq!(release.assets.len(), 3);
+        assert_eq!(release.assets.len(), 5);
     }
 
     #[test]
-    fn selects_arch_specific_asset() {
+    fn selects_linux_asset_with_legacy_name() {
         let release = parse_release(FIXTURE).unwrap();
-        let asset = select_update_asset(&release, "x86_64").unwrap();
+        let asset = select_update_asset(&release, "linux", "x86_64").unwrap();
         assert_eq!(asset.version, Version::new(1, 2, 3));
         assert_eq!(
             asset.url,
@@ -193,12 +211,51 @@ mod tests {
     }
 
     #[test]
-    fn selects_checksum_url() {
+    fn selects_windows_asset() {
         let release = parse_release(FIXTURE).unwrap();
-        let checksum_url = select_checksum_url(&release, "x86_64").unwrap();
+        let asset = select_update_asset(&release, "windows", "x86_64").unwrap();
+        assert_eq!(asset.version, Version::new(1, 2, 3));
+        assert_eq!(
+            asset.url,
+            "https://example.com/GitForge-1.2.3-windows-x86_64.zip"
+        );
+    }
+
+    #[test]
+    fn selects_linux_checksum_url() {
+        let release = parse_release(FIXTURE).unwrap();
+        let checksum_url = select_checksum_url(&release, "linux", "x86_64").unwrap();
         assert_eq!(
             checksum_url,
             "https://example.com/GitForge-1.2.3-x86_64.tar.gz.sha256"
+        );
+    }
+
+    #[test]
+    fn selects_windows_checksum_url() {
+        let release = parse_release(FIXTURE).unwrap();
+        let checksum_url = select_checksum_url(&release, "windows", "x86_64").unwrap();
+        assert_eq!(
+            checksum_url,
+            "https://example.com/GitForge-1.2.3-windows-x86_64.zip.sha256"
+        );
+    }
+
+    #[test]
+    fn linux_asset_name_has_no_os_segment() {
+        let v = Version::new(1, 2, 3);
+        assert_eq!(
+            update_asset_name("linux", &v, "x86_64"),
+            "GitForge-1.2.3-x86_64.tar.gz"
+        );
+    }
+
+    #[test]
+    fn windows_asset_name_has_os_segment_and_zip() {
+        let v = Version::new(1, 2, 3);
+        assert_eq!(
+            update_asset_name("windows", &v, "x86_64"),
+            "GitForge-1.2.3-windows-x86_64.zip"
         );
     }
 

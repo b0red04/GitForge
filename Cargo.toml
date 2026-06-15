@@ -9,6 +9,7 @@ members = [
     "crates/gitforge-ai",
     "crates/gitforge-syntax",
     "crates/gitforge-update",
+    "crates/gitforge-update-helper",
 ]
 resolver = "2"
 
@@ -56,3 +57,5 @@ semver = "1"
 sha2 = "0.10"
 tempfile = "3"
 which = "7"
+scopeguard = "1.2"
+zip = "2"

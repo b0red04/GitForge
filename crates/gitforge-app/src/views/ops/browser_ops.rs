@@ -4,7 +4,7 @@ use crate::views::app::GitForgeApp;
 
 impl GitForgeApp {
     pub fn open_in_browser(&mut self, url: String) {
-        let _ = std::process::Command::new("xdg-open").arg(&url).spawn();
+        crate::platform::open(&url);
     }
 
     pub fn open_repo_in_browser(&mut self, _cx: &mut Context<Self>) {

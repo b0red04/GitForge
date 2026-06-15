@@ -9,6 +9,7 @@ path = "src/lib.rs"
 
 [dependencies]
 anyhow.workspace = true
+dirs.workspace = true
 gpui.workspace = true
 reqwest.workspace = true
 semver.workspace = true
@@ -19,3 +20,6 @@ tempfile.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 which.workspace = true
+
+[target.'cfg(target_os = "windows")'.dependencies]
+zip.workspace = true
