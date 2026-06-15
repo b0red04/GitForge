@@ -1,6 +1,9 @@
 use gitforge_diff::FileDiff;
 use gitforge_git::BlameLine;
-use gitforge_ui::{AppColors, rgba_to_hsla};
+use gitforge_ui::{
+    AppColors, ButtonKind, ButtonSize, WidgetColors, action_button, empty_state, entity_on_click,
+    primary_button, rgba_to_hsla,
+};
 use gpui::*;
 use std::ops::Range;
 use std::rc::Rc;
@@ -256,6 +259,7 @@ impl DiffViewer {
 pub fn render_binary_or_lfs(diff: &FileDiff, path_label: &str, colors: &AppColors) -> Option<Div> {
     let muted = rgba_to_hsla(colors.text_muted);
     let accent = rgba_to_hsla(colors.accent);
+    let wc = WidgetColors::from_app(colors);
 
     if diff.is_binary {
         let ext = path_label.rsplit('.').next().unwrap_or("").to_lowercase();
@@ -282,12 +286,7 @@ pub fn render_binary_or_lfs(diff: &FileDiff, path_label: &str, colors: &AppColor
                         .child("Image preview not available in this version"),
                 )
         } else {
-            div().flex_1().flex().items_center().justify_center().child(
-                div()
-                    .text_sm()
-                    .text_color(muted)
-                    .child("Binary file (not displayed)"),
-            )
+            empty_state("Binary file (not displayed)", wc)
         });
     }
 
@@ -367,53 +366,34 @@ fn append_commit_history_header_actions(
     colors: &AppColors,
     entity: WeakEntity<super::app::GitForgeApp>,
 ) -> Div {
-    let border = rgba_to_hsla(colors.border);
-    let accent = rgba_to_hsla(colors.accent);
+    let wc = WidgetColors::from_app(colors);
     let view_path = path_label.to_string();
     let blame_path = path_label.to_string();
     let view_ent = entity.clone();
     let blame_ent = entity;
 
-    header = header.child(
-        div()
-            .id("view-file-btn")
-            .px_2()
-            .py_0()
-            .rounded(px(3.0))
-            .border_1()
-            .border_color(border)
-            .cursor_pointer()
-            .text_xs()
-            .text_color(accent)
-            .child("View File")
-            .on_click(move |_ev, _window, cx| {
-                if let Some(e) = view_ent.upgrade() {
-                    e.update(cx, |this, cx| {
-                        this.view_file_at_commit(view_path.clone(), cx);
-                    });
-                }
-            }),
-    );
-    header.child(
-        div()
-            .id("blame-file-btn")
-            .px_2()
-            .py_0()
-            .rounded(px(3.0))
-            .border_1()
-            .border_color(border)
-            .cursor_pointer()
-            .text_xs()
-            .text_color(accent)
-            .child("Blame")
-            .on_click(move |_ev, _window, cx| {
-                if let Some(e) = blame_ent.upgrade() {
-                    e.update(cx, |this, cx| {
-                        this.view_blame(blame_path.clone(), cx);
-                    });
-                }
-            }),
-    )
+    header = header.child(action_button(
+        "view-file-btn",
+        "View File",
+        ButtonKind::Accent,
+        ButtonSize::Small,
+        false,
+        entity_on_click(view_ent, move |this, cx| {
+            this.view_file_at_commit(view_path.clone(), cx);
+        }),
+        wc,
+    ));
+    header.child(action_button(
+        "blame-file-btn",
+        "Blame",
+        ButtonKind::Accent,
+        ButtonSize::Small,
+        false,
+        entity_on_click(blame_ent, move |this, cx| {
+            this.view_blame(blame_path.clone(), cx);
+        }),
+        wc,
+    ))
 }
 
 fn append_working_tree_header_actions(
@@ -425,7 +405,6 @@ fn append_working_tree_header_actions(
     entity: WeakEntity<super::app::GitForgeApp>,
 ) -> Div {
     let muted = rgba_to_hsla(colors.text_muted);
-    let accent = rgba_to_hsla(colors.accent);
 
     if has_line_selection {
         let label = if is_staged {
@@ -434,30 +413,21 @@ fn append_working_tree_header_actions(
             "Stage Lines"
         };
         let lines_ent = entity;
-        header = header.child(
-            div()
-                .id("stage-lines-btn")
-                .px_2()
-                .py_0()
-                .rounded(px(3.0))
-                .bg(accent)
-                .cursor_pointer()
-                .text_xs()
-                .text_color(rgba_to_hsla(colors.background))
-                .font_weight(FontWeight::SEMIBOLD)
-                .child(label.to_string())
-                .on_click(move |_ev, _window, cx| {
-                    if let Some(e) = lines_ent.upgrade() {
-                        e.update(cx, |this, cx| {
-                            if is_staged {
-                                this.unstage_selected_lines(cx);
-                            } else {
-                                this.stage_selected_lines(cx);
-                            }
-                        });
-                    }
-                }),
-        );
+        let stage_label = label.to_string();
+        header = header.child(primary_button(
+            "stage-lines-btn",
+            stage_label,
+            ButtonSize::Small,
+            false,
+            entity_on_click(lines_ent, move |this, cx| {
+                if is_staged {
+                    this.unstage_selected_lines(cx);
+                } else {
+                    this.stage_selected_lines(cx);
+                }
+            }),
+            WidgetColors::from_app(colors),
+        ));
     }
 
     header.child(div().text_xs().text_color(muted).child(section_label))
@@ -588,7 +558,7 @@ fn render_code_view(
     let muted = rgba_to_hsla(colors.text_muted);
     let text_color = rgba_to_hsla(colors.text);
     let surface = rgba_to_hsla(colors.surface);
-    let accent = rgba_to_hsla(colors.accent);
+    let wc = WidgetColors::from_app(colors);
 
     let Some(content_owned) = content.map(String::from) else {
         return div()
@@ -635,25 +605,16 @@ fn render_code_view(
         )
         .child({
             let back_ent = entity.clone();
-            div()
-                .id("back-to-diff-btn")
-                .ml_2()
-                .px_2()
-                .py_0()
-                .rounded(px(3.0))
-                .border_1()
-                .border_color(border)
-                .cursor_pointer()
-                .text_xs()
-                .text_color(accent)
-                .child("Back to Diff")
-                .on_click(move |_ev, _window, cx| {
-                    if let Some(e) = back_ent.upgrade() {
-                        e.update(cx, |this, cx| {
-                            this.back_to_diff_mode(cx);
-                        });
-                    }
-                })
+            action_button(
+                "back-to-diff-btn",
+                "Back to Diff",
+                ButtonKind::Accent,
+                ButtonSize::Small,
+                false,
+                entity_on_click(back_ent, |this, cx| this.back_to_diff_mode(cx)),
+                wc,
+            )
+            .ml_2()
         });
 
     let code_lines = uniform_list(
@@ -733,7 +694,7 @@ fn render_blame_view(
     let muted = rgba_to_hsla(colors.text_muted);
     let text_color = rgba_to_hsla(colors.text);
     let surface = rgba_to_hsla(colors.surface);
-    let accent = rgba_to_hsla(colors.accent);
+    let wc = WidgetColors::from_app(colors);
 
     let total_lines = blame_lines.len();
     let lines_data = blame_lines.to_vec();
@@ -757,25 +718,16 @@ fn render_blame_view(
         .child(div().flex_1())
         .child(div().text_xs().text_color(muted).child("BLAME"))
         .child({
-            div()
-                .id("back-to-diff-from-blame")
-                .ml_2()
-                .px_2()
-                .py_0()
-                .rounded(px(3.0))
-                .border_1()
-                .border_color(border)
-                .cursor_pointer()
-                .text_xs()
-                .text_color(accent)
-                .child("Back to Diff")
-                .on_click(move |_ev, _window, cx| {
-                    if let Some(e) = back_ent.upgrade() {
-                        e.update(cx, |this, cx| {
-                            this.back_to_diff_mode(cx);
-                        });
-                    }
-                })
+            action_button(
+                "back-to-diff-from-blame",
+                "Back to Diff",
+                ButtonKind::Accent,
+                ButtonSize::Small,
+                false,
+                entity_on_click(back_ent, |this, cx| this.back_to_diff_mode(cx)),
+                wc,
+            )
+            .ml_2()
         });
 
     let blame_rows = uniform_list(
@@ -875,7 +827,7 @@ fn render_blame_view(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::DiffViewMode;
 
     #[test]
     fn view_mode_tag_is_stable_and_distinct() {

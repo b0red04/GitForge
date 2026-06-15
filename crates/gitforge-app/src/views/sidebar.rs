@@ -1,7 +1,8 @@
 use gitforge_git::{RefInfo, RefKind, RepoState, WorktreeInfo};
 use gitforge_ui::{
-    AppColors, TextInput, TextInputEvent, TextInputRenderOpts, parse_key_event, render_text_input,
-    rgba_to_hsla,
+    AppColors, TextInput, TextInputEvent, TextInputRenderOpts, WidgetColors,
+    collapsible_header, entity_on_click, entity_on_click_stop_propagation, ghost_button,
+    parse_key_event, render_text_input, rgba_to_hsla,
 };
 use gpui::*;
 use std::collections::HashSet;
@@ -444,20 +445,12 @@ pub fn render_sidebar(
                 )
                 .child({
                     let ent = entity.clone();
-                    div()
-                        .id("sidebar-accounts-manage")
-                        .px_1()
-                        .cursor_pointer()
-                        .text_xs()
-                        .text_color(accent)
-                        .child("Manage")
-                        .on_click(move |_ev, _window, cx| {
-                            if let Some(e) = ent.upgrade() {
-                                e.update(cx, |this, cx| {
-                                    this.open_manage_accounts_dialog(cx);
-                                });
-                            }
-                        })
+                    ghost_button(
+                        "sidebar-accounts-manage",
+                        "Manage",
+                        accent,
+                        entity_on_click(ent, |this, cx| this.open_manage_accounts_dialog(cx)),
+                    )
                 }),
         );
 
@@ -574,41 +567,20 @@ fn render_collapsible_section(
     entity: WeakEntity<super::app::GitForgeApp>,
     toggle: SectionToggle,
 ) -> Stateful<Div> {
-    let border = rgba_to_hsla(colors.border);
-    let muted = rgba_to_hsla(colors.text_muted);
-    let surface_high = rgba_to_hsla(colors.surface_high);
-    let arrow = if expanded { "▾" } else { "▸" };
-
-    div()
-        .id(ElementId::Name(id.into()))
-        .px_2()
-        .py_1()
-        .border_b_1()
-        .border_color(border)
-        .bg(surface_high)
-        .flex()
-        .items_center()
-        .gap_1()
-        .cursor_pointer()
-        .on_click(move |_ev, _window, cx| {
-            if let Some(e) = entity.upgrade() {
-                e.update(cx, |this, cx| match &toggle {
-                    SectionToggle::Branches => this.toggle_sidebar_branches(cx),
-                    SectionToggle::Remotes => this.toggle_sidebar_remotes(cx),
-                    SectionToggle::Tags => this.toggle_sidebar_tags(cx),
-                    SectionToggle::Worktrees => this.toggle_sidebar_worktrees(cx),
-                    SectionToggle::Remote(name) => this.toggle_sidebar_remote(name.clone(), cx),
-                });
-            }
-        })
-        .child(div().text_xs().text_color(muted).child(arrow))
-        .child(
-            div()
-                .text_xs()
-                .font_weight(FontWeight::BOLD)
-                .text_color(muted)
-                .child(title),
-        )
+    collapsible_header(
+        ElementId::Name(id.into()),
+        &title,
+        expanded,
+        None,
+        entity_on_click(entity, move |this, cx| match &toggle {
+            SectionToggle::Branches => this.toggle_sidebar_branches(cx),
+            SectionToggle::Remotes => this.toggle_sidebar_remotes(cx),
+            SectionToggle::Tags => this.toggle_sidebar_tags(cx),
+            SectionToggle::Worktrees => this.toggle_sidebar_worktrees(cx),
+            SectionToggle::Remote(name) => this.toggle_sidebar_remote(name.clone(), cx),
+        }),
+        WidgetColors::from_app(colors),
+    )
 }
 
 fn render_ref_item(
@@ -1022,23 +994,14 @@ fn render_pull_requests_header(
                 .child(format!("PULL REQUESTS ({count})")),
         )
         .child(div().flex_1())
-        .child(
-            div()
-                .id("sidebar-create-pr")
-                .px_1()
-                .cursor_pointer()
-                .text_xs()
-                .text_color(accent)
-                .child("+")
-                .on_click(move |_ev, _window, cx| {
-                    cx.stop_propagation();
-                    if let Some(e) = ent_create.upgrade() {
-                        e.update(cx, |this, cx| {
-                            this.open_create_pr_dialog(cx);
-                        });
-                    }
-                }),
-        )
+        .child(ghost_button(
+            "sidebar-create-pr",
+            "+",
+            accent,
+            entity_on_click_stop_propagation(ent_create, |this, cx| {
+                this.open_create_pr_dialog(cx)
+            }),
+        ))
 }
 
 fn render_pull_request_hint(hint: super::ops::pr_ops::PullRequestSidebarHint, muted: Hsla) -> Div {

@@ -1,5 +1,5 @@
 use gitforge_git::{RefKind, RepoState};
-use gitforge_ui::{AppColors, rgba_to_hsla};
+use gitforge_ui::{AppColors, rgba_to_hsla, window_control_button};
 use gpui::*;
 
 use super::commands::{MenuEntries, MenuEntry, TitlebarMenu, titlebar_menu_entries};
@@ -166,39 +166,6 @@ fn repo_breadcrumb_with_selector(
             dropdown_open,
             entity,
         ))
-}
-
-fn window_control_button(
-    id: impl Into<ElementId>,
-    icon_path: &'static str,
-    icon_color: Hsla,
-    icon_hover: Hsla,
-    hover_bg: Hsla,
-    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-) -> Stateful<Div> {
-    div()
-        .id(id.into())
-        .group("")
-        .flex()
-        .items_center()
-        .justify_center()
-        .w(px(20.0))
-        .h(px(20.0))
-        .rounded(px(10.0))
-        .cursor_pointer()
-        .hover(|s| s.bg(hover_bg))
-        .active(|s| s.bg(hover_bg))
-        .child(
-            svg()
-                .flex_none()
-                .size(px(16.0))
-                .path(icon_path)
-                .text_color(icon_color)
-                .group_hover("", |s| s.text_color(icon_hover)),
-        )
-        .on_click(on_click)
-        .on_mouse_move(|_, _, cx| cx.stop_propagation())
-        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
 }
 
 fn render_window_controls(

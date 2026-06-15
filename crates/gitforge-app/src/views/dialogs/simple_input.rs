@@ -246,8 +246,6 @@ pub fn render(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn clone_repo_input_requires_url_and_path() {
         let parts: Vec<&str> = "https://example.com/repo".splitn(2, ' ').collect();

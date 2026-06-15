@@ -1,6 +1,10 @@
 use gitforge_diff::FileDiff;
 use gitforge_git::{DiffStat, FileEntry, FileStatus, RepoState, RepoStatus};
-use gitforge_ui::{AppColors, rgba_to_hsla};
+use gitforge_ui::{
+    AppColors, ButtonKind, ButtonSize, HeaderBorder, HeaderPadding, IconSize, ShellWidth,
+    WidgetColors, action_button, empty_state, empty_state_with_bg, entity_on_click, icon_button,
+    panel_shell, primary_button, rgba_to_hsla, section_header,
+};
 use gpui::*;
 use std::ops::Range;
 use std::path::Path;
@@ -162,6 +166,7 @@ impl StatusPanel {
         let surface = rgba_to_hsla(colors.surface);
         let border = rgba_to_hsla(colors.border);
         let muted = rgba_to_hsla(colors.text_muted);
+        let wc = WidgetColors::from_app(colors);
 
         let header = div()
             .px_3()
@@ -226,14 +231,9 @@ impl StatusPanel {
                     }
                 }
             }
-            _ => status_panel_shell(surface).child(header).child(
-                div().flex_1().flex().items_center().justify_center().child(
-                    div()
-                        .text_sm()
-                        .text_color(muted)
-                        .child("No uncommitted changes"),
-                ),
-            ),
+            _ => status_panel_shell(surface)
+                .child(header)
+                .child(empty_state("No uncommitted changes", wc)),
         };
 
         panel
@@ -250,8 +250,8 @@ impl StatusPanel {
     ) -> Div {
         let surface = rgba_to_hsla(colors.surface);
         let border = rgba_to_hsla(colors.border);
-        let muted = rgba_to_hsla(colors.text_muted);
         let text_color = rgba_to_hsla(colors.text);
+        let wc = WidgetColors::from_app(colors);
 
         let branch = repo_state
             .and_then(|rs| rs.head_branch.as_deref())
@@ -259,25 +259,11 @@ impl StatusPanel {
             .unwrap_or("HEAD");
 
         let Some(status) = &self.status else {
-            return status_panel_shell(surface).child(
-                div().flex_1().flex().items_center().justify_center().child(
-                    div()
-                        .text_sm()
-                        .text_color(muted)
-                        .child("No uncommitted changes"),
-                ),
-            );
+            return status_panel_shell(surface).child(empty_state("No uncommitted changes", wc));
         };
 
         if !status.has_changes() {
-            return status_panel_shell(surface).child(
-                div().flex_1().flex().items_center().justify_center().child(
-                    div()
-                        .text_sm()
-                        .text_color(muted)
-                        .child("No uncommitted changes"),
-                ),
-            );
+            return status_panel_shell(surface).child(empty_state("No uncommitted changes", wc));
         }
 
         let file_count = status.changed_file_count();
@@ -302,11 +288,6 @@ impl StatusPanel {
             "Stage changes to commit".to_string()
         };
         let commit_ent = entity.clone();
-        let btn_bg = if can_commit {
-            rgba_to_hsla(colors.accent)
-        } else {
-            muted
-        };
 
         let primary_action = div()
             .px_3()
@@ -314,33 +295,20 @@ impl StatusPanel {
             .border_t_1()
             .border_color(border)
             .flex_shrink_0()
-            .child(
-                div()
-                    .id("graph-staging-commit-btn")
-                    .w_full()
-                    .py_2()
-                    .rounded(px(4.0))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .bg(btn_bg)
-                    .cursor_pointer()
-                    .text_sm()
-                    .text_color(rgba_to_hsla(colors.background))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child(commit_label)
-                    .on_click(move |_ev, _window, cx| {
-                        if let Some(e) = commit_ent.upgrade() {
-                            e.update(cx, |this, cx| {
-                                if can_commit {
-                                    this.perform_commit(false, cx);
-                                } else {
-                                    this.stage_all(cx);
-                                }
-                            });
-                        }
-                    }),
-            );
+            .child(primary_button(
+                "graph-staging-commit-btn",
+                commit_label,
+                ButtonSize::Wide,
+                !can_commit,
+                entity_on_click(commit_ent, move |this, cx| {
+                    if can_commit {
+                        this.perform_commit(false, cx);
+                    } else {
+                        this.stage_all(cx);
+                    }
+                }),
+                wc,
+            ));
 
         status_panel_shell(surface)
             .child(
@@ -374,45 +342,29 @@ impl StatusPanel {
     ) -> Stateful<Div> {
         let border = rgba_to_hsla(colors.border);
         let muted = rgba_to_hsla(colors.text_muted);
-        let accent = rgba_to_hsla(colors.accent);
+        let wc = WidgetColors::from_app(colors);
 
         if !status.staged.is_empty() {
             let unstage_ent = entity.clone();
             list = list.child(
-                div()
-                    .px_2()
-                    .py_1()
-                    .border_b_1()
-                    .border_color(border)
-                    .flex()
-                    .items_center()
-                    .child(
-                        div()
-                            .text_xs()
-                            .font_weight(FontWeight::BOLD)
-                            .text_color(muted)
-                            .child(format!("STAGED CHANGES ({})", status.staged.len())),
-                    )
-                    .child(div().flex_1())
-                    .child(
-                        div()
-                            .id("unstage-all-btn")
-                            .px_1()
-                            .rounded(px(2.0))
-                            .border_1()
-                            .border_color(border)
-                            .cursor_pointer()
-                            .text_xs()
-                            .text_color(accent)
-                            .child("-All")
-                            .on_click(move |_ev, _window, cx| {
-                                if let Some(e) = unstage_ent.upgrade() {
-                                    e.update(cx, |this, cx| {
-                                        this.unstage_all(cx);
-                                    });
-                                }
-                            }),
-                    ),
+                section_header(
+                    "staged-section",
+                    "STAGED CHANGES",
+                    HeaderPadding::Compact,
+                    HeaderBorder::Bottom,
+                    Some(status.staged.len()),
+                    wc,
+                )
+                .child(div().flex_1())
+                .child(action_button(
+                    "unstage-all-btn",
+                    "-All",
+                    ButtonKind::Accent,
+                    ButtonSize::Compact,
+                    false,
+                    entity_on_click(unstage_ent, |this, cx| this.unstage_all(cx)),
+                    wc,
+                )),
             );
             for (i, entry) in status.staged.iter().enumerate() {
                 let is_sel = self
@@ -434,41 +386,25 @@ impl StatusPanel {
         if !status.unstaged.is_empty() {
             let stage_ent = entity.clone();
             list = list.child(
-                div()
-                    .px_2()
-                    .py_1()
-                    .mt_1()
-                    .border_b_1()
-                    .border_color(border)
-                    .flex()
-                    .items_center()
-                    .child(
-                        div()
-                            .text_xs()
-                            .font_weight(FontWeight::BOLD)
-                            .text_color(muted)
-                            .child(format!("UNSTAGED CHANGES ({})", status.unstaged.len())),
-                    )
-                    .child(div().flex_1())
-                    .child(
-                        div()
-                            .id("stage-all-unstaged-btn")
-                            .px_1()
-                            .rounded(px(2.0))
-                            .border_1()
-                            .border_color(border)
-                            .cursor_pointer()
-                            .text_xs()
-                            .text_color(accent)
-                            .child("+All")
-                            .on_click(move |_ev, _window, cx| {
-                                if let Some(e) = stage_ent.upgrade() {
-                                    e.update(cx, |this, cx| {
-                                        this.stage_all(cx);
-                                    });
-                                }
-                            }),
-                    ),
+                section_header(
+                    "unstaged-section",
+                    "UNSTAGED CHANGES",
+                    HeaderPadding::Compact,
+                    HeaderBorder::Bottom,
+                    Some(status.unstaged.len()),
+                    wc,
+                )
+                .mt_1()
+                .child(div().flex_1())
+                .child(action_button(
+                    "stage-all-unstaged-btn",
+                    "+All",
+                    ButtonKind::Accent,
+                    ButtonSize::Compact,
+                    false,
+                    entity_on_click(stage_ent, |this, cx| this.stage_all(cx)),
+                    wc,
+                )),
             );
             for (i, entry) in status.unstaged.iter().enumerate() {
                 let is_sel = self
@@ -490,41 +426,25 @@ impl StatusPanel {
         if !status.untracked.is_empty() {
             let stage_ent = entity.clone();
             list = list.child(
-                div()
-                    .px_2()
-                    .py_1()
-                    .mt_1()
-                    .border_b_1()
-                    .border_color(border)
-                    .flex()
-                    .items_center()
-                    .child(
-                        div()
-                            .text_xs()
-                            .font_weight(FontWeight::BOLD)
-                            .text_color(muted)
-                            .child(format!("Untracked ({})", status.untracked.len())),
-                    )
-                    .child(div().flex_1())
-                    .child(
-                        div()
-                            .id("stage-all-untracked-btn")
-                            .px_1()
-                            .rounded(px(2.0))
-                            .border_1()
-                            .border_color(border)
-                            .cursor_pointer()
-                            .text_xs()
-                            .text_color(accent)
-                            .child("+All")
-                            .on_click(move |_ev, _window, cx| {
-                                if let Some(e) = stage_ent.upgrade() {
-                                    e.update(cx, |this, cx| {
-                                        this.stage_all(cx);
-                                    });
-                                }
-                            }),
-                    ),
+                section_header(
+                    "untracked-section",
+                    "Untracked",
+                    HeaderPadding::Compact,
+                    HeaderBorder::Bottom,
+                    Some(status.untracked.len()),
+                    wc,
+                )
+                .mt_1()
+                .child(div().flex_1())
+                .child(action_button(
+                    "stage-all-untracked-btn",
+                    "+All",
+                    ButtonKind::Accent,
+                    ButtonSize::Compact,
+                    false,
+                    entity_on_click(stage_ent, |this, cx| this.stage_all(cx)),
+                    wc,
+                )),
             );
             for (i, entry) in status.untracked.iter().enumerate() {
                 let is_sel = self
@@ -688,31 +608,24 @@ impl StatusPanel {
 
     fn render_placeholder(&self, colors: &AppColors) -> Div {
         let surface = rgba_to_hsla(colors.surface);
-        let muted = rgba_to_hsla(colors.text_muted);
-        div()
-            .flex_1()
-            .h_full()
-            .bg(surface)
-            .flex()
-            .items_center()
-            .justify_center()
-            .child(
-                div()
-                    .text_sm()
-                    .text_color(muted)
-                    .child("Select a file to view changes"),
-            )
+        empty_state_with_bg(
+            "Select a file to view changes",
+            surface,
+            WidgetColors::from_app(colors),
+        )
+        .h_full()
     }
 }
 
 fn status_panel_shell(surface: Hsla) -> Div {
-    div()
-        .w_full()
-        .h_full()
-        .min_w(px(RIGHT_MIN_WIDTH))
-        .bg(surface)
-        .flex()
-        .flex_col()
+    panel_shell(
+        ShellWidth::Flexible {
+            min_w: px(RIGHT_MIN_WIDTH),
+        },
+        surface,
+        false,
+        false,
+    )
 }
 
 fn render_status_file_entry(
@@ -812,67 +725,38 @@ fn render_status_file_entry(
 
     let border = rgba_to_hsla(colors.border);
     let accent = rgba_to_hsla(colors.accent);
+    let wc = WidgetColors::from_app(colors);
 
     if show_discard {
         let discard_ent = entity.clone();
         let discard_path = entry.path.clone();
-        inner_row = inner_row.child(
-            div()
-                .id(ElementId::Name(
-                    format!("discard-{:?}-{}", section, idx).into(),
-                ))
-                .w(px(18.0))
-                .h(px(18.0))
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded(px(2.0))
-                .border_1()
-                .border_color(rgba_to_hsla(colors.diff_removed))
-                .cursor_pointer()
-                .text_xs()
-                .text_color(rgba_to_hsla(colors.diff_removed))
-                .child("\u{00d7}")
-                .on_click(move |_ev, _window, cx| {
-                    if let Some(e) = discard_ent.upgrade() {
-                        let p = discard_path.clone();
-                        e.update(cx, |this, cx| {
-                            this.discard_file(p, cx);
-                        });
-                    }
-                }),
-        );
+        inner_row = inner_row.child(icon_button(
+            ElementId::Name(format!("discard-{:?}-{}", section, idx).into()),
+            ButtonKind::Danger,
+            IconSize::Small,
+            "\u{00d7}",
+            entity_on_click(discard_ent, move |this, cx| {
+                let p = discard_path.clone();
+                this.discard_file(p, cx);
+            }),
+            wc,
+        ));
     }
 
     if show_remove {
         let remove_ent = entity.clone();
         let remove_path = entry.path.clone();
-        inner_row = inner_row.child(
-            div()
-                .id(ElementId::Name(
-                    format!("remove-{:?}-{}", section, idx).into(),
-                ))
-                .w(px(18.0))
-                .h(px(18.0))
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded(px(2.0))
-                .border_1()
-                .border_color(rgba_to_hsla(colors.diff_removed))
-                .cursor_pointer()
-                .text_xs()
-                .text_color(rgba_to_hsla(colors.diff_removed))
-                .child("\u{00d7}")
-                .on_click(move |_ev, _window, cx| {
-                    if let Some(e) = remove_ent.upgrade() {
-                        let p = remove_path.clone();
-                        e.update(cx, |this, cx| {
-                            this.remove_untracked_file(p, cx);
-                        });
-                    }
-                }),
-        );
+        inner_row = inner_row.child(icon_button(
+            ElementId::Name(format!("remove-{:?}-{}", section, idx).into()),
+            ButtonKind::Danger,
+            IconSize::Small,
+            "\u{00d7}",
+            entity_on_click(remove_ent, move |this, cx| {
+                let p = remove_path.clone();
+                this.remove_untracked_file(p, cx);
+            }),
+            wc,
+        ));
     }
 
     let checkbox_bg = if is_staged_row { accent } else { surface };
@@ -916,46 +800,30 @@ fn render_status_file_entry(
                 .flex()
                 .gap_0()
                 .ml_1()
-                .child(
-                    div()
-                        .id(ElementId::Name(format!("use-ours-{}", idx).into()))
-                        .px_1()
-                        .rounded(px(2.0))
-                        .border_1()
-                        .border_color(rgba_to_hsla(colors.accent))
-                        .cursor_pointer()
-                        .text_xs()
-                        .text_color(rgba_to_hsla(colors.accent))
-                        .child("Ours")
-                        .on_click(move |_ev, _window, cx| {
-                            if let Some(e) = ours_ent.upgrade() {
-                                let p = conflict_path.clone();
-                                e.update(cx, |this, cx| {
-                                    this.resolve_conflict_ours(p, cx);
-                                });
-                            }
-                        }),
-                )
-                .child(
-                    div()
-                        .id(ElementId::Name(format!("use-theirs-{}", idx).into()))
-                        .px_1()
-                        .rounded(px(2.0))
-                        .border_1()
-                        .border_color(rgba_to_hsla(colors.warning))
-                        .cursor_pointer()
-                        .text_xs()
-                        .text_color(rgba_to_hsla(colors.warning))
-                        .child("Theirs")
-                        .on_click(move |_ev, _window, cx| {
-                            if let Some(e) = theirs_ent.upgrade() {
-                                let p = conflict_path2.clone();
-                                e.update(cx, |this, cx| {
-                                    this.resolve_conflict_theirs(p, cx);
-                                });
-                            }
-                        }),
-                ),
+                .child(action_button(
+                    ElementId::Name(format!("use-ours-{}", idx).into()),
+                    "Ours",
+                    ButtonKind::Accent,
+                    ButtonSize::Compact,
+                    false,
+                    entity_on_click(ours_ent, move |this, cx| {
+                        let p = conflict_path.clone();
+                        this.resolve_conflict_ours(p, cx);
+                    }),
+                    wc,
+                ))
+                .child(action_button(
+                    ElementId::Name(format!("use-theirs-{}", idx).into()),
+                    "Theirs",
+                    ButtonKind::Warning,
+                    ButtonSize::Compact,
+                    false,
+                    entity_on_click(theirs_ent, move |this, cx| {
+                        let p = conflict_path2.clone();
+                        this.resolve_conflict_theirs(p, cx);
+                    }),
+                    wc,
+                )),
         );
     }
 
