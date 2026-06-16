@@ -1,6 +1,9 @@
 use gpui::Context;
 
 use crate::views::app::GitForgeApp;
+use crate::views::ops::dispatch::{
+    AppError, OpEffects, RemoteError, spawn_blocking_ok, with_repo_blocking,
+};
 
 impl GitForgeApp {
     pub fn generate_commit_message(&mut self, cx: &mut Context<Self>) {
@@ -19,10 +22,7 @@ impl GitForgeApp {
             return;
         }
         provider_config.model = model.clone();
-        let provider_setup = tokio::task::spawn_blocking(move || {
-            gitforge_ai::create_provider(&provider_name, &provider_config)
-        });
-        let Some(open_repo) = self.repo_session.require_active_repo_handle() else {
+        let Some(handle) = self.repo_session.require_active_repo_handle() else {
             cx.notify();
             return;
         };
@@ -30,107 +30,46 @@ impl GitForgeApp {
         self.ai_generating = true;
         cx.notify();
 
-        cx.spawn(async move |this, cx| {
-            let diff_result = tokio::task::spawn_blocking(move || {
-                let repo_lock = open_repo.lock();
-                let Some(repo) = repo_lock.as_ref() else {
-                    return Err::<String, anyhow::Error>(anyhow::anyhow!("No repository open"));
-                };
-                repo.diff_head_to_index(None)
-                    .map_err(|e| anyhow::anyhow!("{}", e))
-            })
-            .await;
-
-            let diff = match diff_result {
-                Ok(Ok(d)) => d,
-                Ok(Err(e)) => {
-                    tracing::error!("Failed to get staged diff: {}", e);
-                    this.update(cx, |this, cx| {
-                        this.ai_generating = false;
-                        cx.notify();
-                    })
-                    .ok();
-                    return;
+        self.run_op_full(
+            "Generate commit message",
+            cx,
+            OpEffects::QUIET,
+            move || async move {
+                let diff = with_repo_blocking(handle, |repo| repo.diff_head_to_index(None)).await?;
+                if diff.trim().is_empty() {
+                    return Err(AppError::Remote(RemoteError::info(
+                        "No staged changes to generate a commit message from",
+                    )));
                 }
-                Err(e) => {
-                    tracing::error!("Diff task panicked: {}", e);
-                    this.update(cx, |this, cx| {
-                        this.ai_generating = false;
-                        cx.notify();
-                    })
-                    .ok();
-                    return;
-                }
-            };
-
-            if diff.trim().is_empty() {
-                tracing::warn!("No staged changes to generate commit message from");
-                this.update(cx, |this, cx| {
-                    this.ai_generating = false;
-                    cx.notify();
+                let provider = spawn_blocking_ok(move || {
+                    gitforge_ai::create_provider(&provider_name, &provider_config)
                 })
-                .ok();
-                return;
-            }
-
-            let provider = match provider_setup.await {
-                Ok(Ok(p)) => p,
-                Ok(Err(e)) => {
-                    tracing::error!("Failed to create AI provider: {}", e);
-                    this.update(cx, |this, cx| {
-                        this.ai_generating = false;
-                        this.repo_session.last_error = Some(format!("AI provider error: {e}"));
-                        cx.notify();
-                    })
-                    .ok();
-                    return;
+                .await?;
+                let messages = provider
+                    .generate_commit_messages(&diff, &commit_config)
+                    .await?;
+                let default_idx = gitforge_ai::pick_default_message(
+                    &messages,
+                    &commit_config.default_alternative,
+                );
+                Ok((messages, default_idx))
+            },
+            move |this, (messages, default_idx), cx| {
+                if !messages.is_empty() {
+                    if let Some(msg) = messages.get(default_idx) {
+                        this.repo_session.commit_editor.set_message(msg);
+                    }
+                    this.repo_session
+                        .commit_editor
+                        .set_ai_alternatives(messages);
                 }
-                Err(e) => {
-                    tracing::error!("Provider setup task panicked: {}", e);
-                    this.update(cx, |this, cx| {
-                        this.ai_generating = false;
-                        cx.notify();
-                    })
-                    .ok();
-                    return;
-                }
-            };
-
-            match provider
-                .generate_commit_messages(&diff, &commit_config)
-                .await
-            {
-                Ok(messages) => {
-                    let default_idx = gitforge_ai::pick_default_message(
-                        &messages,
-                        &commit_config.default_alternative,
-                    );
-                    this.update(cx, |this, cx| {
-                        this.ai_generating = false;
-                        if !messages.is_empty() {
-                            if let Some(msg) = messages.get(default_idx) {
-                                this.repo_session.commit_editor.set_message(msg);
-                            }
-                            this.repo_session
-                                .commit_editor
-                                .set_ai_alternatives(messages);
-                        }
-                        cx.notify();
-                    })
-                    .ok();
-                }
-                Err(e) => {
-                    tracing::error!("AI generation failed: {}", e);
-                    this.update(cx, |this, cx| {
-                        this.ai_generating = false;
-                        this.repo_session.last_error = Some(format!("AI generation failed: {e}"));
-                        cx.notify();
-                    })
-                    .ok();
-                }
-            }
-        })
-        .detach();
+                cx.notify();
+            },
+            None,
+            Some(Box::new(|this, _cx| {
+                this.ai_generating = false;
+            })),
+        );
     }
 
     pub fn select_ai_alternative(&mut self, idx: usize, cx: &mut Context<Self>) {

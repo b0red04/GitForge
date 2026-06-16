@@ -184,14 +184,14 @@ pub(crate) fn classify_git_failure(args: &[&str], output: &std::process::Output)
     }
 }
 
-fn first_line(s: &str) -> String {
+pub fn first_line(s: &str) -> String {
     s.lines().next().unwrap_or(s).trim().to_string()
 }
 
 /// Redacts credential userinfo from URLs embedded in a string. Replaces the
 /// `user:password@` or `token@` portion of any `scheme://...@host` URL with
 /// `***@` so tokens/passwords don't leak into toast messages.
-fn redact_credentials(s: &str) -> String {
+pub fn redact_credentials(s: &str) -> String {
     let mut result = String::with_capacity(s.len());
     let mut remaining = s;
 

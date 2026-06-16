@@ -16,6 +16,7 @@ pub use commit::CommitInfo;
 pub use credential::{CredentialEntry, StoredCredential};
 pub use diff::{FileChange, FileChangeKind};
 pub use error::GitError;
+pub use error::{first_line, redact_credentials};
 pub use loader::RepoLoadOptions;
 pub use loader::RepoState;
 pub use reference::{RefInfo, RefKind};

@@ -1,6 +1,9 @@
+use std::future::Future;
+
 use gpui::Context;
 
 use crate::views::app::GitForgeApp;
+use crate::views::ops::dispatch::{AppError, OpEffects, RemoteError};
 
 impl GitForgeApp {
     pub(crate) fn find_hosting_account(
@@ -44,11 +47,12 @@ impl GitForgeApp {
     }
 
     /// General async seam for hosting-API operations (pure async, no repo
-    /// handle). Owns the `cx.spawn` + await + 2-arm result match. On success,
-    /// `on_success` receives the value; on failure, `on_error` clears transient
-    /// state, then `report_op_error` surfaces a toast. The `op` closure builds
-    /// the future so the hosting provider can be captured by value (its future
-    /// borrows the provider, so it must be constructed inside the spawn).
+    /// handle). Adapter over `run_op_full` with `OpEffects::QUIET`: hosts the
+    /// `cx.spawn` + await, maps `anyhow` errors to `AppError::Remote`
+    /// (credential-redacted), surfaces an error toast on failure, and runs
+    /// `on_error` first so callers can clear transient state. The `op` closure
+    /// builds the future so the hosting provider can be captured by value (its
+    /// future borrows the provider, so it must be constructed inside the spawn).
     pub(crate) fn run_hosting_op<T, Fut>(
         &mut self,
         label: &str,
@@ -57,30 +61,21 @@ impl GitForgeApp {
         on_success: impl FnOnce(&mut Self, T, &mut Context<Self>) + Send + 'static,
         on_error: impl FnOnce(&mut Self, &mut Context<Self>) + Send + 'static,
     ) where
-        Fut: std::future::Future<Output = anyhow::Result<T>> + Send + 'static,
+        Fut: Future<Output = anyhow::Result<T>> + Send + 'static,
         T: Send + 'static,
     {
-        let label_owned = label.to_string();
-        cx.spawn(async move |this, cx| {
-            let result = op().await;
-            match result {
-                Ok(value) => {
-                    this.update(cx, |this, cx| {
-                        on_success(this, value, cx);
-                    })
-                    .ok();
-                }
-                Err(e) => {
-                    tracing::error!("{} failed: {}", label_owned, e);
-                    this.update(cx, |this, cx| {
-                        on_error(this, cx);
-                        this.report_op_error(&label_owned, &e.to_string(), cx);
-                    })
-                    .ok();
-                }
-            }
-        })
-        .detach();
+        self.run_op_full(
+            label,
+            cx,
+            OpEffects::QUIET,
+            move || async move {
+                op().await
+                    .map_err(|e| AppError::Remote(RemoteError::from_anyhow(e)))
+            },
+            on_success,
+            Some(Box::new(move |this, _detail, cx| on_error(this, cx))),
+            None,
+        );
     }
 
     pub fn add_hosting_account(&mut self, provider: String, token: String, cx: &mut Context<Self>) {
