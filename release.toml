@@ -19,7 +19,11 @@ tag-prefix = "v"
 # Keep the version examples in the README in sync with each release.
 # Patterns are version-agnostic so they keep matching past 1.0.
 pre-release-replacements = [
-  { file = "README.md", search = "GitForge-[0-9]+\\.[0-9]+\\.[0-9]+",                  replace = "GitForge-{{version}}" },
-  { file = "README.md", search = "v[0-9]+\\.[0-9]+\\.[0-9]+",                          replace = "v{{version}}" },
-  { file = "README.md", search = "build-update-tarball\\.sh [0-9]+\\.[0-9]+\\.[0-9]+", replace = "build-update-tarball.sh {{version}}" },
+  # The optional `(-[0-9A-Za-z.]+)?` tail matches prerelease suffixes
+  # (rc.1, alpha.2, beta.1, dev) so an rc->final or rc.1->rc.2 bump doesn't
+  # leave a stale suffix dangling after the new version core. The class excludes
+  # `-` so it can't run past the arch separator in `GitForge-{ver}-{arch}`.
+  { file = "README.md", search = "GitForge-[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.]+)?",                  replace = "GitForge-{{version}}" },
+  { file = "README.md", search = "v[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.]+)?",                          replace = "v{{version}}" },
+  { file = "README.md", search = "build-update-tarball\\.sh [0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.]+)?", replace = "build-update-tarball.sh {{version}}" },
 ]
