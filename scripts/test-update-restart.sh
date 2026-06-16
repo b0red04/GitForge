@@ -27,7 +27,7 @@ cargo build -p gitforge-app --release --features dev-simulate-update
 
 cat >"${WRAPPER}" <<EOF
 #!/usr/bin/env bash
-echo "RELAUNCHED \$(date -Is)" >> "${LOG}"
+echo "RELAUNCHED \$(date +%Y-%m-%dT%H:%M:%S%z)" >> "${LOG}"
 exec "${BINARY}" "\$@"
 EOF
 chmod +x "${WRAPPER}"
