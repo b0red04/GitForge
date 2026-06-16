@@ -147,11 +147,6 @@ impl GitForgeApp {
         cx.notify();
     }
 
-    pub fn toggle_checkpoint_refs(&mut self, cx: &mut Context<Self>) {
-        self.settings.show_checkpoint_refs = !self.settings.show_checkpoint_refs;
-        self.refresh_repository(cx);
-    }
-
     pub fn select_status_file(
         &mut self,
         section: StatusFileSection,
