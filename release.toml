@@ -1,0 +1,25 @@
+# cargo-release configuration.
+#
+# Install:  cargo install cargo-release
+# Dry run:  cargo release patch --dry-run
+# Execute:  cargo release patch -x          (level: patch | minor | major)
+#
+# Pre-release example: cargo release 0.2.0-rc.1 -x
+
+# One commit for the whole workspace bump (the shared [workspace.package] version
+# inherited by every crate via `version.workspace = true`).
+consolidate-commits = true
+
+# This is an app, not crates.io libraries — never run `cargo publish`.
+publish = false
+
+# Tag like v0.1.3 to match existing tag history.
+tag-prefix = "v"
+
+# Keep the version examples in the README in sync with each release.
+# Patterns are version-agnostic so they keep matching past 1.0.
+pre-release-replacements = [
+  { file = "README.md", search = "GitForge-[0-9]+\\.[0-9]+\\.[0-9]+",                  replace = "GitForge-{{version}}" },
+  { file = "README.md", search = "v[0-9]+\\.[0-9]+\\.[0-9]+",                          replace = "v{{version}}" },
+  { file = "README.md", search = "build-update-tarball\\.sh [0-9]+\\.[0-9]+\\.[0-9]+", replace = "build-update-tarball.sh {{version}}" },
+]
