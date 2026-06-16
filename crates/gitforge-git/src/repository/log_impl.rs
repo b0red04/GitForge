@@ -104,19 +104,25 @@ impl Repository {
             .all()
             .map_err(|e| GitError::OperationFailed(e.to_string()))?
         {
-            let reference = reference.map_err(|e| GitError::OperationFailed(e.to_string()))?;
+            let mut reference =
+                reference.map_err(|e| GitError::OperationFailed(e.to_string()))?;
             let full_name = reference.name().as_bstr().to_string();
             if !include_custom_refs && !is_standard_git_ref(&full_name) {
                 continue;
             }
-            if let Some(id) = reference.target().try_id() {
-                tips.push(id.to_owned());
+            match reference.peel_to_id_in_place() {
+                Ok(id) => tips.push(id.detach()),
+                Err(e) => {
+                    tracing::warn!("Skipping ref {} for commit log: {}", full_name, e);
+                }
             }
         }
 
         if tips.is_empty() {
-            if let Ok(head) = self.repo.head_id() {
-                tips.push(head.detach());
+            if let Ok(mut head) = self.repo.head() {
+                if let Ok(Some(id)) = head.try_peel_to_id_in_place() {
+                    tips.push(id.detach());
+                }
             }
         }
 
@@ -136,7 +142,7 @@ impl Repository {
             .all()
             .map_err(|e| GitError::OperationFailed(e.to_string()))?
         {
-            let r = reference.map_err(|e| GitError::OperationFailed(e.to_string()))?;
+            let mut r = reference.map_err(|e| GitError::OperationFailed(e.to_string()))?;
             let name = r.name().shorten().to_string();
             let full_name = r.name().as_bstr().to_string();
 
@@ -156,10 +162,9 @@ impl Repository {
                 continue;
             };
 
-            let target = r.target();
-            let target_commit = match target.try_id().map(|id| id.to_hex().to_string()) {
-                Some(id) => id,
-                None => continue,
+            let target_commit = match r.peel_to_id_in_place().map(|id| id.to_hex().to_string()) {
+                Ok(id) => id,
+                Err(_) => continue,
             };
 
             let is_head = head_branch.as_ref() == Some(&name);
@@ -280,6 +285,9 @@ impl Repository {
 #[cfg(test)]
 mod tests {
     use super::is_standard_git_ref;
+    use crate::repository::Repository;
+    use std::path::Path;
+    use std::process::Command;
 
     #[test]
     fn standard_ref_namespaces() {
@@ -289,5 +297,45 @@ mod tests {
         assert!(is_standard_git_ref("refs/stash"));
         assert!(!is_standard_git_ref("refs/t3/checkpoints/abc/turn/1"));
         assert!(!is_standard_git_ref("refs/custom/foo"));
+    }
+
+    #[test]
+    fn commit_log_peels_annotated_tag_refs() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let path = tmp.path();
+
+        for args in [
+            &["init"][..],
+            &["config", "user.email", "test@example.com"],
+            &["config", "user.name", "Test"],
+            &["commit", "--allow-empty", "-m", "initial"],
+            &["tag", "-a", "v1.0", "-m", "release"],
+        ] {
+            let status = Command::new("git")
+                .args(args)
+                .current_dir(path)
+                .status()
+                .expect("git command");
+            assert!(status.success(), "git {:?} failed", args);
+        }
+
+        let repo = Repository::open(path).expect("open repo");
+        let commits = repo.commit_log(10).expect("commit log with annotated tag");
+        assert_eq!(commits.len(), 1);
+
+        let refs = repo.references().expect("references");
+        let tag = refs
+            .iter()
+            .find(|r| r.name == "v1.0")
+            .expect("annotated tag ref");
+        assert_eq!(tag.target_commit_id, commits[0].id);
+    }
+
+    #[test]
+    fn commit_log_gitforge_repo_with_release_tag() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let repo = Repository::open(&path).expect("open gitforge repo");
+        let commits = repo.commit_log(10).expect("commit log");
+        assert!(!commits.is_empty());
     }
 }
