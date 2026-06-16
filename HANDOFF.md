@@ -53,7 +53,7 @@ Steps 1–5 complete and compiling. Steps 6 and 7 are **partially done** — all
 
 ## Working tree state
 
-```
+```plaintext
 modified:   CONTEXT.md
 modified:   crates/gitforge-app/src/views/dialogs/simple_input.rs   (pre-existing)
 modified:   crates/gitforge-app/src/views/diff_viewer.rs             (pre-existing)
