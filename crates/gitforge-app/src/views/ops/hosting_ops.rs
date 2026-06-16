@@ -39,13 +39,14 @@ impl GitForgeApp {
         cx.spawn(async move |this, cx| {
             let mut changed = false;
             for account in accounts {
-                if gitforge_hosting::ensure_avatar_cached(&account)
-                    .await
-                    .ok()
-                    .flatten()
-                    .is_some()
-                {
-                    changed = true;
+                match gitforge_hosting::ensure_avatar_cached(&account).await {
+                    Ok(Some(_)) => changed = true,
+                    Ok(None) => {}
+                    Err(e) => tracing::warn!(
+                        "avatar cache failed for {} ({}): {e}",
+                        account.provider,
+                        account.username
+                    ),
                 }
             }
             if changed {
@@ -128,13 +129,16 @@ impl GitForgeApp {
                     cx,
                 );
                 cx.spawn(async move |this, cx| {
-                    if gitforge_hosting::ensure_avatar_cached(&account_for_avatar)
-                        .await
-                        .ok()
-                        .flatten()
-                        .is_some()
-                    {
-                        this.update(cx, |_, cx| cx.notify()).ok();
+                    match gitforge_hosting::ensure_avatar_cached(&account_for_avatar).await {
+                        Ok(Some(_)) => {
+                            this.update(cx, |_, cx| cx.notify()).ok();
+                        }
+                        Ok(None) => {}
+                        Err(e) => tracing::warn!(
+                            "avatar cache failed for {} ({}): {e}",
+                            account_for_avatar.provider,
+                            account_for_avatar.username
+                        ),
                     }
                 })
                 .detach();

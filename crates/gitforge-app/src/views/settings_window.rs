@@ -3307,7 +3307,12 @@ fn render_accounts_section(
                         .text_xs()
                         .text_color(muted)
                         .child(
-                            "Add an account with a Personal Access Token (PAT). Tokens are stored locally in ~/.config/gitforge/.",
+                            format!(
+                                "Add an account with a Personal Access Token (PAT). Tokens are stored locally in {}.",
+                                dirs::config_dir()
+                                    .map(|d| d.join("gitforge").display().to_string())
+                                    .unwrap_or_else(|| "~/.config/gitforge/".to_string()),
+                            ),
                         ),
                 )
                 .child(
