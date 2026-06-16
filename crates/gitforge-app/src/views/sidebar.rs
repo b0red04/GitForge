@@ -1,15 +1,16 @@
-use gitforge_git::{RefInfo, RefKind, RepoState, WorktreeInfo};
+use gitforge_git::{CommitInfo, RefInfo, RefKind, RepoState, WorktreeInfo};
 use gitforge_ui::{
     AppColors, TextInput, TextInputEvent, TextInputRenderOpts, WidgetColors,
     collapsible_header, entity_on_click, entity_on_click_stop_propagation, ghost_button,
     parse_key_event, render_text_input, rgba_to_hsla,
 };
 use gpui::*;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use super::layout::SIDEBAR_WIDTH;
 use super::settings::AppSettings;
 const ROW_HEIGHT: f32 = 24.0;
+const TAG_VISIBLE_LIMIT: usize = 6;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ContextMenuAction {
@@ -21,6 +22,11 @@ pub enum ContextMenuAction {
     DeleteTag(String),
     CheckoutRemote(String),
     FilterToBranch(String),
+    RemoteHeader(String),
+    FetchRemote(String),
+    RemoveRemote(String),
+    WorktreesHeader,
+    PruneWorktrees,
     None,
 }
 
@@ -172,7 +178,6 @@ pub fn render_sidebar(
     state: &SidebarState,
     entity: WeakEntity<super::app::GitForgeApp>,
     window: &mut Window,
-    hosting_accounts: &[gitforge_hosting::HostingAccount],
     pull_requests: &[gitforge_hosting::PullRequest],
     pull_requests_loading: bool,
     pull_request_hint: Option<super::ops::pr_ops::PullRequestSidebarHint>,
@@ -226,12 +231,13 @@ pub fn render_sidebar(
                 .filter(|r| r.kind == RefKind::RemoteBranch)
                 .filter(|r| filter.is_empty() || r.name.to_lowercase().contains(&filter))
                 .collect();
-            let tags: Vec<&RefInfo> = repo
+            let mut tags: Vec<&RefInfo> = repo
                 .references
                 .iter()
                 .filter(|r| r.kind == RefKind::Tag)
                 .filter(|r| filter.is_empty() || r.name.to_lowercase().contains(&filter))
                 .collect();
+            sort_tags_newest_first(&mut tags, &repo.commits);
 
             sidebar = sidebar.child(render_search_bar(
                 colors,
@@ -241,13 +247,18 @@ pub fn render_sidebar(
             ));
 
             let branches_expanded = state.branches_expanded;
-            sidebar = sidebar.child(render_collapsible_section(
+            sidebar = sidebar.child(render_collapsible_section_with_action(
                 format!("BRANCHES ({})", branches.len()),
                 branches_expanded,
                 colors,
                 "sidebar-branches".to_string(),
                 entity.clone(),
                 SectionToggle::Branches,
+                "sidebar-create-branch",
+                entity_on_click_stop_propagation(entity.clone(), |this, cx| {
+                    this.open_create_branch_dialog(None, cx);
+                }),
+                None,
             ));
 
             if branches_expanded {
@@ -257,7 +268,6 @@ pub fn render_sidebar(
                 if branches.is_empty() && filter.is_empty() {
                     sidebar = sidebar.child(render_empty_hint("No branches", muted));
                 }
-                sidebar = sidebar.child(render_create_branch_button(colors, entity.clone()));
             }
 
             if !remote_branches.is_empty() || !filter.is_empty() {
@@ -337,46 +347,60 @@ pub fn render_sidebar(
                 }
             }
 
-            if !tags.is_empty() || !filter.is_empty() {
-                let tags_expanded = state.tags_expanded;
-                sidebar = sidebar.child(render_collapsible_section(
-                    format!("TAGS ({})", tags.len()),
-                    tags_expanded,
-                    colors,
-                    "sidebar-tags".to_string(),
-                    entity.clone(),
-                    SectionToggle::Tags,
-                ));
+            let tags_expanded = state.tags_expanded;
+            sidebar = sidebar.child(render_collapsible_section_with_action(
+                format!("TAGS ({})", tags.len()),
+                tags_expanded,
+                colors,
+                "sidebar-tags".to_string(),
+                entity.clone(),
+                SectionToggle::Tags,
+                "sidebar-create-tag",
+                entity_on_click_stop_propagation(entity.clone(), |this, cx| {
+                    this.open_create_tag_dialog(None, cx);
+                }),
+                None,
+            ));
 
-                if tags_expanded {
+            if tags_expanded {
+                if tags.is_empty() && filter.is_empty() {
+                    sidebar = sidebar.child(render_empty_hint("No tags", muted));
+                } else {
+                    let mut tag_list = div()
+                        .id("sidebar-tags-scroll")
+                        .max_h(px(ROW_HEIGHT * TAG_VISIBLE_LIMIT as f32))
+                        .overflow_y_scroll();
                     for rf in &tags {
-                        sidebar = sidebar.child(render_ref_item(rf, colors, "tag", entity.clone()));
+                        tag_list = tag_list.child(render_ref_item(rf, colors, "tag", entity.clone()));
                     }
-                    if tags.is_empty() && filter.is_empty() {
-                        sidebar = sidebar.child(render_empty_hint("No tags", muted));
-                    }
+                    sidebar = sidebar.child(tag_list);
                 }
             }
 
             let worktrees = &repo.worktrees;
             let wt_count = worktrees.len();
-            if wt_count > 0 {
-                let worktrees_expanded = state.worktrees_expanded;
-                sidebar = sidebar.child(render_collapsible_section(
-                    format!("WORKTREES ({})", wt_count),
-                    worktrees_expanded,
-                    colors,
-                    "sidebar-worktrees".to_string(),
-                    entity.clone(),
-                    SectionToggle::Worktrees,
-                ));
+            let worktrees_expanded = state.worktrees_expanded;
+            sidebar = sidebar.child(render_collapsible_section_with_action(
+                format!("WORKTREES ({})", wt_count),
+                worktrees_expanded,
+                colors,
+                "sidebar-worktrees".to_string(),
+                entity.clone(),
+                SectionToggle::Worktrees,
+                "sidebar-create-worktree",
+                entity_on_click_stop_propagation(entity.clone(), |this, cx| {
+                    this.open_create_worktree_dialog(cx);
+                }),
+                Some(ContextMenuAction::WorktreesHeader),
+            ));
 
-                if worktrees_expanded {
+            if worktrees_expanded {
+                if worktrees.is_empty() {
+                    sidebar = sidebar.child(render_empty_hint("No worktrees", muted));
+                } else {
                     for wt in worktrees {
                         sidebar = sidebar.child(render_worktree_item(wt, colors, entity.clone()));
                     }
-                    sidebar = sidebar.child(render_create_worktree_button(colors, entity.clone()));
-                    sidebar = sidebar.child(render_prune_worktrees_button(colors, entity.clone()));
                 }
             }
 
@@ -421,99 +445,25 @@ pub fn render_sidebar(
         }
     }
 
-    if !hosting_accounts.is_empty() {
-        let accent = rgba_to_hsla(colors.accent);
-        let text_color = rgba_to_hsla(colors.text);
-        let muted_color = rgba_to_hsla(colors.text_muted);
-        let _border_color = rgba_to_hsla(colors.border);
-
-        sidebar = sidebar.child(
-            div()
-                .px_2()
-                .py_1()
-                .border_t_1()
-                .border_color(rgba_to_hsla(colors.border))
-                .flex()
-                .items_center()
-                .justify_between()
-                .child(
-                    div()
-                        .text_xs()
-                        .font_weight(FontWeight::BOLD)
-                        .text_color(muted_color)
-                        .child("ACCOUNTS"),
-                )
-                .child({
-                    let ent = entity.clone();
-                    ghost_button(
-                        "sidebar-accounts-manage",
-                        "Manage",
-                        accent,
-                        entity_on_click(ent, |this, cx| this.open_manage_accounts_dialog(cx)),
-                    )
-                }),
-        );
-
-        for account in hosting_accounts {
-            let ent_open = entity.clone();
-            let provider_click = account.provider.clone();
-            let provider_id = account.provider.clone();
-            let provider_label = account.provider.clone();
-            let username = account.username.clone();
-            let display = account.display_name.clone();
-
-            let prov_color = match provider_label.as_str() {
-                "github" => accent,
-                "gitlab" => rgba_to_hsla(colors.accent_secondary),
-                "codeberg" => rgba_to_hsla(colors.success),
-                _ => muted_color,
-            };
-
-            sidebar = sidebar.child(
-                div()
-                    .id(ElementId::Name(
-                        format!("sidebar-account-{}-{}", provider_id, username).into(),
-                    ))
-                    .px_2()
-                    .py_0()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .cursor_pointer()
-                    .hover(|s| s.bg(rgba_to_hsla(colors.sidebar_hover)))
-                    .on_click(move |_ev, _window, cx| {
-                        if let Some(e) = ent_open.upgrade() {
-                            let p = provider_click.clone();
-                            e.update(cx, |this, cx| {
-                                this.open_search_hosting_dialog(p, cx);
-                            });
-                        }
-                    })
-                    .child(
-                        div()
-                            .text_xs()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(prov_color)
-                            .child(provider_label),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(text_color)
-                            .overflow_hidden()
-                            .child(display),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(muted_color)
-                            .child(format!("@{}", username)),
-                    ),
-            );
-        }
-    }
-
     sidebar
+}
+
+fn sort_tags_newest_first<'a>(tags: &mut Vec<&'a RefInfo>, commits: &[CommitInfo]) {
+    let dates: HashMap<&str, chrono::DateTime<chrono::Utc>> = commits
+        .iter()
+        .map(|c| (c.id.as_str(), c.author_date))
+        .collect();
+
+    tags.sort_by(|a, b| {
+        let date_a = dates.get(a.target_commit_id.as_str());
+        let date_b = dates.get(b.target_commit_id.as_str());
+        match (date_a, date_b) {
+            (Some(da), Some(db)) => db.cmp(da),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => b.name.cmp(&a.name),
+        }
+    });
 }
 
 fn render_search_bar(
@@ -581,6 +531,79 @@ fn render_collapsible_section(
         }),
         WidgetColors::from_app(colors),
     )
+}
+
+fn render_collapsible_section_with_action(
+    title: String,
+    expanded: bool,
+    colors: &AppColors,
+    id: String,
+    entity: WeakEntity<super::app::GitForgeApp>,
+    toggle: SectionToggle,
+    action_id: &'static str,
+    on_action: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    header_context_menu: Option<ContextMenuAction>,
+) -> Stateful<Div> {
+    let widget_colors = WidgetColors::from_app(colors);
+    let accent = rgba_to_hsla(colors.accent);
+    let arrow = if expanded { "▾" } else { "▸" };
+    let ent_toggle = entity.clone();
+    let ent_context = entity.clone();
+
+    let mut header = div()
+        .id(ElementId::Name(id.into()))
+        .px_2()
+        .py_1()
+        .border_b_1()
+        .border_color(widget_colors.border)
+        .bg(widget_colors.surface_high)
+        .flex()
+        .items_center()
+        .gap_1()
+        .cursor_pointer()
+        .on_click(move |_ev, _window, cx| {
+            if let Some(e) = ent_toggle.upgrade() {
+                e.update(cx, |this, cx| match &toggle {
+                    SectionToggle::Branches => this.toggle_sidebar_branches(cx),
+                    SectionToggle::Remotes => this.toggle_sidebar_remotes(cx),
+                    SectionToggle::Tags => this.toggle_sidebar_tags(cx),
+                    SectionToggle::Worktrees => this.toggle_sidebar_worktrees(cx),
+                    SectionToggle::Remote(name) => this.toggle_sidebar_remote(name.clone(), cx),
+                });
+            }
+        })
+        .child(div().text_xs().text_color(widget_colors.muted).child(arrow))
+        .child(
+            div()
+                .text_xs()
+                .font_weight(FontWeight::BOLD)
+                .text_color(widget_colors.muted)
+                .child(title),
+        )
+        .child(div().flex_1())
+        .child(ghost_button(action_id, "+", accent, on_action));
+
+    if let Some(menu_action) = header_context_menu {
+        header = header.on_mouse_down(
+            MouseButton::Right,
+            move |ev: &MouseDownEvent, _window, cx| {
+                let pos = ev.position;
+                let x: f32 = pos.x.into();
+                let y: f32 = pos.y.into();
+                if let Some(e) = ent_context.upgrade() {
+                    e.update(cx, |this, cx| {
+                        this.repo_session
+                            .sidebar_state
+                            .set_context_menu(menu_action.clone(), (x, y));
+                        cx.notify();
+                    });
+                }
+                cx.stop_propagation();
+            },
+        );
+    }
+
+    header
 }
 
 fn render_ref_item(
@@ -706,34 +729,6 @@ fn group_by_remote<'a>(
     groups
 }
 
-fn render_create_branch_button(
-    colors: &AppColors,
-    entity: WeakEntity<super::app::GitForgeApp>,
-) -> Stateful<Div> {
-    let accent = rgba_to_hsla(colors.accent);
-    let muted = rgba_to_hsla(colors.text_muted);
-    let ent = entity.clone();
-
-    div()
-        .id("sidebar-create-branch")
-        .w_full()
-        .h(px(ROW_HEIGHT))
-        .px_2()
-        .flex()
-        .items_center()
-        .cursor_pointer()
-        .hover(|s| s.bg(rgba_to_hsla(colors.sidebar_hover)))
-        .on_click(move |_ev, _window, cx| {
-            if let Some(e) = ent.upgrade() {
-                e.update(cx, |this, cx| {
-                    this.open_create_branch_dialog(None, cx);
-                });
-            }
-        })
-        .child(div().text_xs().text_color(accent).child("+ "))
-        .child(div().text_xs().text_color(muted).child("New Branch"))
-}
-
 pub(super) fn render_context_menu_overlay(
     action: &ContextMenuAction,
     pos: (f32, f32),
@@ -767,6 +762,16 @@ pub(super) fn render_context_menu_overlay(
         ContextMenuAction::DeleteTag(name) => {
             vec![("Delete Tag", ContextMenuAction::DeleteTag(name.clone()))]
         }
+        ContextMenuAction::RemoteHeader(name) => vec![
+            ("Fetch", ContextMenuAction::FetchRemote(name.clone())),
+            (
+                "Remove remote",
+                ContextMenuAction::RemoveRemote(name.clone()),
+            ),
+        ],
+        ContextMenuAction::WorktreesHeader => {
+            vec![("Prune stale", ContextMenuAction::PruneWorktrees)]
+        }
         _ => vec![],
     };
 
@@ -799,7 +804,9 @@ pub(super) fn render_context_menu_overlay(
 
     for (idx, (label, menu_action)) in items.into_iter().enumerate() {
         let item_color = match &menu_action {
-            ContextMenuAction::DeleteBranch(_) | ContextMenuAction::DeleteTag(_) => warning,
+            ContextMenuAction::DeleteBranch(_)
+            | ContextMenuAction::DeleteTag(_)
+            | ContextMenuAction::RemoveRemote(_) => warning,
             _ => text_color,
         };
         let item_ent = entity.clone();
@@ -840,6 +847,13 @@ pub(super) fn render_context_menu_overlay(
                                 ContextMenuAction::FilterToBranch(n) => {
                                     this.set_branch_filter(Some(n.clone()), cx)
                                 }
+                                ContextMenuAction::FetchRemote(n) => {
+                                    this.fetch_remote(n.clone(), cx)
+                                }
+                                ContextMenuAction::RemoveRemote(n) => {
+                                    this.remove_remote(n.clone(), cx)
+                                }
+                                ContextMenuAction::PruneWorktrees => this.prune_worktrees(cx),
                                 _ => {}
                             }
                             this.repo_session.sidebar_state.dismiss_context_menu();
@@ -863,17 +877,14 @@ fn render_remote_group_header(
     let border = rgba_to_hsla(colors.border);
     let muted = rgba_to_hsla(colors.text_muted);
     let surface_high = rgba_to_hsla(colors.surface_high);
-    let warning = rgba_to_hsla(colors.warning);
     let arrow = if expanded { "▾" } else { "▸" };
     let title = format!("{} ({})", remote_name, count);
     let id = format!("sidebar-remote-{}", remote_name);
 
     let name_toggle = remote_name.to_string();
-    let name_fetch = remote_name.to_string();
-    let name_remove = remote_name.to_string();
+    let name_context = remote_name.to_string();
     let ent_toggle = entity.clone();
-    let ent_fetch = entity.clone();
-    let ent_remove = entity.clone();
+    let ent_context = entity.clone();
 
     div()
         .id(ElementId::Name(id.into()))
@@ -894,6 +905,25 @@ fn render_remote_group_header(
                 });
             }
         })
+        .on_mouse_down(
+            MouseButton::Right,
+            move |ev: &MouseDownEvent, _window, cx| {
+                let pos = ev.position;
+                let x: f32 = pos.x.into();
+                let y: f32 = pos.y.into();
+                if let Some(e) = ent_context.upgrade() {
+                    let name = name_context.clone();
+                    e.update(cx, |this, cx| {
+                        this.repo_session.sidebar_state.set_context_menu(
+                            ContextMenuAction::RemoteHeader(name),
+                            (x, y),
+                        );
+                        cx.notify();
+                    });
+                }
+                cx.stop_propagation();
+            },
+        )
         .child(div().text_xs().text_color(muted).child(arrow))
         .child(
             div()
@@ -901,55 +931,6 @@ fn render_remote_group_header(
                 .font_weight(FontWeight::BOLD)
                 .text_color(muted)
                 .child(title),
-        )
-        .child(div().flex_1())
-        .child(
-            div()
-                .id(ElementId::Name(
-                    format!("remote-fetch-{}", remote_name).into(),
-                ))
-                .px_1()
-                .py_0()
-                .rounded(px(2.0))
-                .border_1()
-                .border_color(border)
-                .text_xs()
-                .text_color(muted)
-                .cursor_pointer()
-                .hover(|s| s.bg(rgba_to_hsla(colors.sidebar_hover)))
-                .child("F")
-                .on_click(move |_ev, _window, cx| {
-                    if let Some(e) = ent_fetch.upgrade() {
-                        let name = name_fetch.clone();
-                        e.update(cx, |this, cx| {
-                            this.fetch_remote(name, cx);
-                        });
-                    }
-                }),
-        )
-        .child(
-            div()
-                .id(ElementId::Name(
-                    format!("remote-remove-{}", remote_name).into(),
-                ))
-                .px_1()
-                .py_0()
-                .rounded(px(2.0))
-                .border_1()
-                .border_color(border)
-                .text_xs()
-                .text_color(warning)
-                .cursor_pointer()
-                .hover(|s| s.bg(rgba_to_hsla(colors.sidebar_hover)))
-                .child("×")
-                .on_click(move |_ev, _window, cx| {
-                    if let Some(e) = ent_remove.upgrade() {
-                        let name = name_remove.clone();
-                        e.update(cx, |this, cx| {
-                            this.remove_remote(name, cx);
-                        });
-                    }
-                }),
         )
 }
 
@@ -1193,59 +1174,4 @@ fn render_worktree_item(
                     }
                 })
         })
-}
-
-fn render_create_worktree_button(
-    colors: &AppColors,
-    entity: WeakEntity<super::app::GitForgeApp>,
-) -> Stateful<Div> {
-    let accent = rgba_to_hsla(colors.accent);
-    let muted = rgba_to_hsla(colors.text_muted);
-    let ent = entity.clone();
-
-    div()
-        .id("sidebar-create-worktree")
-        .w_full()
-        .h(px(ROW_HEIGHT))
-        .px_2()
-        .flex()
-        .items_center()
-        .cursor_pointer()
-        .hover(|s| s.bg(rgba_to_hsla(colors.sidebar_hover)))
-        .on_click(move |_ev, _window, cx| {
-            if let Some(e) = ent.upgrade() {
-                e.update(cx, |this, cx| {
-                    this.open_create_worktree_dialog(cx);
-                });
-            }
-        })
-        .child(div().text_xs().text_color(accent).child("+ "))
-        .child(div().text_xs().text_color(muted).child("New Worktree"))
-}
-
-fn render_prune_worktrees_button(
-    colors: &AppColors,
-    entity: WeakEntity<super::app::GitForgeApp>,
-) -> Stateful<Div> {
-    let muted = rgba_to_hsla(colors.text_muted);
-    let _border = rgba_to_hsla(colors.border);
-    let ent = entity.clone();
-
-    div()
-        .id("sidebar-prune-worktrees")
-        .w_full()
-        .h(px(ROW_HEIGHT))
-        .px_2()
-        .flex()
-        .items_center()
-        .cursor_pointer()
-        .hover(|s| s.bg(rgba_to_hsla(colors.sidebar_hover)))
-        .on_click(move |_ev, _window, cx| {
-            if let Some(e) = ent.upgrade() {
-                e.update(cx, |this, cx| {
-                    this.prune_worktrees(cx);
-                });
-            }
-        })
-        .child(div().text_xs().text_color(muted).child("Prune stale"))
 }

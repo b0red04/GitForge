@@ -21,6 +21,12 @@ impl GitForgeApp {
         cx.notify();
     }
 
+    pub fn open_create_tag_dialog(&mut self, target: Option<String>, cx: &mut Context<Self>) {
+        self.active_dialog = AppDialog::CreateTag { target };
+        self.dialog_input.clear();
+        cx.notify();
+    }
+
     pub fn open_delete_branch_dialog(&mut self, name: String, force: bool, cx: &mut Context<Self>) {
         if self.is_current_branch(&name) {
             self.push_toast(
