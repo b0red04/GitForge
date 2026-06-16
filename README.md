@@ -34,7 +34,7 @@ Auto-updates are disabled in debug builds (`cargo run`). Use a release install t
 
 ### Testing the updater
 
-If you have `v0.1.2` installed and `v0.1.3` is published on GitHub, launch the installed app and either wait for the hourly check or trigger one manually. The app should download the new tarball, verify the checksum, install, and prompt to restart.
+If you have an older release installed and a newer one is published on GitHub, launch the installed app and either wait for the hourly check or trigger one manually. The app should download the new tarball, verify the checksum, install, and prompt to restart.
 
 ## Features
 
@@ -171,15 +171,21 @@ The version in `Cargo.toml`, the git tag (`v0.1.3`), and the tarball filename mu
 
 ### Publish a release
 
-1. Bump `version` in `Cargo.toml` and commit to `main`.
-2. Create and push a tag — this automatically starts the Release workflow:
-   ```bash
-   git tag v0.1.3
-   git push origin v0.1.3
-   ```
-3. Watch progress under **Actions → Release**. The workflow builds the binary, creates the tarball and checksums, and publishes the GitHub Release.
+Releases are cut with [cargo-release](https://github.com/crate-ci/cargo-release), which bumps the shared workspace version, updates `Cargo.lock`, refreshes the version examples in this README, commits, tags, and pushes — all in one step. The pushed `v*` tag triggers the Release workflow.
 
-You can still trigger the workflow manually from the Actions tab if needed (`workflow_dispatch`), but pushing a `v*` tag is the normal path.
+```bash
+cargo install cargo-release            # one-time
+cargo release patch --dry-run          # preview the bump / commit / tag / push
+cargo release patch -x                 # execute (level: patch | minor | major)
+```
+
+For a pre-release, pass a full version with a pre-release tag — the Release workflow will mark it as a prerelease on GitHub:
+
+```bash
+cargo release 0.2.0-rc.1 -x
+```
+
+Watch progress under **Actions → Release**. You can still trigger the workflow manually from the Actions tab (`workflow_dispatch`), but `cargo release ... -x` is the normal path.
 
 The tag pins the exact commit that gets built. If CI fails, fix the issue on `main`, then either move the tag or cut a new patch version.
 
