@@ -397,7 +397,6 @@ impl GraphPanel {
     pub fn render(
         &self,
         colors: &AppColors,
-        show_checkpoint_refs: bool,
         show_graph_col: bool,
         show_sha_col: bool,
         show_time_col: bool,
@@ -408,47 +407,6 @@ impl GraphPanel {
         let border = rgba_to_hsla(colors.border);
         let muted = rgba_to_hsla(colors.text_muted);
         let accent = rgba_to_hsla(colors.accent);
-
-        let filter_label = self.branch_filter.as_deref().unwrap_or("All branches");
-        let toggle_entity = entity.clone();
-        let checkpoint_label = if show_checkpoint_refs {
-            "Checkpoints: on"
-        } else {
-            "Checkpoints: off"
-        };
-        let checkpoint_color = if show_checkpoint_refs { accent } else { muted };
-
-        let header = div()
-            .px_3()
-            .py_2()
-            .border_b_1()
-            .border_color(border)
-            .flex()
-            .items_center()
-            .gap_2()
-            .child(div().text_xs().text_color(muted).child("COMMIT HISTORY"))
-            .child(div().flex_1())
-            .child(
-                div()
-                    .id("toggle-checkpoint-refs")
-                    .text_xs()
-                    .cursor_pointer()
-                    .text_color(checkpoint_color)
-                    .on_click(move |_ev, _window, cx| {
-                        if let Some(e) = toggle_entity.upgrade() {
-                            e.update(cx, |this, cx| {
-                                this.toggle_checkpoint_refs(cx);
-                            });
-                        }
-                    })
-                    .child(checkpoint_label),
-            )
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(accent)
-                    .child(filter_label.to_string()),
-            );
 
         let graph_col_width = if show_graph_col {
             self.graph_col_width
@@ -487,7 +445,6 @@ impl GraphPanel {
 
         if self.commits.is_empty() {
             return history_panel_shell(bg, border)
-                .child(header)
                 .child(column_headers)
                 .child(
                     div()
@@ -736,7 +693,6 @@ impl GraphPanel {
             .child(list);
 
         history_panel_shell(bg, border)
-            .child(header)
             .child(column_headers)
             .child(content_area)
             .child(resize_events)

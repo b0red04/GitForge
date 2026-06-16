@@ -390,7 +390,6 @@ impl Render for GitForgeApp {
             &self.repo_session.sidebar_state,
             entity.clone(),
             window,
-            &self.hosting_accounts,
             pull_requests,
             pull_requests_loading,
             pull_request_hint,
@@ -407,7 +406,6 @@ impl Render for GitForgeApp {
         let graph_area =
             super::layout::grow_center(div()).child(self.repo_session.graph_panel.render(
                 &self.colors,
-                self.settings.show_checkpoint_refs,
                 self.settings.graph_show_graph_column,
                 self.settings.graph_show_sha_column,
                 self.settings.graph_show_time_column,
@@ -457,7 +455,9 @@ impl Render for GitForgeApp {
 
         let status_bar = super::toolbar::render_status_bar(
             &self.repo_session.remote_status,
+            &self.hosting_accounts,
             &self.colors,
+            entity.clone(),
             window,
         );
 
