@@ -1,4 +1,5 @@
 use gitforge_git::{RefKind, RepoState};
+use gitforge_hosting::HostingAccount;
 use gitforge_ui::{AppColors, rgba_to_hsla, window_control_button};
 use gpui::*;
 
@@ -595,8 +596,153 @@ pub fn render_local_branch_dropdown(
     dropdown
 }
 
+struct AccountTooltip {
+    text: SharedString,
+    colors: AppColors,
+}
+
+impl Render for AccountTooltip {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        let cl = &self.colors;
+        div()
+            .px_2()
+            .py_1()
+            .text_xs()
+            .text_color(rgba_to_hsla(cl.text))
+            .bg(rgba_to_hsla(cl.background))
+            .border_1()
+            .border_color(rgba_to_hsla(cl.border))
+            .rounded(px(4.0))
+            .shadow(vec![BoxShadow {
+                color: black(),
+                offset: point(px(0.0), px(2.0)),
+                blur_radius: px(8.0),
+                spread_radius: px(0.0),
+            }])
+            .child(self.text.clone())
+    }
+}
+
+fn provider_display_name(provider: &str) -> &'static str {
+    match provider {
+        "github" => "GitHub",
+        "gitlab" => "GitLab",
+        "codeberg" => "Codeberg",
+        _ => "Hosting",
+    }
+}
+
+fn provider_color(provider: &str, colors: &AppColors) -> Hsla {
+    match provider {
+        "github" => rgba_to_hsla(colors.accent),
+        "gitlab" => rgba_to_hsla(colors.accent_secondary),
+        "codeberg" => rgba_to_hsla(colors.success),
+        _ => rgba_to_hsla(colors.text_muted),
+    }
+}
+
+fn account_avatar_chip(
+    account: &HostingAccount,
+    colors: &AppColors,
+    entity: WeakEntity<super::app::GitForgeApp>,
+) -> Stateful<Div> {
+    let provider_id = account.provider.clone();
+    let provider_click = account.provider.clone();
+    let username = account.username.clone();
+    let display = account.display_name.clone();
+    let prov_label = provider_display_name(&account.provider);
+    let tooltip_text = format!("{display} (@{username}) · {prov_label}");
+    let prov_color = provider_color(&account.provider, colors);
+    let text_color = rgba_to_hsla(colors.text);
+    let hover_bg = rgba_to_hsla(colors.surface_high);
+    let tooltip_colors = colors.clone();
+    let initial = username
+        .chars()
+        .next()
+        .unwrap_or('?')
+        .to_uppercase()
+        .to_string();
+    let avatar_path = gitforge_hosting::cached_avatar_path(account);
+
+    let avatar = if let Some(path) = avatar_path {
+        img(path)
+            .size(px(22.0))
+            .rounded_full()
+            .object_fit(ObjectFit::Cover)
+            .into_any_element()
+    } else {
+        div()
+            .size(px(22.0))
+            .rounded_full()
+            .flex()
+            .items_center()
+            .justify_center()
+            .text_xs()
+            .font_weight(FontWeight::SEMIBOLD)
+            .text_color(text_color)
+            .border_1()
+            .border_color(prov_color)
+            .bg(rgba_to_hsla(colors.surface_high))
+            .child(initial)
+            .into_any_element()
+    };
+
+    div()
+        .id(ElementId::Name(
+            format!("titlebar-account-{}-{}", provider_id, username).into(),
+        ))
+        .flex()
+        .items_center()
+        .cursor_pointer()
+        .rounded_full()
+        .hover(move |s| s.bg(hover_bg))
+        .tooltip(move |_window, cx| {
+            cx.new(|_cx| AccountTooltip {
+                text: tooltip_text.clone().into(),
+                colors: tooltip_colors.clone(),
+            })
+            .into()
+        })
+        .on_click(move |_ev, _window, cx| {
+            if let Some(e) = entity.upgrade() {
+                let p = provider_click.clone();
+                e.update(cx, |this, cx| {
+                    this.open_search_hosting_dialog(p, cx);
+                });
+            }
+        })
+        .on_mouse_move(|_, _, cx| cx.stop_propagation())
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        .child(avatar)
+}
+
+pub fn render_titlebar_accounts(
+    hosting_accounts: &[HostingAccount],
+    colors: &AppColors,
+    entity: WeakEntity<super::app::GitForgeApp>,
+) -> impl IntoElement {
+    if hosting_accounts.is_empty() {
+        return div().into_any_element();
+    }
+
+    let mut row = div()
+        .id("titlebar-accounts")
+        .flex()
+        .items_center()
+        .gap_1()
+        .mr_2()
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation());
+
+    for account in hosting_accounts {
+        row = row.child(account_avatar_chip(account, colors, entity.clone()));
+    }
+
+    row.into_any_element()
+}
+
 pub fn render_titlebar(
     repo_state: Option<&RepoState>,
+    hosting_accounts: &[HostingAccount],
     colors: &AppColors,
     window: &Window,
     entity: WeakEntity<super::app::GitForgeApp>,
@@ -696,6 +842,12 @@ pub fn render_titlebar(
     }
 
     bar = bar.pl(px(8.0)).child(left_cluster.flex_1().min_w(px(0.0)));
+
+    bar = bar.child(render_titlebar_accounts(
+        hosting_accounts,
+        colors,
+        entity.clone(),
+    ));
 
     bar = bar.child(update_indicator);
 

@@ -28,6 +28,30 @@ impl GitForgeApp {
         }
     }
 
+    pub(crate) fn backfill_avatar_caches(&mut self, cx: &mut Context<Self>) {
+        let accounts = self.hosting_accounts.clone();
+        if accounts.is_empty() {
+            return;
+        }
+        cx.spawn(async move |this, cx| {
+            let mut changed = false;
+            for account in accounts {
+                if gitforge_hosting::ensure_avatar_cached(&account)
+                    .await
+                    .ok()
+                    .flatten()
+                    .is_some()
+                {
+                    changed = true;
+                }
+            }
+            if changed {
+                this.update(cx, |_, cx| cx.notify()).ok();
+            }
+        })
+        .detach();
+    }
+
     pub(crate) fn save_hosting_accounts(&self) {
         let path = dirs::config_dir()
             .unwrap_or_default()
@@ -92,23 +116,37 @@ impl GitForgeApp {
             );
             return;
         };
-        self.repo_session.remote_status = format!("Authenticating with {}...", provider);
-        cx.notify();
 
         self.run_hosting_op(
             "Authentication",
             cx,
             move || async move { p.authenticate(&token).await },
             move |this, account, cx| {
-                this.hosting_accounts.push(account);
+                let display_name = account.display_name.clone();
+                let provider_name = account.provider.clone();
+                this.hosting_accounts.push(account.clone());
                 this.save_hosting_accounts();
-                this.repo_session.remote_status = "Account authenticated successfully".to_string();
+                let account_for_avatar = account;
+                this.push_toast(
+                    crate::views::toasts::ToastKind::Success,
+                    format!("Signed in as {display_name} ({provider_name})"),
+                    cx,
+                );
+                cx.spawn(async move |this, cx| {
+                    if gitforge_hosting::ensure_avatar_cached(&account_for_avatar)
+                        .await
+                        .ok()
+                        .flatten()
+                        .is_some()
+                    {
+                        this.update(cx, |_, cx| cx.notify()).ok();
+                    }
+                })
+                .detach();
                 this.notify_settings_window(cx);
                 cx.notify();
             },
-            |this, _cx| {
-                this.repo_session.remote_status.clear();
-            },
+            |_, _| {},
         );
     }
 
@@ -181,8 +219,6 @@ impl GitForgeApp {
         cx: &mut Context<Self>,
     ) {
         self.active_dialog = super::super::app::AppDialog::None;
-        self.repo_session.remote_status = format!("Cloning {}...", repo_name);
-        cx.notify();
 
         let path = dirs::home_dir()
             .unwrap_or_default()
@@ -194,12 +230,9 @@ impl GitForgeApp {
             cx,
             move || gitforge_git::Repository::clone_repo(&clone_url, &path, false, None),
             move |this, _output, cx| {
-                this.repo_session.remote_status.clear();
                 this.open_repo_from_path(open_path, cx);
             },
-            |this, _cx| {
-                this.repo_session.remote_status.clear();
-            },
+            |_, _| {},
         );
     }
 
@@ -257,11 +290,8 @@ impl GitForgeApp {
         cx: &mut Context<Self>,
     ) {
         self.active_dialog = super::super::app::AppDialog::None;
-        self.repo_session.remote_status = format!("Forking {}/{}...", owner, repo);
-        cx.notify();
 
         let Some(account) = self.find_hosting_account(&provider) else {
-            self.repo_session.remote_status.clear();
             self.push_toast(
                 crate::views::toasts::ToastKind::Warning,
                 "No account configured for fork".to_string(),
@@ -270,7 +300,6 @@ impl GitForgeApp {
             return;
         };
         let Some(p) = gitforge_hosting::get_provider(&account.provider) else {
-            self.repo_session.remote_status.clear();
             self.push_toast(
                 crate::views::toasts::ToastKind::Error,
                 "Unknown provider for fork".to_string(),
@@ -284,12 +313,14 @@ impl GitForgeApp {
             cx,
             move || async move { p.create_fork(&account, &owner, &repo).await },
             move |this, forked, cx| {
-                this.repo_session.remote_status = format!("Forked to {}", forked.full_name);
+                this.push_toast(
+                    crate::views::toasts::ToastKind::Success,
+                    format!("Forked to {}", forked.full_name),
+                    cx,
+                );
                 cx.notify();
             },
-            |this, _cx| {
-                this.repo_session.remote_status.clear();
-            },
+            |_, _| {},
         );
     }
 }

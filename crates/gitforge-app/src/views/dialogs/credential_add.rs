@@ -104,8 +104,11 @@ fn store_credential(
             gitforge_git::credential::store_credential(&host, &username, &password, None)
         },
         |this, _value, cx| {
-            this.repo_session.remote_status = "Credential stored in keyring".to_string();
-            cx.notify();
+            this.push_toast(
+                crate::views::toasts::ToastKind::Success,
+                "Credential stored in keyring".to_string(),
+                cx,
+            );
         },
         |_, _| {},
     );

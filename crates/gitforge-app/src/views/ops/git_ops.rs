@@ -225,9 +225,12 @@ impl GitForgeApp {
                     if let Some(branch) = branch_to_push.clone() {
                         this.push_current_branch("origin".into(), branch, false, cx);
                     } else {
-                        this.repo_session.remote_status =
+                        this.push_toast(
+                            crate::views::toasts::ToastKind::Warning,
                             "Commit succeeded; skipped auto-push because HEAD is detached."
-                                .into();
+                                .to_string(),
+                            cx,
+                        );
                     }
                 }
             },
@@ -390,60 +393,6 @@ impl GitForgeApp {
         });
     }
 
-    /// Git-op seam that sets `remote_status` before spawn and clears it in
-    /// every arm (success or failure). Routed through
-    /// [`super::bg::dispatch_bg_result`] so the 3-arm match and dual reporter
-    /// are shared with [`Self::run_git_op_returning`]; the only addition is
-    /// the `remote_status` set/clear side effect, threaded via `on_success`
-    /// and `on_error`.
-    pub(crate) fn run_git_op_with_status<F, R>(
-        &mut self,
-        label: &str,
-        status: &str,
-        cx: &mut Context<Self>,
-        op: F,
-    ) where
-        F: FnOnce(&gitforge_git::Repository) -> Result<R, gitforge_git::GitError> + Send + 'static,
-        R: Send + 'static,
-    {
-        let Some(open_repo) = self.repo_session.require_active_repo_handle() else {
-            cx.notify();
-            return;
-        };
-        self.repo_session.remote_status = status.to_string();
-        cx.notify();
-        let label_owned = label.to_string();
-        cx.spawn(async move |this, cx| {
-            let result = tokio::task::spawn_blocking(move || {
-                let repo_lock = open_repo.lock();
-                let Some(repo) = repo_lock.as_ref() else {
-                    return Err(gitforge_git::GitError::OperationFailed(
-                        "No repository open".into(),
-                    ));
-                };
-                op(repo)
-            })
-            .await;
-            this.update(cx, |this, cx| {
-                super::bg::dispatch_bg_result(
-                    this,
-                    cx,
-                    &label_owned,
-                    result,
-                    |this, _value: R, cx| {
-                        this.repo_session.remote_status.clear();
-                        this.refresh_repository(cx);
-                    },
-                    |this, _cx| {
-                        this.repo_session.remote_status.clear();
-                    },
-                );
-            })
-            .ok();
-        })
-        .detach();
-    }
-
     pub fn create_branch(
         &mut self,
         name: String,
@@ -553,9 +502,7 @@ impl GitForgeApp {
     }
 
     pub fn fetch_all(&mut self, cx: &mut Context<Self>) {
-        self.run_git_op_with_status("Fetch", "Fetching all remotes...", cx, move |repo| {
-            repo.fetch_all(true)
-        });
+        self.run_git_op("Fetch", cx, move |repo| repo.fetch_all(true));
     }
 
     pub(crate) fn restart_periodic_fetch(&mut self, cx: &mut Context<Self>) {
@@ -594,10 +541,7 @@ impl GitForgeApp {
     }
 
     pub fn fetch_remote(&mut self, remote: String, cx: &mut Context<Self>) {
-        let status = format!("Fetching {}...", remote);
-        self.run_git_op_with_status("Fetch", &status, cx, move |repo| {
-            repo.fetch(Some(&remote), true)
-        });
+        self.run_git_op("Fetch", cx, move |repo| repo.fetch(Some(&remote), true));
     }
 
     pub fn push_current_branch(
@@ -607,35 +551,25 @@ impl GitForgeApp {
         force: bool,
         cx: &mut Context<Self>,
     ) {
-        let status = format!("Pushing {} to {}...", branch, remote);
-        self.run_git_op_with_status("Push", &status, cx, move |repo| {
+        self.run_git_op("Push", cx, move |repo| {
             repo.push(&remote, Some(&branch), force, true)
         });
     }
 
     pub fn pull_from_remote(&mut self, remote: String, rebase: bool, cx: &mut Context<Self>) {
-        let status = format!("Pulling from {}...", remote);
-        self.run_git_op_with_status("Pull", &status, cx, move |repo| {
-            repo.pull(Some(&remote), rebase)
-        });
+        self.run_git_op("Pull", cx, move |repo| repo.pull(Some(&remote), rebase));
     }
 
     pub fn clone_repository(&mut self, url: String, path: String, cx: &mut Context<Self>) {
-        self.repo_session.remote_status = format!("Cloning {}...", url);
-        cx.notify();
-
         let path_buf = std::path::PathBuf::from(&path);
         self.run_blocking_op_returning(
             "Clone",
             cx,
             move || gitforge_git::Repository::clone_repo(&url, &path_buf, false, None),
             move |this, _output, cx| {
-                this.repo_session.remote_status.clear();
                 this.open_repo_from_path(std::path::PathBuf::from(path), cx);
             },
-            |this, _cx| {
-                this.repo_session.remote_status.clear();
-            },
+            |_, _| {},
         );
     }
 

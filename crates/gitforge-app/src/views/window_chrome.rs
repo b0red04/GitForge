@@ -87,7 +87,7 @@ fn resize_edge(
 /// ```text
 /// #window-backdrop (transparent, shadow inset padding, outer corner radius, resize targets)
 ///   └─ frame div (border color bg, 1px borders, shadow, inner corner radius)
-///        └─ content (titlebar + workspace + statusbar)
+///        └─ content (titlebar + workspace)
 /// ```
 pub fn render_window_chrome(
     content: impl IntoElement,
@@ -218,7 +218,7 @@ pub fn apply_top_corner_radius(
     .when(!(tiling.top || tiling.left), |div| div.rounded_tl(rounding))
 }
 
-/// Bottom corners only (status bar).
+/// Bottom corners only (workspace row).
 pub fn apply_bottom_corner_radius(
     el: Stateful<Div>,
     rounding: Pixels,

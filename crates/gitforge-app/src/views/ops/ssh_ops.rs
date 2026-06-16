@@ -15,31 +15,31 @@ impl GitForgeApp {
             move || gitforge_git::ssh::generate_ssh_key(&key_type, &email, None, None),
             |this, _path, cx| {
                 this.load_ssh_state();
-                this.repo_session.remote_status = "SSH key generated successfully".to_string();
-                cx.notify();
+                this.push_toast(
+                    crate::views::toasts::ToastKind::Success,
+                    "SSH key generated successfully".to_string(),
+                    cx,
+                );
             },
-            |this, _cx| {
-                this.repo_session.remote_status.clear();
-            },
+            |_, _| {},
         );
     }
 
     pub fn test_ssh_connection(&mut self, host: String, cx: &mut Context<Self>) {
         let host_display = host.clone();
-        self.repo_session.remote_status = format!("Testing SSH connection to {}...", host);
-        cx.notify();
 
         self.run_blocking_op_returning(
             "SSH test",
             cx,
             move || gitforge_git::ssh::test_ssh_connection(&host),
             move |this, msg, cx| {
-                this.repo_session.remote_status = format!("SSH test {}: {}", host_display, msg);
-                cx.notify();
+                this.push_toast(
+                    crate::views::toasts::ToastKind::Info,
+                    format!("SSH test {}: {}", host_display, msg),
+                    cx,
+                );
             },
-            |this, _cx| {
-                this.repo_session.remote_status.clear();
-            },
+            |_, _| {},
         );
     }
 }

@@ -64,7 +64,10 @@ fn main() {
                 },
                 |_window, cx| {
                     let view = cx.new(|cx| GitForgeApp::new(cx));
-                    view.update(cx, |app, cx| app.restore_open_repo_tabs(cx));
+                    view.update(cx, |app, cx| {
+                        app.restore_open_repo_tabs(cx);
+                        app.backfill_avatar_caches(cx);
+                    });
                     view.focus_handle(cx).focus(_window);
                     view
                 },

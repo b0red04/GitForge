@@ -1,11 +1,8 @@
 use gitforge_git::RepoState;
-use gitforge_hosting::HostingAccount;
 use gitforge_ui::{AppColors, rgba_to_hsla};
 use gpui::*;
 
-use super::app::GitForgeApp;
-use super::layout::{STATUS_BAR_HEIGHT, TOOLBAR_HEIGHT, WINDOW_CORNER_RADIUS};
-use super::window_chrome::{apply_bottom_corner_radius, seal_rounded_corners};
+use super::layout::TOOLBAR_HEIGHT;
 
 fn toolbar_button(
     id: impl Into<ElementId>,
@@ -436,121 +433,4 @@ fn more_item(
         .on_click(move |_ev, _window, cx| {
             action(entity.clone(), cx);
         })
-}
-
-pub fn render_status_bar(
-    remote_status: &str,
-    hosting_accounts: &[HostingAccount],
-    colors: &AppColors,
-    entity: WeakEntity<GitForgeApp>,
-    window: &Window,
-) -> impl IntoElement {
-    let surface = rgba_to_hsla(colors.surface);
-    let border = rgba_to_hsla(colors.border);
-    let muted = rgba_to_hsla(colors.text_muted);
-    let accent = rgba_to_hsla(colors.accent);
-    let warning = rgba_to_hsla(colors.warning);
-    let text_color = rgba_to_hsla(colors.text);
-
-    let status_color = if remote_status.contains("failed") || remote_status.contains("error") {
-        warning
-    } else if remote_status.is_empty() {
-        muted
-    } else {
-        accent
-    };
-
-    let status_text = if remote_status.is_empty() {
-        "Ready".to_string()
-    } else {
-        remote_status.to_string()
-    };
-
-    let rounding = px(WINDOW_CORNER_RADIUS);
-    let tiling = match window.window_decorations() {
-        Decorations::Server => Tiling::default(),
-        Decorations::Client { tiling } => tiling,
-    };
-
-    let mut accounts_row = div().flex().items_center().gap_3();
-    for account in hosting_accounts {
-        let ent_open = entity.clone();
-        let provider_click = account.provider.clone();
-        let provider_id = account.provider.clone();
-        let provider_label = account.provider.clone();
-        let username = account.username.clone();
-        let display = account.display_name.clone();
-
-        let prov_color = match provider_label.as_str() {
-            "github" => accent,
-            "gitlab" => rgba_to_hsla(colors.accent_secondary),
-            "codeberg" => rgba_to_hsla(colors.success),
-            _ => muted,
-        };
-
-        accounts_row = accounts_row.child(
-            div()
-                .id(ElementId::Name(
-                    format!("status-bar-account-{}-{}", provider_id, username).into(),
-                ))
-                .flex()
-                .items_center()
-                .gap_2()
-                .cursor_pointer()
-                .hover(|s| s.bg(rgba_to_hsla(colors.sidebar_hover)))
-                .on_click(move |_ev, _window, cx| {
-                    if let Some(e) = ent_open.upgrade() {
-                        let p = provider_click.clone();
-                        e.update(cx, |this, cx| {
-                            this.open_search_hosting_dialog(p, cx);
-                        });
-                    }
-                })
-                .child(
-                    div()
-                        .text_xs()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(prov_color)
-                        .child(provider_label),
-                )
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(text_color)
-                        .overflow_hidden()
-                        .child(display),
-                )
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(muted)
-                        .child(format!("@{}", username)),
-                ),
-        );
-    }
-
-    let base = div()
-        .w_full()
-        .h(px(STATUS_BAR_HEIGHT))
-        .flex_shrink_0()
-        .bg(surface)
-        .border_t_1()
-        .border_color(border)
-        .flex()
-        .items_center()
-        .px_3()
-        .gap_3();
-
-    let bar = if matches!(window.window_decorations(), Decorations::Client { .. }) {
-        seal_rounded_corners(
-            apply_bottom_corner_radius(base.id("status-bar"), rounding, tiling),
-            surface,
-        )
-    } else {
-        base.id("status-bar")
-    };
-
-    bar.child(div().text_xs().text_color(status_color).child(status_text))
-        .child(div().flex_1())
-        .child(accounts_row)
 }

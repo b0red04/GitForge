@@ -7,8 +7,6 @@
 //! - [`GitForgeApp::run_blocking_op_returning`] (here) — handle-less; the op
 //!   receives nothing. Auto-toasts on error. Used for SSH key management,
 //!   credential storage, clone, and other blocking work.
-//! - [`GitForgeApp::run_git_op_with_status`] (in `git_ops.rs`) — the
-//!   handle-required variant with a `remote_status` set/clear side effect.
 //! - [`GitForgeApp::run_blocking_op_silent`] (here) — handle-less, does NOT
 //!   auto-toast. The caller's `on_error` is the sole error handler. Used by
 //!   repo-creation/discovery sites that surface failures via the persistent
@@ -27,8 +25,7 @@ impl GitForgeApp {
     /// Handle-less blocking-op seam: spawns `op` on the blocking pool and
     /// dispatches the result through [`dispatch_bg_result`] (auto-toasts on
     /// error). The op does not receive a `&Repository`. On either failure arm,
-    /// `on_error` runs before the toast so callers can clear transient state
-    /// (e.g. `remote_status`).
+    /// `on_error` runs before the toast.
     ///
     /// For ops that need an open repo, use
     /// [`Self::run_git_op_returning`](super::git_ops::GitForgeApp::run_git_op_returning).

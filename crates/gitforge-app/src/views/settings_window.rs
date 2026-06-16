@@ -1501,9 +1501,7 @@ fn render_content(
             pat_error,
             window,
         ),
-        SettingsSection::About => {
-            render_about_section(section_body, draft, colors, entity.clone())
-        }
+        SettingsSection::About => render_about_section(section_body, draft, colors, entity.clone()),
     };
 
     div()
@@ -2093,6 +2091,55 @@ fn provider_display_name(provider: &str) -> &str {
         "codeberg" => "Codeberg",
         _ => provider,
     }
+}
+
+fn pat_scope_lines(provider: &str) -> &'static [&'static str] {
+    match provider {
+        "github" => &[
+            "Enable these scopes on a classic personal access token:",
+            "• repo — list/clone private and public repos, fork, open pull requests, read branches",
+            "• public_repo — use instead of repo if you only work with public repositories",
+            "• read:user — read profile and avatar (optional; sign-in works with repo alone)",
+        ],
+        "gitlab" => &[
+            "Enable these scopes on a personal access token:",
+            "• api — full API access for private repos, fork, and merge requests",
+            "• read_api — browse and search repositories only (no fork or merge requests)",
+            "• read_user — read profile and avatar",
+        ],
+        "codeberg" => &[
+            "Enable these scopes on an access token:",
+            "• read:user — read profile and avatar",
+            "• read:repository — list and search repositories",
+            "• write:repository — fork repositories and create pull requests",
+        ],
+        _ => &["Use a token with repository read and write API access."],
+    }
+}
+
+fn render_pat_scope_guidance(provider: &str, muted: Hsla, accent: Hsla) -> Div {
+    let title = format!("{} token scopes", provider_display_name(provider));
+    let mut block = div()
+        .flex()
+        .flex_col()
+        .gap_1()
+        .px_2()
+        .py_2()
+        .rounded(px(4.0))
+        .bg(muted.opacity(0.08))
+        .child(
+            div()
+                .text_xs()
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(accent)
+                .child(title),
+        );
+
+    for line in pat_scope_lines(provider) {
+        block = block.child(div().text_xs().text_color(muted).child(*line));
+    }
+
+    block
 }
 
 fn default_model_for_provider(provider: &str) -> String {
@@ -3252,9 +3299,25 @@ fn render_accounts_section(
         .gap_3()
         .child(
             div()
-                .text_xs()
-                .text_color(muted)
-                .child("Add an account with a Personal Access Token (PAT)."),
+                .flex()
+                .flex_col()
+                .gap_1()
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(muted)
+                        .child(
+                            "Add an account with a Personal Access Token (PAT). Tokens are stored locally in ~/.config/gitforge/.",
+                        ),
+                )
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(muted)
+                        .child(
+                            "Choose a provider below. Required token scopes are listed when you add an account.",
+                        ),
+                ),
         )
         .child(
             div()
@@ -3304,6 +3367,7 @@ fn render_accounts_section(
                     .text_color(text)
                     .child(format!("Add {provider_label} account")),
             )
+            .child(render_pat_scope_guidance(provider, muted, accent))
             .child(pat_field_control(
                 pat_input,
                 pat_focused,
