@@ -120,7 +120,7 @@ fn button(
     on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> Stateful<Div> {
     div()
-        .id("update-indicator")
+        .id("update-indicator-restart")
         .px_2()
         .py_0p5()
         .rounded(px(4.0))
@@ -129,6 +129,9 @@ fn button(
         .cursor_pointer()
         .hover(|s| s.bg(hover_bg))
         .child(label.into())
+        // Titlebar is a drag region; stop propagation so clicks reach this button.
+        .on_mouse_move(|_, _, cx| cx.stop_propagation())
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .on_click(on_click)
         .on_mouse_down(
             MouseButton::Right,
