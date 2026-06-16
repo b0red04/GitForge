@@ -30,11 +30,7 @@ Release builds installed via the install script check GitHub hourly for newer re
 - You can also trigger a manual check from the update indicator in the title bar.
 - The updater compares semver versions, downloads the matching tarball, verifies its SHA-256 checksum, and replaces `~/.local/gitforge.app/` in place. Restart GitForge when prompted.
 
-Auto-updates are disabled in debug builds (`cargo run`). Use a release install to test the updater.
-
-### Testing the updater
-
-If you have an older release installed and a newer one is published on GitHub, launch the installed app and either wait for the hourly check or trigger one manually. The app should download the new tarball, verify the checksum, install, and prompt to restart.
+Auto-updates are disabled in debug builds (`cargo run`). Use a release install to test the updater. See [docs/TESTING-UPDATES.md](docs/TESTING-UPDATES.md) for local and automated test workflows.
 
 ## Features
 

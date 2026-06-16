@@ -7,6 +7,9 @@ license.workspace = true
 [lib]
 path = "src/lib.rs"
 
+[features]
+dev-simulate-update = []
+
 [dependencies]
 anyhow.workspace = true
 gpui.workspace = true
@@ -19,3 +22,6 @@ tempfile.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 which.workspace = true
+
+[dev-dependencies]
+gpui = { workspace = true, features = ["test-support"] }

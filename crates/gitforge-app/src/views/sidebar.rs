@@ -1,8 +1,8 @@
 use gitforge_git::{CommitInfo, RefInfo, RefKind, RepoState, WorktreeInfo};
 use gitforge_ui::{
-    AppColors, TextInput, TextInputEvent, TextInputRenderOpts, WidgetColors,
-    collapsible_header, entity_on_click, entity_on_click_stop_propagation, ghost_button,
-    parse_key_event, render_text_input, rgba_to_hsla,
+    AppColors, TextInput, TextInputEvent, TextInputRenderOpts, WidgetColors, collapsible_header,
+    entity_on_click, entity_on_click_stop_propagation, ghost_button, parse_key_event,
+    render_text_input, rgba_to_hsla,
 };
 use gpui::*;
 use std::collections::{HashMap, HashSet};
@@ -171,7 +171,7 @@ impl SidebarState {
     }
 }
 
-pub fn render_sidebar(
+pub(crate) fn render_sidebar(
     repo_state: Option<&RepoState>,
     colors: &AppColors,
     loading: bool,
@@ -371,7 +371,8 @@ pub fn render_sidebar(
                         .max_h(px(ROW_HEIGHT * TAG_VISIBLE_LIMIT as f32))
                         .overflow_y_scroll();
                     for rf in &tags {
-                        tag_list = tag_list.child(render_ref_item(rf, colors, "tag", entity.clone()));
+                        tag_list =
+                            tag_list.child(render_ref_item(rf, colors, "tag", entity.clone()));
                     }
                     sidebar = sidebar.child(tag_list);
                 }
@@ -914,10 +915,9 @@ fn render_remote_group_header(
                 if let Some(e) = ent_context.upgrade() {
                     let name = name_context.clone();
                     e.update(cx, |this, cx| {
-                        this.repo_session.sidebar_state.set_context_menu(
-                            ContextMenuAction::RemoteHeader(name),
-                            (x, y),
-                        );
+                        this.repo_session
+                            .sidebar_state
+                            .set_context_menu(ContextMenuAction::RemoteHeader(name), (x, y));
                         cx.notify();
                     });
                 }
@@ -979,9 +979,7 @@ fn render_pull_requests_header(
             "sidebar-create-pr",
             "+",
             accent,
-            entity_on_click_stop_propagation(ent_create, |this, cx| {
-                this.open_create_pr_dialog(cx)
-            }),
+            entity_on_click_stop_propagation(ent_create, |this, cx| this.open_create_pr_dialog(cx)),
         ))
 }
 

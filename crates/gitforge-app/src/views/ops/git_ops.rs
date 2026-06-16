@@ -335,11 +335,11 @@ impl GitForgeApp {
     }
     /// General async seam for git operations that produce a value.
     ///
-    /// Owns the `cx.spawn` + `spawn_blocking` + repo-handle lock, then routes
-    /// the result through [`super::bg::dispatch_bg_result`]. On success,
-    /// `on_success` receives the value; on either failure arm the dispatcher
-    /// surfaces a toast (structured `report_git_error` for op errors, lossy
-    /// `report_op_error` for task panics).
+    /// Runs a git op against the active repository, hands the value to
+    /// `on_success`, and surfaces a toast on error. Thin adapter over
+    /// `run_git_blocking`; routes through the pure classifier
+    /// (`dispatch::plan_dispatch`) with no auto-refresh — the caller's
+    /// `on_success` decides.
     pub(crate) fn run_git_op_returning<F, T>(
         &mut self,
         label: &str,
@@ -350,47 +350,50 @@ impl GitForgeApp {
         F: FnOnce(&gitforge_git::Repository) -> Result<T, gitforge_git::GitError> + Send + 'static,
         T: Send + 'static,
     {
-        let Some(open_repo) = self.repo_session.require_active_repo_handle() else {
-            cx.notify();
-            return;
-        };
-        let label_owned = label.to_string();
-        cx.spawn(async move |this, cx| {
-            let result = tokio::task::spawn_blocking(move || {
-                let repo_lock = open_repo.lock();
-                let Some(repo) = repo_lock.as_ref() else {
-                    return Err(gitforge_git::GitError::OperationFailed(
-                        "No repository open".into(),
-                    ));
-                };
-                op(repo)
-            })
-            .await;
-            this.update(cx, |this, cx| {
-                super::bg::dispatch_bg_result(
-                    this,
-                    cx,
-                    &label_owned,
-                    result,
-                    on_success,
-                    |_, _| {},
-                );
-            })
-            .ok();
-        })
-        .detach();
+        self.run_git_blocking(label, cx, super::dispatch::OpEffects::QUIET, op, on_success);
     }
 
     /// Fire-and-refresh git op: runs `op`, then refreshes the repository on
-    /// success. A thin specialization of `run_git_op_returning`.
+    /// success. Thin adapter over `run_git_blocking` with `OpEffects::GIT`.
     pub(crate) fn run_git_op<F, R>(&mut self, label: &str, cx: &mut Context<Self>, op: F)
     where
         F: FnOnce(&gitforge_git::Repository) -> Result<R, gitforge_git::GitError> + Send + 'static,
         R: Send + 'static,
     {
-        self.run_git_op_returning(label, cx, op, |this, _value: R, cx| {
-            this.refresh_repository(cx);
-        });
+        self.run_git_blocking(label, cx, super::dispatch::OpEffects::GIT, op, |_, _, _| {});
+    }
+
+    /// Git-op seam that sets `remote_status` before spawn and clears it in every
+    /// arm. Thin adapter over `run_op`: the `remote_status` set/clear is the
+    /// shell's lifecycle effect (declared via `OpEffects::remote_status`) and
+    /// the refresh fires via `OpEffects::refresh_repo`.
+    pub(crate) fn run_git_op_with_status<F, R>(
+        &mut self,
+        label: &str,
+        status: &str,
+        cx: &mut Context<Self>,
+        op: F,
+    ) where
+        F: FnOnce(&gitforge_git::Repository) -> Result<R, gitforge_git::GitError> + Send + 'static,
+        R: Send + 'static,
+    {
+        let Some(handle) = self.repo_session.require_active_repo_handle() else {
+            cx.notify();
+            return;
+        };
+        let fx = super::dispatch::OpEffects {
+            refresh_repo: true,
+            refresh_prs: false,
+            remote_status: Some(status.to_string()),
+            error_channel: super::dispatch::ErrorChannel::Toast,
+        };
+        self.run_op(
+            label,
+            cx,
+            fx,
+            move || super::dispatch::with_repo_blocking(handle, op),
+            |_, _, _| {},
+        );
     }
 
     pub fn create_branch(
@@ -502,7 +505,9 @@ impl GitForgeApp {
     }
 
     pub fn fetch_all(&mut self, cx: &mut Context<Self>) {
-        self.run_git_op("Fetch", cx, move |repo| repo.fetch_all(true));
+        self.run_git_op_with_status("Fetch", "Fetching all remotes...", cx, move |repo| {
+            repo.fetch_all(true)
+        });
     }
 
     pub(crate) fn restart_periodic_fetch(&mut self, cx: &mut Context<Self>) {
@@ -541,7 +546,10 @@ impl GitForgeApp {
     }
 
     pub fn fetch_remote(&mut self, remote: String, cx: &mut Context<Self>) {
-        self.run_git_op("Fetch", cx, move |repo| repo.fetch(Some(&remote), true));
+        let status = format!("Fetching {}...", remote);
+        self.run_git_op_with_status("Fetch", &status, cx, move |repo| {
+            repo.fetch(Some(&remote), true)
+        });
     }
 
     pub fn push_current_branch(
@@ -551,7 +559,8 @@ impl GitForgeApp {
         force: bool,
         cx: &mut Context<Self>,
     ) {
-        self.run_git_op("Push", cx, move |repo| {
+        let status = format!("Pushing {} to {}...", branch, remote);
+        self.run_git_op_with_status("Push", &status, cx, move |repo| {
             repo.push(&remote, Some(&branch), force, true)
         });
     }
