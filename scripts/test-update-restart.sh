@@ -22,7 +22,8 @@ cleanup() {
 trap cleanup EXIT
 
 echo "Building release binary..."
-cargo build -p gitforge-app --release
+cd "$ROOT"
+cargo build -p gitforge-app --release --features dev-simulate-update
 
 cat >"${WRAPPER}" <<EOF
 #!/usr/bin/env bash

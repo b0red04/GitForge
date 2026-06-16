@@ -125,12 +125,12 @@ pub fn init(cx: &mut App) {
     });
     cx.set_global(GlobalAutoUpdate(Some(auto_updater)));
     cx.set_global(GlobalUpdateState(std::collections::HashMap::new()));
+    #[cfg(any(debug_assertions, feature = "dev-simulate-update"))]
     maybe_dev_simulate_update_ready(cx);
 }
 
-/// Skip download/install and show the restart affordance (tests and local dev only).
-#[doc(hidden)]
-pub fn mark_update_ready(cx: &mut App, restart_path: PathBuf, pending_version: Version) {
+#[cfg(any(debug_assertions, feature = "dev-simulate-update"))]
+fn mark_update_ready(cx: &mut App, restart_path: PathBuf, pending_version: Version) {
     cx.set_restart_path(restart_path);
     let Some(updater) = AutoUpdater::get(cx) else {
         return;
@@ -143,6 +143,7 @@ pub fn mark_update_ready(cx: &mut App, restart_path: PathBuf, pending_version: V
     });
 }
 
+#[cfg(any(debug_assertions, feature = "dev-simulate-update"))]
 fn maybe_dev_simulate_update_ready(cx: &mut App) {
     if std::env::var_os("GITFORGE_DEV_SIMULATE_UPDATE_READY").is_none() {
         return;
