@@ -20,7 +20,6 @@ pub const WINDOW_CHROME_INSET: f32 = 10.0;
 /// Corner radius for the window frame (Zed-style).
 pub const WINDOW_CORNER_RADIUS: f32 = 10.0;
 pub const TOOLBAR_HEIGHT: f32 = 40.0;
-pub const STATUS_BAR_HEIGHT: f32 = 24.0;
 
 pub const ROW_HEIGHT: f32 = 28.0;
 

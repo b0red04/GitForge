@@ -225,9 +225,12 @@ impl GitForgeApp {
                     if let Some(branch) = branch_to_push.clone() {
                         this.push_current_branch("origin".into(), branch, false, cx);
                     } else {
-                        this.repo_session.remote_status =
+                        this.push_toast(
+                            crate::views::toasts::ToastKind::Warning,
                             "Commit succeeded; skipped auto-push because HEAD is detached."
-                                .into();
+                                .to_string(),
+                            cx,
+                        );
                     }
                 }
             },
@@ -563,28 +566,19 @@ impl GitForgeApp {
     }
 
     pub fn pull_from_remote(&mut self, remote: String, rebase: bool, cx: &mut Context<Self>) {
-        let status = format!("Pulling from {}...", remote);
-        self.run_git_op_with_status("Pull", &status, cx, move |repo| {
-            repo.pull(Some(&remote), rebase)
-        });
+        self.run_git_op("Pull", cx, move |repo| repo.pull(Some(&remote), rebase));
     }
 
     pub fn clone_repository(&mut self, url: String, path: String, cx: &mut Context<Self>) {
-        self.repo_session.remote_status = format!("Cloning {}...", url);
-        cx.notify();
-
         let path_buf = std::path::PathBuf::from(&path);
         self.run_blocking_op_returning(
             "Clone",
             cx,
             move || gitforge_git::Repository::clone_repo(&url, &path_buf, false, None),
             move |this, _output, cx| {
-                this.repo_session.remote_status.clear();
                 this.open_repo_from_path(std::path::PathBuf::from(path), cx);
             },
-            |this, _cx| {
-                this.repo_session.remote_status.clear();
-            },
+            |_, _| {},
         );
     }
 

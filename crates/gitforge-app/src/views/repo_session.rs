@@ -59,9 +59,12 @@ pub(crate) struct RepoSession {
     pub commit_editor: CommitEditor,
     pub sidebar_state: SidebarState,
     pub view_mode: MainViewMode,
-    pub remote_status: String,
     pub(crate) loading: bool,
     pub(crate) last_error: Option<String>,
+    /// Transient label (e.g. "Fetching…") shown while a remote op runs; set by
+    /// the dispatch shell via `OpEffects::remote_status` and cleared on
+    /// completion.
+    pub(crate) remote_status: String,
     pub(crate) closed_repo_tabs: Vec<PathBuf>,
 }
 
@@ -78,9 +81,9 @@ impl RepoSession {
             commit_editor: CommitEditor::new(cx),
             sidebar_state: SidebarState::new(cx),
             view_mode: MainViewMode::CommitHistory,
-            remote_status: String::new(),
             loading: false,
             last_error: None,
+            remote_status: String::new(),
             closed_repo_tabs: Vec::new(),
         }
     }

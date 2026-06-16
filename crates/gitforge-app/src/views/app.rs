@@ -155,7 +155,8 @@ impl GitForgeApp {
         let settings = AppSettings::load();
         let theme = Theme::load_by_name(&settings.theme).unwrap_or_else(|_| Theme::default_dark());
         let colors = AppColors::from_theme(&theme);
-        let update_indicator = cx.new(|cx| super::update_indicator::UpdateIndicator::new(colors.clone(), cx));
+        let update_indicator =
+            cx.new(|cx| super::update_indicator::UpdateIndicator::new(colors.clone(), cx));
         gitforge_update::set_auto_update_enabled(settings.auto_update, cx);
         let mut repo_session = RepoSession::new(cx);
         repo_session
@@ -453,14 +454,6 @@ impl Render for GitForgeApp {
 
         let right_panel = super::layout::grow_right(div()).child(right_content);
 
-        let status_bar = super::toolbar::render_status_bar(
-            &self.repo_session.remote_status,
-            &self.hosting_accounts,
-            &self.colors,
-            entity.clone(),
-            window,
-        );
-
         let error_banner = self.repo_session.last_error.as_ref().map(|err| {
             let _error_color = rgba_to_hsla(self.colors.error);
             div()
@@ -475,6 +468,7 @@ impl Render for GitForgeApp {
 
         let titlebar = super::titlebar::render_titlebar(
             active_repo_state,
+            &self.hosting_accounts,
             &self.colors,
             window,
             entity.clone(),
@@ -510,36 +504,55 @@ impl Render for GitForgeApp {
             inner = inner.child(banner);
         }
 
-        inner = inner.child(
-            div()
-                .flex_1()
-                .h_full()
-                .flex()
-                .flex_row()
-                .overflow_hidden()
-                .child(sidebar)
-                .child(
-                    div()
-                        .flex_1()
-                        .h_full()
-                        .flex()
-                        .flex_col()
-                        .bg(bg)
-                        .overflow_hidden()
-                        .child(toolbar)
-                        .child(
-                            div()
-                                .flex_1()
-                                .min_h(px(0.0))
-                                .flex()
-                                .flex_row()
-                                .overflow_hidden()
-                                .child(graph_area)
-                                .child(right_panel),
-                        )
-                        .child(status_bar),
+        let decorations = window.window_decorations();
+        let rounding = px(super::layout::WINDOW_CORNER_RADIUS);
+        let tiling = match decorations {
+            Decorations::Server => Tiling::default(),
+            Decorations::Client { tiling } => tiling,
+        };
+
+        let workspace_base = div()
+            .flex_1()
+            .h_full()
+            .flex()
+            .flex_row()
+            .overflow_hidden()
+            .child(sidebar)
+            .child(
+                div()
+                    .flex_1()
+                    .h_full()
+                    .flex()
+                    .flex_col()
+                    .bg(bg)
+                    .overflow_hidden()
+                    .child(toolbar)
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_h(px(0.0))
+                            .flex()
+                            .flex_row()
+                            .overflow_hidden()
+                            .child(graph_area)
+                            .child(right_panel),
+                    ),
+            );
+
+        let workspace_row = if matches!(decorations, Decorations::Client { .. }) {
+            super::window_chrome::seal_rounded_corners(
+                super::window_chrome::apply_bottom_corner_radius(
+                    workspace_base.id("workspace-row"),
+                    rounding,
+                    tiling,
                 ),
-        );
+                bg,
+            )
+        } else {
+            workspace_base.id("workspace-row")
+        };
+
+        inner = inner.child(workspace_row);
 
         if self.active_dialog != AppDialog::None {
             inner = inner.child(super::ops::dialog_render::render_dialog_overlay(
