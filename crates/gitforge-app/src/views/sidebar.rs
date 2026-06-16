@@ -24,6 +24,7 @@ pub enum ContextMenuAction {
     FilterToBranch(String),
     RemoteHeader(String),
     FetchRemote(String),
+    RemoveRemote(String),
     WorktreesHeader,
     PruneWorktrees,
     None,
@@ -761,9 +762,13 @@ pub(super) fn render_context_menu_overlay(
         ContextMenuAction::DeleteTag(name) => {
             vec![("Delete Tag", ContextMenuAction::DeleteTag(name.clone()))]
         }
-        ContextMenuAction::RemoteHeader(name) => {
-            vec![("Fetch", ContextMenuAction::FetchRemote(name.clone()))]
-        }
+        ContextMenuAction::RemoteHeader(name) => vec![
+            ("Fetch", ContextMenuAction::FetchRemote(name.clone())),
+            (
+                "Remove remote",
+                ContextMenuAction::RemoveRemote(name.clone()),
+            ),
+        ],
         ContextMenuAction::WorktreesHeader => {
             vec![("Prune stale", ContextMenuAction::PruneWorktrees)]
         }
@@ -799,7 +804,9 @@ pub(super) fn render_context_menu_overlay(
 
     for (idx, (label, menu_action)) in items.into_iter().enumerate() {
         let item_color = match &menu_action {
-            ContextMenuAction::DeleteBranch(_) | ContextMenuAction::DeleteTag(_) => warning,
+            ContextMenuAction::DeleteBranch(_)
+            | ContextMenuAction::DeleteTag(_)
+            | ContextMenuAction::RemoveRemote(_) => warning,
             _ => text_color,
         };
         let item_ent = entity.clone();
@@ -843,6 +850,9 @@ pub(super) fn render_context_menu_overlay(
                                 ContextMenuAction::FetchRemote(n) => {
                                     this.fetch_remote(n.clone(), cx)
                                 }
+                                ContextMenuAction::RemoveRemote(n) => {
+                                    this.remove_remote(n.clone(), cx)
+                                }
                                 ContextMenuAction::PruneWorktrees => this.prune_worktrees(cx),
                                 _ => {}
                             }
@@ -867,16 +877,13 @@ fn render_remote_group_header(
     let border = rgba_to_hsla(colors.border);
     let muted = rgba_to_hsla(colors.text_muted);
     let surface_high = rgba_to_hsla(colors.surface_high);
-    let warning = rgba_to_hsla(colors.warning);
     let arrow = if expanded { "▾" } else { "▸" };
     let title = format!("{} ({})", remote_name, count);
     let id = format!("sidebar-remote-{}", remote_name);
 
     let name_toggle = remote_name.to_string();
-    let name_remove = remote_name.to_string();
     let name_context = remote_name.to_string();
     let ent_toggle = entity.clone();
-    let ent_remove = entity.clone();
     let ent_context = entity.clone();
 
     div()
@@ -924,31 +931,6 @@ fn render_remote_group_header(
                 .font_weight(FontWeight::BOLD)
                 .text_color(muted)
                 .child(title),
-        )
-        .child(div().flex_1())
-        .child(
-            div()
-                .id(ElementId::Name(
-                    format!("remote-remove-{}", remote_name).into(),
-                ))
-                .px_1()
-                .py_0()
-                .rounded(px(2.0))
-                .border_1()
-                .border_color(border)
-                .text_xs()
-                .text_color(warning)
-                .cursor_pointer()
-                .hover(|s| s.bg(rgba_to_hsla(colors.sidebar_hover)))
-                .child("×")
-                .on_click(move |_ev, _window, cx| {
-                    if let Some(e) = ent_remove.upgrade() {
-                        let name = name_remove.clone();
-                        e.update(cx, |this, cx| {
-                            this.remove_remote(name, cx);
-                        });
-                    }
-                }),
         )
 }
 
