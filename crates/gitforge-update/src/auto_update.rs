@@ -125,6 +125,47 @@ pub fn init(cx: &mut App) {
     });
     cx.set_global(GlobalAutoUpdate(Some(auto_updater)));
     cx.set_global(GlobalUpdateState(std::collections::HashMap::new()));
+    maybe_dev_simulate_update_ready(cx);
+}
+
+/// Skip download/install and show the restart affordance (tests and local dev only).
+#[doc(hidden)]
+pub fn mark_update_ready(cx: &mut App, restart_path: PathBuf, pending_version: Version) {
+    cx.set_restart_path(restart_path);
+    let Some(updater) = AutoUpdater::get(cx) else {
+        return;
+    };
+    updater.update(cx, |updater, cx| {
+        updater.status = AutoUpdateStatus::Updated {
+            version: VersionCheckType::Semantic(pending_version),
+        };
+        cx.notify();
+    });
+}
+
+fn maybe_dev_simulate_update_ready(cx: &mut App) {
+    if std::env::var_os("GITFORGE_DEV_SIMULATE_UPDATE_READY").is_none() {
+        return;
+    }
+
+    tracing::warn!(
+        "GITFORGE_DEV_SIMULATE_UPDATE_READY is set; simulating a pending update without contacting GitHub"
+    );
+
+    let restart_path = match std::env::var("GITFORGE_DEV_RESTART_PATH") {
+        Ok(path) => PathBuf::from(path),
+        Err(_) => match cx.app_path() {
+            Ok(path) => path,
+            Err(err) => {
+                tracing::error!(
+                    "GITFORGE_DEV_SIMULATE_UPDATE_READY: could not resolve app path: {err:?}"
+                );
+                return;
+            }
+        },
+    };
+
+    mark_update_ready(cx, restart_path, Version::new(99, 99, 99));
 }
 
 pub fn set_auto_update_enabled(enabled: bool, cx: &mut App) {

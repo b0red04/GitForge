@@ -4,6 +4,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[lib]
+name = "gitforge_app"
+path = "src/lib.rs"
+
 [[bin]]
 name = "gitforge"
 path = "src/main.rs"
@@ -56,3 +60,8 @@ serde_json.workspace = true
 dirs.workspace = true
 rfd = "0.15"
 anyhow.workspace = true
+
+[dev-dependencies]
+semver.workspace = true
+gpui = { workspace = true, features = ["test-support"] }
+gitforge-update = { path = "../gitforge-update" }
