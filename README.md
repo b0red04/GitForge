@@ -175,7 +175,7 @@ Releases are cut with [cargo-release](https://github.com/crate-ci/cargo-release)
 
 ```bash
 cargo install cargo-release            # one-time
-cargo release patch --dry-run          # preview the bump / commit / tag / push
+cargo release patch                    # preview the bump / commit / tag / push (dry-run is the default)
 cargo release patch -x                 # execute (level: patch | minor | major)
 ```
 

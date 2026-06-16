@@ -23,6 +23,19 @@ assets = [
     ["../../assets/themes/*.json", "usr/share/gitforge/themes/", "644"],
 ]
 
+# cargo-release: keep version examples in the workspace README in sync. Scoped to
+# this crate (not release.toml) so the replacement runs once, not per crate.
+# `file` resolves relative to this manifest dir -> ../../README.md = workspace root.
+# The optional `(-[0-9A-Za-z.]+)?` tail matches prerelease suffixes (rc.1, alpha.2)
+# so an rc->final or rc.1->rc.2 bump doesn't leave a stale suffix dangling. The
+# class excludes `-` so it can't run past the arch separator in GitForge-{ver}-{arch}.
+[package.metadata.release]
+pre-release-replacements = [
+    { file = "../../README.md", search = "GitForge-[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.]+)?",                  replace = "GitForge-{{version}}" },
+    { file = "../../README.md", search = "v[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.]+)?",                          replace = "v{{version}}" },
+    { file = "../../README.md", search = "build-update-tarball\\.sh [0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.]+)?", replace = "build-update-tarball.sh {{version}}" },
+]
+
 [dependencies]
 gitforge-ui = { path = "../gitforge-ui" }
 gitforge-git = { path = "../gitforge-git" }

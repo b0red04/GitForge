@@ -13,17 +13,15 @@ consolidate-commits = true
 # This is an app, not crates.io libraries — never run `cargo publish`.
 publish = false
 
-# Tag like v0.1.3 to match existing tag history.
-tag-prefix = "v"
+# Tags like v0.1.4 to match existing tag history (v0.1.0..v0.1.3). cargo-release
+# always inserts a `v` before the version; the default subdirectory prefix would
+# make per-package tags (gitforge-{name}-v0.1.4). Setting tag-prefix to "" clears
+# that prefix so all workspace members share one consolidated root-level tag.
+tag-prefix = ""
 
-# Keep the version examples in the README in sync with each release.
-# Patterns are version-agnostic so they keep matching past 1.0.
-pre-release-replacements = [
-  # The optional `(-[0-9A-Za-z.]+)?` tail matches prerelease suffixes
-  # (rc.1, alpha.2, beta.1, dev) so an rc->final or rc.1->rc.2 bump doesn't
-  # leave a stale suffix dangling after the new version core. The class excludes
-  # `-` so it can't run past the arch separator in `GitForge-{ver}-{arch}`.
-  { file = "README.md", search = "GitForge-[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.]+)?",                  replace = "GitForge-{{version}}" },
-  { file = "README.md", search = "v[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.]+)?",                          replace = "v{{version}}" },
-  { file = "README.md", search = "build-update-tarball\\.sh [0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.]+)?", replace = "build-update-tarball.sh {{version}}" },
-]
+# NOTE: pre-release-replacements live in crates/gitforge-app/Cargo.toml under
+# [package.metadata.release], not here. cargo-release applies release.toml's
+# replacements once per workspace member (resolving `file` relative to each
+# crate dir), which would look for crates/*/README.md. Scoping them to the
+# single binary crate and pointing at ../../README.md applies them exactly once
+# against the workspace README.
