@@ -37,6 +37,30 @@ impl Repository {
         Ok(())
     }
 
+    /// Check out a remote-tracking branch as a local branch.
+    ///
+    /// If a local branch with the same short name already exists, switches to it.
+    /// Otherwise creates a new local branch that tracks the remote ref.
+    pub fn checkout_remote_branch(&self, remote_ref: &str) -> GitResult<()> {
+        let Some((_, local_name)) = remote_ref.split_once('/') else {
+            return self.checkout_branch(remote_ref);
+        };
+
+        if self
+            .run_git(&[
+                "rev-parse",
+                "--verify",
+                &format!("refs/heads/{local_name}"),
+            ])
+            .is_ok()
+        {
+            self.run_git(&["checkout", local_name])?;
+        } else {
+            self.run_git(&["checkout", "-b", local_name, "--track", remote_ref])?;
+        }
+        Ok(())
+    }
+
     /// Spawns a `git` subprocess.
     pub fn checkout_commit(&self, sha: &str) -> GitResult<()> {
         self.run_git(&["checkout", sha])?;
