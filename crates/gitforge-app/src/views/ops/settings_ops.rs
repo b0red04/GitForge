@@ -69,12 +69,20 @@ impl GitForgeApp {
         let accounts = self.hosting_accounts_snapshot();
         let colors = self.colors.clone();
         let theme = self.settings.theme.clone();
-        let _ = handle.update(cx, |settings, _, cx| {
-            settings.draft.theme = theme;
-            settings.sync_colors(colors, cx);
-            settings.refresh_snapshot(repo_data, accounts);
-            cx.notify();
-        });
+        cx.spawn(async move |_, cx| {
+            cx.update(|cx| {
+                handle
+                    .update(cx, |settings, _, cx| {
+                        settings.draft.theme = theme;
+                        settings.sync_colors(colors, cx);
+                        settings.refresh_snapshot(repo_data, accounts);
+                        cx.notify();
+                    })
+                    .ok();
+            })
+            .ok();
+        })
+        .detach();
     }
 
     pub fn open_settings_window(
