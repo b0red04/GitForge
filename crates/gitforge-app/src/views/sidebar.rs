@@ -7,7 +7,6 @@ use gitforge_ui::{
 use gpui::*;
 use std::collections::{HashMap, HashSet};
 
-use super::layout::SIDEBAR_WIDTH;
 use super::settings::AppSettings;
 const ROW_HEIGHT: f32 = 24.0;
 const TAG_VISIBLE_LIMIT: usize = 6;
@@ -176,6 +175,7 @@ pub(crate) fn render_sidebar(
     colors: &AppColors,
     loading: bool,
     state: &SidebarState,
+    sidebar_width: f32,
     entity: WeakEntity<super::app::GitForgeApp>,
     window: &mut Window,
     pull_requests: &[gitforge_hosting::PullRequest],
@@ -189,7 +189,8 @@ pub(crate) fn render_sidebar(
     let _accent = rgba_to_hsla(colors.accent);
 
     let mut sidebar = div()
-        .w(px(SIDEBAR_WIDTH))
+        .w(px(sidebar_width))
+        .flex_shrink_0()
         .h_full()
         .bg(sidebar_bg)
         .border_r_1()
