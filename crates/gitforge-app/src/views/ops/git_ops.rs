@@ -444,6 +444,11 @@ impl GitForgeApp {
         self.run_git_op("Checkout", cx, move |repo| repo.checkout_branch(&name));
     }
 
+    pub fn checkout_remote_branch(&mut self, name: String, cx: &mut Context<Self>) {
+        self.local_branch_dropdown_open = false;
+        self.run_git_op("Checkout", cx, move |repo| repo.checkout_remote_branch(&name));
+    }
+
     pub fn merge_branch(&mut self, branch: String, no_ff: bool, cx: &mut Context<Self>) {
         self.run_git_op("Merge", cx, move |repo| repo.merge(&branch, no_ff));
     }
