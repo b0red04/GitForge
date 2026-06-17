@@ -7,7 +7,6 @@
 //! drag while the button is held and finalise it on release. The owning
 //! `GitForgeApp` holds the live widths and the optional active-resize state.
 
-use gitforge_ui::{AppColors, rgba_to_hsla};
 use gpui::*;
 
 use super::layout::{PANEL_RESIZE_HANDLE_WIDTH, SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH, SIDEBAR_WIDTH};
@@ -50,31 +49,21 @@ pub fn default_width(side: PanelSide) -> f32 {
 ///
 /// - Single press-and-drag: starts a resize.
 /// - Double-click (`click_count >= 2`): resets that side to its default width.
+///
+/// Overlay on a panel edge via [`wrap_with_right_edge_resize_handle`] — do not
+/// insert as a flex sibling or it will add a visible gutter beside the border.
 pub(crate) fn render_panel_resize_handle(
     id: &'static str,
     side: PanelSide,
-    colors: &AppColors,
+    _colors: &gitforge_ui::AppColors,
     entity: WeakEntity<super::app::GitForgeApp>,
 ) -> Stateful<Div> {
-    let border = rgba_to_hsla(colors.border);
-    let hover_bg = rgba_to_hsla(colors.border);
-
     div()
         .id(id)
         .w(px(PANEL_RESIZE_HANDLE_WIDTH))
         .h_full()
-        .flex_shrink_0()
         .cursor(CursorStyle::ResizeLeftRight)
-        // A 1px centered rail, tinted on hover. The hit target stays the full
-        // `PANEL_RESIZE_HANDLE_WIDTH` for easy grabbing.
-        .child(
-            div()
-                .w(px(1.0))
-                .h_full()
-                .mx_auto()
-                .bg(border)
-                .hover(move |s| s.bg(hover_bg)),
-        )
+        // Invisible hit target; adjacent panel borders provide the separator line.
         .on_mouse_down(MouseButton::Left, move |ev, _window, cx| {
             if let Some(e) = entity.upgrade() {
                 let x = ev.position.x / px(1.0);
@@ -86,6 +75,28 @@ pub(crate) fn render_panel_resize_handle(
             }
             cx.stop_propagation();
         })
+}
+
+/// Overlay a resize handle on a panel's right edge without consuming layout width.
+pub(crate) fn wrap_with_right_edge_resize_handle(
+    pane: impl IntoElement,
+    id: &'static str,
+    side: PanelSide,
+    colors: &gitforge_ui::AppColors,
+    entity: WeakEntity<super::app::GitForgeApp>,
+    flex_shrink_0: bool,
+) -> Div {
+    let handle = render_panel_resize_handle(id, side, colors, entity)
+        .absolute()
+        .top(px(0.0))
+        .right(px(0.0))
+        .h_full();
+
+    let mut wrapper = div().relative().child(pane).child(handle);
+    if flex_shrink_0 {
+        wrapper = wrapper.flex_shrink_0();
+    }
+    wrapper
 }
 
 /// Transparent overlay whose only job is to keep global window mouse listeners

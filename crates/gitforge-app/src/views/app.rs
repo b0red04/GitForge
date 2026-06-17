@@ -475,17 +475,24 @@ impl Render for GitForgeApp {
             .unwrap_or((&[], false));
         let pull_request_hint = self.pull_request_sidebar_hint();
 
-        let sidebar = super::sidebar::render_sidebar(
-            active_repo_state,
+        let sidebar = super::panel_resize::wrap_with_right_edge_resize_handle(
+            super::sidebar::render_sidebar(
+                active_repo_state,
+                &self.colors,
+                self.repo_session.loading,
+                &self.repo_session.sidebar_state,
+                self.sidebar_width,
+                entity.clone(),
+                window,
+                pull_requests,
+                pull_requests_loading,
+                pull_request_hint,
+            ),
+            "panel-resize-sidebar",
+            super::panel_resize::PanelSide::Sidebar,
             &self.colors,
-            self.repo_session.loading,
-            &self.repo_session.sidebar_state,
-            self.sidebar_width,
             entity.clone(),
-            window,
-            pull_requests,
-            pull_requests_loading,
-            pull_request_hint,
+            true,
         );
 
         let toolbar = super::toolbar::render_toolbar(
@@ -496,15 +503,23 @@ impl Render for GitForgeApp {
             entity.clone(),
         );
 
-        let graph_area =
-            super::layout::grow_center(div()).child(self.repo_session.graph_panel.render(
+        let graph_area = super::layout::grow_center(
+            super::panel_resize::wrap_with_right_edge_resize_handle(
+                self.repo_session.graph_panel.render(
+                    &self.colors,
+                    self.settings.graph_show_graph_column,
+                    self.settings.graph_show_sha_column,
+                    self.settings.graph_show_time_column,
+                    self.settings.graph_show_author_column,
+                    entity.clone(),
+                ),
+                "panel-resize-right",
+                super::panel_resize::PanelSide::Right,
                 &self.colors,
-                self.settings.graph_show_graph_column,
-                self.settings.graph_show_sha_column,
-                self.settings.graph_show_time_column,
-                self.settings.graph_show_author_column,
                 entity.clone(),
-            ));
+                false,
+            ),
+        );
 
         let right_content = match self.repo_session.view_mode {
             MainViewMode::CommitHistory => {
@@ -604,18 +619,6 @@ impl Render for GitForgeApp {
             Decorations::Client { tiling } => tiling,
         };
 
-        let sidebar_handle = super::panel_resize::render_panel_resize_handle(
-            "panel-resize-sidebar",
-            super::panel_resize::PanelSide::Sidebar,
-            &self.colors,
-            entity.clone(),
-        );
-        let right_handle = super::panel_resize::render_panel_resize_handle(
-            "panel-resize-right",
-            super::panel_resize::PanelSide::Right,
-            &self.colors,
-            entity.clone(),
-        );
         let resize_listener =
             super::panel_resize::render_panel_resize_listener(entity.clone());
 
@@ -627,7 +630,6 @@ impl Render for GitForgeApp {
             .flex_row()
             .overflow_hidden()
             .child(sidebar)
-            .child(sidebar_handle)
             .child(
                 div()
                     .flex_1()
@@ -646,7 +648,6 @@ impl Render for GitForgeApp {
                             .flex_row()
                             .overflow_hidden()
                             .child(graph_area)
-                            .child(right_handle)
                             .child(right_panel),
                     ),
             )
