@@ -37,6 +37,8 @@ impl EmbeddedAssets {
         embed!("icons/x.svg");
         embed!("icons/chevron-down.svg");
         embed!("icons/chevron-right.svg");
+        embed!("icons/arrow-down.svg");
+        embed!("icons/arrow-up.svg");
         embed!("icons/refresh.svg");
         embed!("icons/cloud.svg");
         embed!("icons/terminal.svg");

@@ -652,7 +652,7 @@ fn render_ref_item(
     let is_tag = rf.kind == RefKind::Tag;
     let is_head = rf.is_head;
 
-    let row = div()
+    let mut row = div()
         .id(ElementId::Name(elem_id.into()))
         .w_full()
         .h(px(ROW_HEIGHT))
@@ -700,10 +700,22 @@ fn render_ref_item(
         )
         .child(
             div()
+                .flex_1()
+                .min_w(px(0.0))
+                .overflow_hidden()
+                .text_ellipsis()
                 .text_sm()
                 .text_color(text_color)
                 .child(format!("{}{}", prefix, display_name)),
         );
+
+    if is_branch && (rf.commits_ahead > 0 || rf.commits_behind > 0) {
+        row = row.child(super::branch_sync_badge::render_sync_indicators(
+            rf.commits_ahead,
+            rf.commits_behind,
+            text_color,
+        ));
+    }
 
     row
 }

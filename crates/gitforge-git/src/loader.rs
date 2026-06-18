@@ -49,7 +49,19 @@ impl RepoState {
         let head_branch = repo.head_branch()?;
         let head_commit = repo.head_commit()?.map(|c| c.short_id.clone());
         let commits = repo.commit_log_with_options(options.commit_limit, options.log_options)?;
-        let references = repo.references()?;
+        let mut references = repo.references()?;
+        let branch_tracking = repo.local_branch_tracking().unwrap_or_else(|e| {
+            tracing::warn!("Failed to read branch upstream tracking: {}", e);
+            std::collections::HashMap::new()
+        });
+        for rf in &mut references {
+            if rf.kind == crate::reference::RefKind::Branch {
+                if let Some(&(ahead, behind)) = branch_tracking.get(&rf.name) {
+                    rf.commits_ahead = ahead;
+                    rf.commits_behind = behind;
+                }
+            }
+        }
         let local_branches = references
             .iter()
             .filter(|r| r.kind == crate::reference::RefKind::Branch)

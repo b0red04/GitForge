@@ -181,6 +181,8 @@ impl Repository {
                 target_commit_id: target_commit,
                 is_head,
                 remote_name,
+                commits_ahead: 0,
+                commits_behind: 0,
             });
         }
 
