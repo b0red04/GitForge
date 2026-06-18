@@ -14,18 +14,9 @@ use crate::views::settings_window::SettingsSection;
 use crate::views::sidebar::ContextMenuAction;
 
 impl GitForgeApp {
-    pub fn toggle_toolbar_more(&mut self, cx: &mut Context<Self>) {
-        self.toolbar_more_open = !self.toolbar_more_open;
-        if self.toolbar_more_open {
-            self.local_branch_dropdown_open = false;
-        }
-        cx.notify();
-    }
-
     pub fn toggle_local_branch_dropdown(&mut self, cx: &mut Context<Self>) {
         self.local_branch_dropdown_open = !self.local_branch_dropdown_open;
         if self.local_branch_dropdown_open {
-            self.toolbar_more_open = false;
             self.titlebar_menus_visible = false;
             self.active_titlebar_menu = None;
         }
@@ -40,26 +31,17 @@ impl GitForgeApp {
     }
 
     pub fn close_floating_menus(&mut self, cx: &mut Context<Self>) {
-        let changed = self.toolbar_more_open
-            || self.local_branch_dropdown_open
+        let changed = self.local_branch_dropdown_open
             || self.titlebar_menus_visible
             || self.active_titlebar_menu.is_some()
             || self.repo_session.sidebar_state.context_menu != ContextMenuAction::None;
 
-        self.toolbar_more_open = false;
         self.local_branch_dropdown_open = false;
         self.titlebar_menus_visible = false;
         self.active_titlebar_menu = None;
         self.repo_session.sidebar_state.dismiss_context_menu();
 
         if changed {
-            cx.notify();
-        }
-    }
-
-    pub fn close_toolbar_more(&mut self, cx: &mut Context<Self>) {
-        if self.toolbar_more_open {
-            self.toolbar_more_open = false;
             cx.notify();
         }
     }
@@ -203,7 +185,6 @@ impl GitForgeApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.close_toolbar_more(cx);
         if matches!(self.active_dialog, AppDialog::CreatePullRequest) {
             self.cancel_create_pr_dialog(cx);
         } else if self.active_dialog != AppDialog::None {
