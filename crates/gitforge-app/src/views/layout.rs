@@ -3,8 +3,14 @@
 use gpui::*;
 
 pub const SIDEBAR_WIDTH: f32 = 260.0;
+pub const SIDEBAR_MIN_WIDTH: f32 = 180.0;
+pub const SIDEBAR_MAX_WIDTH: f32 = 520.0;
 pub const CENTER_MIN_WIDTH: f32 = 480.0;
 pub const RIGHT_MIN_WIDTH: f32 = 360.0;
+pub const RIGHT_DEFAULT_WIDTH: f32 = 560.0;
+pub const RIGHT_MAX_WIDTH: f32 = 1100.0;
+/// Width of the draggable splitter between the sidebar / center / right pane.
+pub const PANEL_RESIZE_HANDLE_WIDTH: f32 = 6.0;
 pub const CENTER_FLEX: f32 = 3.0;
 pub const RIGHT_FLEX: f32 = 2.0;
 
@@ -44,5 +50,19 @@ pub fn grow_right(mut pane: Div) -> Div {
         .overflow_hidden();
     pane.style().flex_grow = Some(RIGHT_FLEX);
     pane.style().flex_shrink = Some(1.0);
+    pane
+}
+
+/// Right detail/diff pane at a user-controlled fixed width. The center pane
+/// is `flex_1`, so it absorbs the remaining horizontal space; we only need to
+/// pin the right pane's width and let it not grow/shrink.
+pub fn right_pane_fixed(mut pane: Div, width: f32) -> Div {
+    pane = pane
+        .h_full()
+        .overflow_hidden()
+        .min_w(px(RIGHT_MIN_WIDTH))
+        .w(px(width));
+    pane.style().flex_grow = Some(0.0);
+    pane.style().flex_shrink = Some(0.0);
     pane
 }

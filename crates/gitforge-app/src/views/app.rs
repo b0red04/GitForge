@@ -141,6 +141,14 @@ pub struct GitForgeApp {
     pub(crate) create_pr: CreatePrState,
     pub(crate) update_indicator: Entity<super::update_indicator::UpdateIndicator>,
     pub(crate) shown_update_notification: bool,
+    /// User-controlled width of the left sidebar, in px. Loaded from settings
+    /// and persisted on change.
+    pub(crate) sidebar_width: f32,
+    /// User-controlled width of the right detail/diff pane, in px. Loaded from
+    /// settings and persisted on change.
+    pub(crate) right_panel_width: f32,
+    /// Non-`None` while a side-panel splitter is being dragged.
+    pub(crate) active_panel_resize: Option<super::panel_resize::PanelResize>,
 }
 
 impl Focusable for GitForgeApp {
@@ -162,6 +170,8 @@ impl GitForgeApp {
         repo_session
             .sidebar_state
             .apply_persisted_from_settings(&settings);
+        let sidebar_width = super::panel_resize::clamp_sidebar_width(settings.sidebar_width);
+        let right_panel_width = super::panel_resize::clamp_right_width(settings.right_panel_width);
         let mut app = Self {
             colors,
             repo_session,
@@ -189,6 +199,9 @@ impl GitForgeApp {
             create_pr: CreatePrState::new(cx),
             update_indicator,
             shown_update_notification: false,
+            sidebar_width,
+            right_panel_width,
+            active_panel_resize: None,
         };
         app.load_ssh_state();
         app.load_hosting_accounts();
@@ -201,6 +214,8 @@ impl GitForgeApp {
         self.repo_session
             .sidebar_state
             .write_persisted_to_settings(&mut self.settings);
+        self.settings.sidebar_width = self.sidebar_width;
+        self.settings.right_panel_width = self.right_panel_width;
         self.settings.open_repo_paths = self
             .repo_session
             .open_repo_tabs
@@ -341,6 +356,82 @@ impl GitForgeApp {
         self.dialog_force = !self.dialog_force;
         cx.notify();
     }
+
+    /// Begin dragging a side-panel splitter, recording the start x and the
+    /// side's current width so the drag can be computed as a pure delta.
+    pub(crate) fn start_panel_resize(
+        &mut self,
+        side: super::panel_resize::PanelSide,
+        start_x: f32,
+        cx: &mut Context<Self>,
+    ) {
+        let start_width = match side {
+            super::panel_resize::PanelSide::Sidebar => self.sidebar_width,
+            super::panel_resize::PanelSide::Right => self.right_panel_width,
+        };
+        self.active_panel_resize = Some(super::panel_resize::PanelResize {
+            side,
+            start_x,
+            start_width,
+        });
+        cx.notify();
+    }
+
+    /// Apply a drag delta (in px) to the in-flight resize. Returns true if the
+    /// width changed (so the caller can decide whether to notify). Idempotent
+    /// when no resize is active.
+    pub(crate) fn update_panel_resize(&mut self, current_x: f32) -> bool {
+        let Some(active) = self.active_panel_resize else {
+            return false;
+        };
+        let delta = current_x - active.start_x;
+        match active.side {
+            // Sidebar's right edge: drag right => wider.
+            super::panel_resize::PanelSide::Sidebar => {
+                let next = super::panel_resize::clamp_sidebar_width(active.start_width + delta);
+                if (self.sidebar_width - next).abs() < f32::EPSILON {
+                    return false;
+                }
+                self.sidebar_width = next;
+                true
+            }
+            // Right pane's left edge: drag right => narrower.
+            super::panel_resize::PanelSide::Right => {
+                let next = super::panel_resize::clamp_right_width(active.start_width - delta);
+                if (self.right_panel_width - next).abs() < f32::EPSILON {
+                    return false;
+                }
+                self.right_panel_width = next;
+                true
+            }
+        }
+    }
+
+    /// End the in-flight resize (mouse-up). Persists the new width so it
+    /// survives restarts. Returns true if a resize was active.
+    pub(crate) fn finish_panel_resize(&mut self) -> bool {
+        if self.active_panel_resize.take().is_some() {
+            self.save_settings();
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Reset a side to its default width (double-click on its splitter).
+    pub(crate) fn reset_panel_width(
+        &mut self,
+        side: super::panel_resize::PanelSide,
+        cx: &mut Context<Self>,
+    ) {
+        let default = super::panel_resize::default_width(side);
+        match side {
+            super::panel_resize::PanelSide::Sidebar => self.sidebar_width = default,
+            super::panel_resize::PanelSide::Right => self.right_panel_width = default,
+        }
+        self.save_settings();
+        cx.notify();
+    }
 }
 
 impl Render for GitForgeApp {
@@ -384,16 +475,24 @@ impl Render for GitForgeApp {
             .unwrap_or((&[], false));
         let pull_request_hint = self.pull_request_sidebar_hint();
 
-        let sidebar = super::sidebar::render_sidebar(
-            active_repo_state,
+        let sidebar = super::panel_resize::wrap_with_right_edge_resize_handle(
+            super::sidebar::render_sidebar(
+                active_repo_state,
+                &self.colors,
+                self.repo_session.loading,
+                &self.repo_session.sidebar_state,
+                self.sidebar_width,
+                entity.clone(),
+                window,
+                pull_requests,
+                pull_requests_loading,
+                pull_request_hint,
+            ),
+            "panel-resize-sidebar",
+            super::panel_resize::PanelSide::Sidebar,
             &self.colors,
-            self.repo_session.loading,
-            &self.repo_session.sidebar_state,
             entity.clone(),
-            window,
-            pull_requests,
-            pull_requests_loading,
-            pull_request_hint,
+            true,
         );
 
         let toolbar = super::toolbar::render_toolbar(
@@ -404,15 +503,23 @@ impl Render for GitForgeApp {
             entity.clone(),
         );
 
-        let graph_area =
-            super::layout::grow_center(div()).child(self.repo_session.graph_panel.render(
+        let graph_area = super::layout::grow_center(
+            super::panel_resize::wrap_with_right_edge_resize_handle(
+                self.repo_session.graph_panel.render(
+                    &self.colors,
+                    self.settings.graph_show_graph_column,
+                    self.settings.graph_show_sha_column,
+                    self.settings.graph_show_time_column,
+                    self.settings.graph_show_author_column,
+                    entity.clone(),
+                ),
+                "panel-resize-right",
+                super::panel_resize::PanelSide::Right,
                 &self.colors,
-                self.settings.graph_show_graph_column,
-                self.settings.graph_show_sha_column,
-                self.settings.graph_show_time_column,
-                self.settings.graph_show_author_column,
                 entity.clone(),
-            ));
+                false,
+            ),
+        );
 
         let right_content = match self.repo_session.view_mode {
             MainViewMode::CommitHistory => {
@@ -452,7 +559,8 @@ impl Render for GitForgeApp {
                 .into_any_element(),
         };
 
-        let right_panel = super::layout::grow_right(div()).child(right_content);
+        let right_panel =
+            super::layout::right_pane_fixed(div(), self.right_panel_width).child(right_content);
 
         let error_banner = self.repo_session.last_error.as_ref().map(|err| {
             let _error_color = rgba_to_hsla(self.colors.error);
@@ -511,7 +619,11 @@ impl Render for GitForgeApp {
             Decorations::Client { tiling } => tiling,
         };
 
+        let resize_listener =
+            super::panel_resize::render_panel_resize_listener(entity.clone());
+
         let workspace_base = div()
+            .relative()
             .flex_1()
             .h_full()
             .flex()
@@ -521,6 +633,7 @@ impl Render for GitForgeApp {
             .child(
                 div()
                     .flex_1()
+                    .min_w(px(super::layout::CENTER_MIN_WIDTH))
                     .h_full()
                     .flex()
                     .flex_col()
@@ -537,7 +650,8 @@ impl Render for GitForgeApp {
                             .child(graph_area)
                             .child(right_panel),
                     ),
-            );
+            )
+            .child(resize_listener);
 
         let workspace_row = if matches!(decorations, Decorations::Client { .. }) {
             super::window_chrome::seal_rounded_corners(
