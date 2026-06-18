@@ -83,6 +83,8 @@ copy_lucide "arrow-up.svg" "arrow-up"
 copy_lucide "refresh.svg" "refresh-cw"
 copy_lucide "cloud.svg" "cloud"
 copy_lucide "terminal.svg" "terminal"
+copy_lucide "globe.svg" "globe"
+copy_lucide "laptop.svg" "laptop"
 
 # Brand (legacy Lucide release)
 fetch_brand "github.svg" "github"

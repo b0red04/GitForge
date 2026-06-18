@@ -2,7 +2,7 @@ use gitforge_git::{CommitInfo, RefInfo, RefKind};
 use gitforge_graph::{CommitLineSegment, CurveKind, Graph};
 use gitforge_ui::{AppColors, ShellWidth, panel_shell, rgba_to_hsla};
 use gpui::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -132,6 +132,7 @@ pub struct GraphPanel {
     use_filtered: bool,
     commit_index: HashMap<String, usize>,
     refs_by_commit: Arc<HashMap<String, Arc<[RefInfo]>>>,
+    detached_head_commit: Option<String>,
     graph_col_width: f32,
     graph_col_user_resized: bool,
     hash_col_width: f32,
@@ -155,6 +156,7 @@ impl GraphPanel {
             use_filtered: false,
             commit_index: HashMap::new(),
             refs_by_commit: Arc::new(HashMap::new()),
+            detached_head_commit: None,
             graph_col_width: layout::GRAPH_LANE_WIDTH,
             graph_col_user_resized: false,
             hash_col_width: HASH_COL,
@@ -170,6 +172,7 @@ impl GraphPanel {
         references: Vec<RefInfo>,
         graph: Graph,
         has_uncommitted: bool,
+        detached_head_commit: Option<String>,
     ) {
         self.commit_index.clear();
         for (i, c) in commits.iter().enumerate() {
@@ -195,6 +198,7 @@ impl GraphPanel {
         self.references = references.into();
         self.graph = Arc::new(graph);
         self.has_uncommitted = has_uncommitted;
+        self.detached_head_commit = detached_head_commit;
         self.selection = GraphSelection::None;
         self.update_filtered_indices();
     }
@@ -465,6 +469,7 @@ impl GraphPanel {
         let graph = Arc::clone(&self.graph);
         let selection = self.selection;
         let has_uncommitted = self.has_uncommitted;
+        let detached_head_commit = self.detached_head_commit.clone();
         let cl = colors.clone();
         let scroll_handle = self.scroll_handle.clone();
         let list_entity = entity.clone();
@@ -561,7 +566,12 @@ impl GraphPanel {
                     let time_label = row_data.relative_time.clone();
 
                     let click_entity = list_entity.clone();
-                    let ref_pills = render_ref_pills(refs_for_commit, &cl);
+                    let ref_pills = render_ref_pills(
+                        refs_for_commit,
+                        &cl,
+                        &commit.id,
+                        detached_head_commit.as_deref(),
+                    );
 
                     let has_body = commit.message != commit.summary && !commit.message.is_empty();
                     let tip_message: SharedString = commit.message.clone().into();
@@ -1178,7 +1188,12 @@ fn render_resize_handle(
         })
 }
 
-fn render_ref_pills(refs: Option<&Arc<[RefInfo]>>, cl: &AppColors) -> Div {
+fn render_ref_pills(
+    refs: Option<&Arc<[RefInfo]>>,
+    cl: &AppColors,
+    commit_id: &str,
+    detached_head_commit: Option<&str>,
+) -> Div {
     let mut row = div()
         .flex()
         .flex_row()
@@ -1187,14 +1202,61 @@ fn render_ref_pills(refs: Option<&Arc<[RefInfo]>>, cl: &AppColors) -> Div {
         .overflow_hidden();
 
     let Some(refs) = refs else {
+        // Even with no other refs on this commit, show the detached HEAD pill.
+        if detached_head_commit == Some(commit_id) {
+            row = row.child(render_detached_head_pill(cl));
+        }
         return row;
     };
 
-    for rf in refs.iter().take(VISIBLE_REF_PILLS) {
-        row = row.child(render_ref_pill(rf, cl));
+    // Drop remote symbolic HEAD refs (origin/HEAD, upstream/HEAD, ...) — they
+    // just mirror the remote's default branch and add noise.
+    let visible: Vec<&RefInfo> = refs
+        .iter()
+        .filter(|rf| !(rf.kind == RefKind::RemoteBranch && is_remote_head(rf)))
+        .collect();
+
+    // Detect remote branch names that are ambiguous across multiple remotes on
+    // this commit (e.g. origin/main + upstream/main). These keep their remote
+    // prefix in the label so the user can tell them apart; everything else
+    // strips the origin/ prefix since the globe icon already signals "remote".
+    let mut remotes_by_bare: HashMap<&str, HashSet<&str>> = HashMap::new();
+    for rf in visible.iter() {
+        if rf.kind == RefKind::RemoteBranch
+            && let Some(bare) = bare_remote_name(rf)
+        {
+            let remote = rf.remote_name.as_deref().unwrap_or("");
+            remotes_by_bare.entry(bare).or_default().insert(remote);
+        }
+    }
+    let ambiguous: HashSet<&str> = remotes_by_bare
+        .into_iter()
+        .filter(|(_, remotes)| remotes.len() > 1)
+        .map(|(bare, _)| bare)
+        .collect();
+
+    // Detached HEAD injects a "HEAD" pill on the commit HEAD points to. When
+    // attached, the underlying branch renders as a normal branch pill (the
+    // is_head flag still tints it with ref_head so the "you are here" cue stays).
+    let head_injected = detached_head_commit == Some(commit_id);
+    if head_injected {
+        row = row.child(render_detached_head_pill(cl));
     }
 
-    let hidden_count = refs.len().saturating_sub(VISIBLE_REF_PILLS);
+    // The injected HEAD pill consumes one of the visible slots.
+    let visible_limit = if head_injected {
+        VISIBLE_REF_PILLS.saturating_sub(1)
+    } else {
+        VISIBLE_REF_PILLS
+    };
+
+    for rf in visible.iter().take(visible_limit) {
+        let label = ref_pill_label(rf, &ambiguous);
+        let icon = ref_pill_icon(rf);
+        row = row.child(render_ref_pill(rf, cl, label, icon));
+    }
+
+    let hidden_count = visible.len().saturating_sub(visible_limit);
     if hidden_count > 0 {
         let bg = cl.surface_high;
         row = row.child(
@@ -1214,8 +1276,44 @@ fn render_ref_pills(refs: Option<&Arc<[RefInfo]>>, cl: &AppColors) -> Div {
     row
 }
 
-fn render_ref_pill(rf: &RefInfo, cl: &AppColors) -> Div {
+fn render_ref_pill(
+    rf: &RefInfo,
+    cl: &AppColors,
+    label: String,
+    icon_path: Option<&'static str>,
+) -> Div {
     let pill_color = ref_pill_color(rf, cl);
+    let text_color = contrast_text_for(pill_color);
+    let mut pill = div()
+        .px_2()
+        .border_1()
+        .border_color(rgba_to_hsla(cl.border))
+        .rounded(px(3.0))
+        .bg(rgba_to_hsla(pill_color))
+        .text_xs()
+        .text_color(text_color)
+        .flex_shrink_0()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_0p5();
+    if let Some(path) = icon_path {
+        pill = pill.child(
+            svg()
+                .flex_none()
+                .size(px(11.0))
+                .path(path)
+                .text_color(text_color),
+        );
+    }
+    pill.child(label)
+}
+
+fn render_detached_head_pill(cl: &AppColors) -> Div {
+    // Same visual treatment as an attached HEAD (ref_head color + laptop icon),
+    // but with the literal "HEAD" label since there is no branch name to show.
+    let pill_color = cl.ref_head;
+    let text_color = contrast_text_for(pill_color);
     div()
         .px_2()
         .border_1()
@@ -1223,9 +1321,20 @@ fn render_ref_pill(rf: &RefInfo, cl: &AppColors) -> Div {
         .rounded(px(3.0))
         .bg(rgba_to_hsla(pill_color))
         .text_xs()
-        .text_color(contrast_text_for(pill_color))
+        .text_color(text_color)
         .flex_shrink_0()
-        .child(ref_pill_label(rf))
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_0p5()
+        .child(
+            svg()
+                .flex_none()
+                .size(px(11.0))
+                .path("icons/laptop.svg")
+                .text_color(text_color),
+        )
+        .child("HEAD")
 }
 
 fn ref_pill_color(rf: &RefInfo, cl: &AppColors) -> Rgba {
@@ -1241,9 +1350,39 @@ fn ref_pill_color(rf: &RefInfo, cl: &AppColors) -> Rgba {
     }
 }
 
-fn ref_pill_label(rf: &RefInfo) -> String {
-    if rf.is_head {
-        return "HEAD".to_string();
+fn ref_pill_icon(rf: &RefInfo) -> Option<&'static str> {
+    // The is_head flag is intentionally ignored here: an attached HEAD on a
+    // branch renders with that branch's icon (laptop). Detached HEAD is
+    // rendered via render_detached_head_pill, not through this path.
+    match rf.kind {
+        RefKind::Branch => Some("icons/laptop.svg"),
+        RefKind::RemoteBranch => Some("icons/globe.svg"),
+        RefKind::Tag => Some("icons/tag.svg"),
+        _ => None,
+    }
+}
+
+fn is_remote_head(rf: &RefInfo) -> bool {
+    // Matches origin/HEAD, upstream/HEAD, etc. — symbolic refs that just point
+    // at the remote's default branch.
+    bare_remote_name(rf) == Some("HEAD")
+}
+
+fn bare_remote_name(rf: &RefInfo) -> Option<&str> {
+    let remote = rf.remote_name.as_deref()?;
+    let prefix = format!("{remote}/");
+    rf.name.strip_prefix(&prefix)
+}
+
+fn ref_pill_label(rf: &RefInfo, ambiguous: &HashSet<&str>) -> String {
+    // The is_head flag is intentionally ignored here: an attached HEAD on a
+    // branch renders with that branch's name. Detached HEAD is rendered via
+    // render_detached_head_pill, not through this path.
+    if rf.kind == RefKind::RemoteBranch
+        && let Some(bare) = bare_remote_name(rf)
+        && !ambiguous.contains(bare)
+    {
+        return truncate_chars(bare, 20);
     }
 
     truncate_chars(&rf.name, 20)
