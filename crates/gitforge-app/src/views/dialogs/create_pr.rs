@@ -114,12 +114,7 @@ pub fn render(
     let ent_ai = entity.clone();
     let ent_draft = entity.clone();
 
-    let provider_label = match state.provider.as_str() {
-        "github" => "GitHub",
-        "gitlab" => "GitLab",
-        "codeberg" => "Codeberg",
-        other => other,
-    };
+    let provider_label = gitforge_hosting::urls::provider_label(&state.provider);
 
     let desc_focus = state.description_input.focus_handle().clone();
 

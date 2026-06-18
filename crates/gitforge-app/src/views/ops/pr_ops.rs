@@ -159,12 +159,7 @@ impl GitForgeApp {
                     );
                 } else {
                     let provider_id = urls::detect_provider_id(&clean_url).unwrap_or("github");
-                    let label = match provider_id {
-                        "github" => "GitHub",
-                        "gitlab" => "GitLab",
-                        "codeberg" => "Codeberg",
-                        _ => provider_id,
-                    };
+                    let label = urls::provider_label(provider_id);
                     self.push_toast(
                         crate::views::toasts::ToastKind::Warning,
                         format!("Add a {label} account in Settings → Accounts"),

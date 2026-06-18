@@ -2085,12 +2085,7 @@ fn pat_field_control(
 }
 
 fn provider_display_name(provider: &str) -> &str {
-    match provider {
-        "github" => "GitHub",
-        "gitlab" => "GitLab",
-        "codeberg" => "Codeberg",
-        _ => provider,
-    }
+    gitforge_hosting::urls::provider_label(provider)
 }
 
 fn pat_scope_lines(provider: &str) -> &'static [&'static str] {

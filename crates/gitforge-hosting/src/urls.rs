@@ -43,6 +43,15 @@ pub fn detect_provider_id(url: &str) -> Option<&'static str> {
     }
 }
 
+pub fn provider_label(id: &str) -> &str {
+    match id {
+        "github" => "GitHub",
+        "gitlab" => "GitLab",
+        "codeberg" => "Codeberg",
+        _ => id,
+    }
+}
+
 /// Extracts the host component from a (possibly normalised) remote URL.
 ///
 /// Handles `https://host/...`, `http://host/...`, and bare `host/...`
