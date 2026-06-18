@@ -129,7 +129,6 @@ pub struct GitForgeApp {
     pub(crate) hosting_repos_loading: bool,
     pub(crate) ai_generating: bool,
     pub(crate) focus_handle: FocusHandle,
-    pub(crate) toolbar_more_open: bool,
     pub(crate) local_branch_dropdown_open: bool,
     pub(crate) titlebar_menus_visible: bool,
     pub(crate) active_titlebar_menu: Option<TitlebarMenu>,
@@ -189,7 +188,6 @@ impl GitForgeApp {
             hosting_repos_loading: false,
             ai_generating: false,
             focus_handle: cx.focus_handle(),
-            toolbar_more_open: false,
             local_branch_dropdown_open: false,
             titlebar_menus_visible: false,
             active_titlebar_menu: None,
@@ -510,27 +508,43 @@ impl Render for GitForgeApp {
         let toolbar = super::toolbar::render_toolbar(
             active_repo_state,
             &self.colors,
-            self.repo_session.view_mode == MainViewMode::Status,
-            self.toolbar_more_open,
             entity.clone(),
         );
 
-        let graph_area = super::layout::grow_center(
-            super::panel_resize::wrap_with_right_edge_resize_handle(
-                self.repo_session.graph_panel.render(
-                    &self.colors,
-                    self.settings.graph_show_graph_column,
-                    self.settings.graph_show_sha_column,
-                    self.settings.graph_show_time_column,
-                    self.settings.graph_show_author_column,
-                    entity.clone(),
-                ),
-                "panel-resize-right",
-                super::panel_resize::PanelSide::Right,
+        let graph_panel = super::panel_resize::wrap_with_right_edge_resize_handle(
+            self.repo_session.graph_panel.render(
                 &self.colors,
+                self.settings.graph_show_graph_column,
+                self.settings.graph_show_sha_column,
+                self.settings.graph_show_time_column,
+                self.settings.graph_show_author_column,
                 entity.clone(),
-                false,
             ),
+            "panel-resize-right",
+            super::panel_resize::PanelSide::Right,
+            &self.colors,
+            entity.clone(),
+            false,
+        )
+        .h_full()
+        .w_full();
+
+        let graph_column = super::layout::grow_center(
+            div()
+                .flex()
+                .flex_col()
+                .h_full()
+                .overflow_hidden()
+                .child(toolbar)
+                .child(
+                    div()
+                        .flex_1()
+                        .min_h(px(0.0))
+                        .h_full()
+                        .w_full()
+                        .overflow_hidden()
+                        .child(graph_panel),
+                ),
         );
 
         let right_content = match self.repo_session.view_mode {
@@ -648,20 +662,11 @@ impl Render for GitForgeApp {
                     .min_w(px(super::layout::CENTER_MIN_WIDTH))
                     .h_full()
                     .flex()
-                    .flex_col()
+                    .flex_row()
                     .bg(bg)
                     .overflow_hidden()
-                    .child(toolbar)
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_h(px(0.0))
-                            .flex()
-                            .flex_row()
-                            .overflow_hidden()
-                            .child(graph_area)
-                            .child(right_panel),
-                    ),
+                    .child(graph_column)
+                    .child(right_panel),
             )
             .child(resize_listener);
 
