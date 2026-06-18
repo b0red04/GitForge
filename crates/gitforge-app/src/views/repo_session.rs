@@ -159,7 +159,7 @@ impl RepoSession {
 
     pub(crate) fn clear_repo_panels(&mut self) {
         self.graph_panel
-            .set_data(Vec::new(), Vec::new(), Graph::new(), false);
+            .set_data(Vec::new(), Vec::new(), Graph::new(), false, None);
         self.diff_panel.clear();
         self.status_panel.clear();
     }
@@ -198,6 +198,11 @@ impl RepoSession {
             repo_state_data.references.clone(),
             built_graph,
             has_uncommitted,
+            if repo_state_data.head_branch.is_none() {
+                repo_state_data.head_commit.clone()
+            } else {
+                None
+            },
         );
         let in_history = self.view_mode == MainViewMode::CommitHistory;
         let preserve_staging = in_history && self.status_panel.is_graph_staging();
