@@ -66,6 +66,16 @@ pub(crate) struct RepoSession {
     /// completion.
     pub(crate) remote_status: String,
     pub(crate) closed_repo_tabs: Vec<PathBuf>,
+    /// The id of the repository tab currently being dragged, or `None` when no
+    /// drag is in flight. Set when the drag begins (in the `on_drag`
+    /// constructor) and cleared on drop or drag cancel. Used only to dim the
+    /// source tab while dragging.
+    pub(crate) tab_drag_source: Option<u64>,
+    /// `(target tab id, insert_before)` describing where the dragged tab would
+    /// land if released right now, or `None` when the cursor is not over a tab.
+    /// Updated continuously by `on_drag_move`; read by the renderer to draw the
+    /// insertion caret and by `on_drop` to perform the move.
+    pub(crate) tab_drop_target: Option<(u64, bool)>,
 }
 
 impl RepoSession {
@@ -85,6 +95,8 @@ impl RepoSession {
             last_error: None,
             remote_status: String::new(),
             closed_repo_tabs: Vec::new(),
+            tab_drag_source: None,
+            tab_drop_target: None,
         }
     }
 
@@ -248,6 +260,13 @@ impl RepoSession {
         }
     }
 
+    /// Reset all in-flight tab-drag state. Called by the tab bar's drop
+    /// handlers after a drop completes (whether on a tab or the tail).
+    pub(crate) fn clear_tab_drag(&mut self) {
+        self.tab_drag_source = None;
+        self.tab_drop_target = None;
+    }
+
     pub(crate) fn save_snapshot_to_active_tab(&mut self) {
         let selected_commit_id = match self.graph_panel.selection() {
             GraphSelection::Commit(idx) => self.graph_panel.commit_id_at(idx).map(String::from),
@@ -314,5 +333,254 @@ impl RepoSession {
         } else if snap.graph_was_uncommitted {
             self.graph_panel.select_uncommitted();
         }
+    }
+}
+
+/// Pure, GPUI-free tab reordering: move the tab `dragged_id` so it sits
+/// immediately before (when `before` is true) or after `target_id` in `tabs`.
+///
+/// No-op if `dragged_id == target_id` or either id is not present. The target's
+/// position is recomputed after the dragged tab is removed, so the result is
+/// correct regardless of whether the dragged tab was originally to the left or
+/// right of the target.
+pub(crate) fn reorder_repo_tab(
+    tabs: &mut Vec<OpenRepoTab>,
+    dragged_id: u64,
+    target_id: u64,
+    before: bool,
+) {
+    if dragged_id == target_id {
+        return;
+    }
+    let Some(from) = tabs.iter().position(|t| t.id == dragged_id) else {
+        return;
+    };
+    if !tabs.iter().any(|t| t.id == target_id) {
+        return;
+    }
+    let tab = tabs.remove(from);
+    let target_after = tabs
+        .iter()
+        .position(|t| t.id == target_id)
+        .expect("target id present (checked above)");
+    let dest = if before {
+        target_after
+    } else {
+        target_after + 1
+    };
+    tabs.insert(dest, tab);
+}
+
+/// Pure, GPUI-free tab reordering: move `dragged_id` to the very end of `tabs`.
+/// No-op if it is absent or already last.
+pub(crate) fn move_repo_tab_to_end(tabs: &mut Vec<OpenRepoTab>, dragged_id: u64) {
+    let Some(from) = tabs.iter().position(|t| t.id == dragged_id) else {
+        return;
+    };
+    if from == tabs.len() - 1 {
+        return;
+    }
+    let tab = tabs.remove(from);
+    tabs.push(tab);
+}
+
+/// Pure, GPUI-free computation of the insertion-caret index to render in the
+/// tab bar while a reorder drag is in flight.
+///
+/// Returns `None` when no drag is active, when the dragged tab is not present,
+/// when the recorded drop target id is not present, or when the computed
+/// position would be a no-op move (immediately adjacent to the source). When
+/// `drop_target` is `None` the caret sits at the end of the bar.
+pub(crate) fn drop_caret_index(
+    tabs: &[OpenRepoTab],
+    drag_source: Option<u64>,
+    drop_target: Option<(u64, bool)>,
+) -> Option<usize> {
+    let source = drag_source?;
+    let src_idx = tabs.iter().position(|t| t.id == source)?;
+    let caret = match drop_target {
+        Some((tid, before)) => {
+            let idx = tabs.iter().position(|t| t.id == tid)?;
+            if before { idx } else { idx + 1 }
+        }
+        None => tabs.len(),
+    };
+    if caret == src_idx || caret == src_idx + 1 {
+        None
+    } else {
+        Some(caret)
+    }
+}
+
+#[cfg(test)]
+mod reorder_tests {
+    use super::*;
+
+    fn fake_tab(id: u64) -> OpenRepoTab {
+        OpenRepoTab {
+            id,
+            path: PathBuf::from(format!("/repo/{id}")),
+            repo: Arc::new(Mutex::new(None)),
+            repo_state: None,
+            loading: false,
+            last_error: None,
+            panel_snapshot: None,
+            pull_requests: Vec::new(),
+            pull_requests_loading: false,
+        }
+    }
+
+    fn ids(tabs: &[OpenRepoTab]) -> Vec<u64> {
+        tabs.iter().map(|t| t.id).collect()
+    }
+
+    fn tabs(ids: &[u64]) -> Vec<OpenRepoTab> {
+        ids.iter().map(|id| fake_tab(*id)).collect()
+    }
+
+    #[test]
+    fn move_last_to_front() {
+        let mut t = tabs(&[10, 20, 30]);
+        reorder_repo_tab(&mut t, 30, 10, true);
+        assert_eq!(ids(&t), vec![30, 10, 20]);
+    }
+
+    #[test]
+    fn move_first_to_end_after_last() {
+        let mut t = tabs(&[10, 20, 30]);
+        reorder_repo_tab(&mut t, 10, 30, false);
+        assert_eq!(ids(&t), vec![20, 30, 10]);
+    }
+
+    #[test]
+    fn move_first_after_second() {
+        let mut t = tabs(&[10, 20, 30]);
+        reorder_repo_tab(&mut t, 10, 20, false);
+        assert_eq!(ids(&t), vec![20, 10, 30]);
+    }
+
+    #[test]
+    fn move_second_before_first() {
+        let mut t = tabs(&[10, 20, 30]);
+        reorder_repo_tab(&mut t, 20, 10, true);
+        assert_eq!(ids(&t), vec![20, 10, 30]);
+    }
+
+    #[test]
+    fn move_middle_before_last() {
+        let mut t = tabs(&[10, 20, 30]);
+        reorder_repo_tab(&mut t, 20, 30, true);
+        assert_eq!(ids(&t), vec![10, 20, 30]);
+    }
+
+    #[test]
+    fn drop_on_self_is_noop() {
+        let mut t = tabs(&[10, 20, 30]);
+        reorder_repo_tab(&mut t, 20, 20, true);
+        reorder_repo_tab(&mut t, 20, 20, false);
+        assert_eq!(ids(&t), vec![10, 20, 30]);
+    }
+
+    #[test]
+    fn missing_dragged_or_target_is_noop() {
+        let mut t = tabs(&[10, 20, 30]);
+        reorder_repo_tab(&mut t, 99, 10, true);
+        reorder_repo_tab(&mut t, 10, 99, false);
+        assert_eq!(ids(&t), vec![10, 20, 30]);
+    }
+
+    #[test]
+    fn single_tab_before_itself_is_noop() {
+        let mut t = tabs(&[10]);
+        reorder_repo_tab(&mut t, 10, 10, true);
+        assert_eq!(ids(&t), vec![10]);
+    }
+
+    #[test]
+    fn move_to_end_from_front() {
+        let mut t = tabs(&[10, 20, 30]);
+        move_repo_tab_to_end(&mut t, 10);
+        assert_eq!(ids(&t), vec![20, 30, 10]);
+    }
+
+    #[test]
+    fn move_to_end_from_middle() {
+        let mut t = tabs(&[10, 20, 30]);
+        move_repo_tab_to_end(&mut t, 20);
+        assert_eq!(ids(&t), vec![10, 30, 20]);
+    }
+
+    #[test]
+    fn move_to_end_already_last_is_noop() {
+        let mut t = tabs(&[10, 20, 30]);
+        move_repo_tab_to_end(&mut t, 30);
+        assert_eq!(ids(&t), vec![10, 20, 30]);
+    }
+
+    #[test]
+    fn move_to_end_missing_is_noop() {
+        let mut t = tabs(&[10, 20, 30]);
+        move_repo_tab_to_end(&mut t, 99);
+        assert_eq!(ids(&t), vec![10, 20, 30]);
+    }
+
+    #[test]
+    fn drop_caret_none_when_no_source() {
+        let t = tabs(&[10, 20, 30]);
+        assert_eq!(drop_caret_index(&t, None, None), None);
+        assert_eq!(drop_caret_index(&t, None, Some((30, true))), None);
+    }
+
+    #[test]
+    fn drop_caret_none_when_source_absent() {
+        let t = tabs(&[10, 20, 30]);
+        assert_eq!(drop_caret_index(&t, Some(99), None), None);
+    }
+
+    #[test]
+    fn drop_caret_none_when_target_absent() {
+        let t = tabs(&[10, 20, 30]);
+        assert_eq!(drop_caret_index(&t, Some(10), Some((99, true))), None);
+    }
+
+    #[test]
+    fn drop_caret_at_tail() {
+        let t = tabs(&[10, 20, 30]);
+        // Dragging tab 10 (idx 0) to the tail lands at index 3.
+        assert_eq!(drop_caret_index(&t, Some(10), None), Some(3));
+    }
+
+    #[test]
+    fn drop_caret_tail_is_noop_when_source_already_last() {
+        let t = tabs(&[10, 20, 30]);
+        // Tab 30 is already at the end; tail caret (3) == src_idx (2) + 1.
+        assert_eq!(drop_caret_index(&t, Some(30), None), None);
+    }
+
+    #[test]
+    fn drop_caret_before_target() {
+        let t = tabs(&[10, 20, 30]);
+        // Drag 10 before 30 (idx 2) -> caret 2.
+        assert_eq!(drop_caret_index(&t, Some(10), Some((30, true))), Some(2));
+    }
+
+    #[test]
+    fn drop_caret_after_target() {
+        let t = tabs(&[10, 20, 30]);
+        // Drag 10 after 30 (idx 2) -> caret 3.
+        assert_eq!(drop_caret_index(&t, Some(10), Some((30, false))), Some(3));
+    }
+
+    #[test]
+    fn drop_caret_skips_positions_adjacent_to_source() {
+        let t = tabs(&[10, 20, 30]);
+        // Source 20 (idx 1). Before-self adjacent: before 20 -> caret 1 == src.
+        assert_eq!(drop_caret_index(&t, Some(20), Some((20, true))), None);
+        // After-self adjacent: after 20 -> caret 2 == src + 1.
+        assert_eq!(drop_caret_index(&t, Some(20), Some((20, false))), None);
+        // After the tab just before source: after 10 -> caret 1 == src.
+        assert_eq!(drop_caret_index(&t, Some(20), Some((10, false))), None);
+        // Before the tab just after source: before 30 -> caret 2 == src + 1.
+        assert_eq!(drop_caret_index(&t, Some(20), Some((30, true))), None);
     }
 }
