@@ -3,9 +3,14 @@ use crate::repository::Repository;
 use std::collections::{HashMap, HashSet};
 
 impl Repository {
-    /// Spawns a `git` subprocess.
-    pub fn create_branch(&self, name: &str, start_point: Option<&str>) -> GitResult<()> {
-        let mut args = vec!["branch", name];
+    /// Create a new branch and check it out in a single `git checkout -b`
+    /// invocation. With no `start_point`, the branch is created from HEAD.
+    pub fn create_and_checkout_branch(
+        &self,
+        name: &str,
+        start_point: Option<&str>,
+    ) -> GitResult<()> {
+        let mut args = vec!["checkout", "-b", name];
         if let Some(sp) = start_point {
             args.push(sp);
         }
