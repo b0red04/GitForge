@@ -159,12 +159,7 @@ impl GitForgeApp {
                     );
                 } else {
                     let provider_id = urls::detect_provider_id(&clean_url).unwrap_or("github");
-                    let label = match provider_id {
-                        "github" => "GitHub",
-                        "gitlab" => "GitLab",
-                        "codeberg" => "Codeberg",
-                        _ => provider_id,
-                    };
+                    let label = urls::provider_label(provider_id);
                     self.push_toast(
                         crate::views::toasts::ToastKind::Warning,
                         format!("Add a {label} account in Settings → Accounts"),
@@ -209,16 +204,6 @@ impl GitForgeApp {
         self.create_pr.reset();
         self.create_pr.title_input.clear();
         self.create_pr.description_input.clear();
-        cx.notify();
-    }
-
-    pub fn set_create_pr_provider(&mut self, provider: String, cx: &mut Context<Self>) {
-        if self.create_pr.provider == provider {
-            return;
-        }
-        self.create_pr.provider = provider;
-        self.create_pr.open_dropdown = CreatePrDropdown::None;
-        self.load_create_pr_repos(cx);
         cx.notify();
     }
 
