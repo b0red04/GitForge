@@ -248,6 +248,29 @@ impl GitForgeApp {
         );
     }
 
+    /// Called when the GitForge window (re)gains focus from outside the app.
+    /// Reloads the working-tree status cheaply, and — if periodic fetch is
+    /// enabled and enough time has passed since the last (periodic or
+    /// focus-triggered) fetch — kicks off a debounced remote fetch.
+    pub(crate) fn on_window_focused(&mut self, cx: &mut Context<Self>) {
+        if self.repo_session.active_tab().is_none() {
+            return;
+        }
+        self.load_status(cx);
+
+        let behavior = self.active_repo_behavior_settings();
+        if !behavior.periodic_fetch_enabled {
+            return;
+        }
+        let cooldown = std::time::Duration::from_secs(
+            behavior.fetch_interval_minutes.max(1).saturating_mul(60),
+        );
+        if should_focus_fetch(self.last_auto_fetch_at, std::time::Instant::now(), cooldown) {
+            self.last_auto_fetch_at = Some(std::time::Instant::now());
+            self.fetch_all(cx);
+        }
+    }
+
     pub fn stage_file(&mut self, path: String, cx: &mut Context<Self>) {
         self.run_git_op("Stage file", cx, move |repo| {
             let p = std::path::PathBuf::from(&path);
@@ -522,7 +545,7 @@ impl GitForgeApp {
         if !behavior.periodic_fetch_enabled || self.repo_session.active_tab().is_none() {
             return;
         }
-        let interval_secs = behavior.fetch_interval_minutes.max(1) * 60;
+        let interval_secs = behavior.fetch_interval_minutes.max(1).saturating_mul(60);
 
         cx.spawn(async move |this, cx| {
             loop {
@@ -532,14 +555,15 @@ impl GitForgeApp {
                         if this.periodic_fetch_generation != generation {
                             return false;
                         }
-                        let behavior = this.active_repo_behavior_settings();
-                        if !behavior.periodic_fetch_enabled
-                            || this.repo_session.active_tab().is_none()
-                        {
-                            return false;
-                        }
-                        this.fetch_all(cx);
-                        true
+                    let behavior = this.active_repo_behavior_settings();
+                    if !behavior.periodic_fetch_enabled
+                        || this.repo_session.active_tab().is_none()
+                    {
+                        return false;
+                    }
+                    this.last_auto_fetch_at = Some(std::time::Instant::now());
+                    this.fetch_all(cx);
+                    true
                     })
                     .unwrap_or(false);
                 if !should_continue {
@@ -665,5 +689,57 @@ impl GitForgeApp {
                 cx.notify();
             },
         );
+    }
+}
+
+/// Pure decision: should a focus-triggered fetch fire, given the last fetch
+/// time, the current time, and the cooldown? Extracted from
+/// [`GitForgeApp::on_window_focused`] so the debounce logic is unit-testable
+/// without a GPUI context.
+fn should_focus_fetch(
+    last: Option<std::time::Instant>,
+    now: std::time::Instant,
+    cooldown: std::time::Duration,
+) -> bool {
+    match last {
+        None => true,
+        Some(t) => now.saturating_duration_since(t) >= cooldown,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_focus_fetch;
+
+    #[test]
+    fn focus_fetch_fires_when_never_fetched() {
+        assert!(should_focus_fetch(
+            None,
+            std::time::Instant::now(),
+            std::time::Duration::from_secs(60),
+        ));
+    }
+
+    #[test]
+    fn focus_fetch_suppressed_within_cooldown() {
+        let now = std::time::Instant::now();
+        let last = now - std::time::Duration::from_secs(10);
+        assert!(!should_focus_fetch(
+            Some(last),
+            now,
+            std::time::Duration::from_secs(60),
+        ));
+    }
+
+    #[test]
+    fn focus_fetch_fires_at_and_past_cooldown() {
+        let now = std::time::Instant::now();
+        let cooldown = std::time::Duration::from_secs(60);
+        assert!(should_focus_fetch(Some(now - cooldown), now, cooldown));
+        assert!(should_focus_fetch(
+            Some(now - std::time::Duration::from_secs(120)),
+            now,
+            cooldown,
+        ));
     }
 }

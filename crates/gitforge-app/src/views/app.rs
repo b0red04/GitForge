@@ -137,6 +137,8 @@ pub struct GitForgeApp {
     pub(crate) settings_window: Option<WindowHandle<SettingsWindow>>,
     pub(crate) quit_requested: bool,
     pub(crate) periodic_fetch_generation: u64,
+    pub(crate) last_auto_fetch_at: Option<std::time::Instant>,
+    pub(crate) focus_subscription: Option<gpui::Subscription>,
     pub(crate) toasts: super::toasts::Toasts,
     pub(crate) create_pr: CreatePrState,
     pub(crate) update_indicator: Entity<super::update_indicator::UpdateIndicator>,
@@ -195,6 +197,8 @@ impl GitForgeApp {
             settings_window: None,
             quit_requested: false,
             periodic_fetch_generation: 0,
+            last_auto_fetch_at: None,
+            focus_subscription: None,
             toasts: super::toasts::Toasts::new(),
             create_pr: CreatePrState::new(cx),
             update_indicator,
@@ -436,6 +440,14 @@ impl GitForgeApp {
 
 impl Render for GitForgeApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.focus_subscription.is_none() {
+            let handle = self.focus_handle.clone();
+            let entity = cx.entity().downgrade();
+            self.focus_subscription = Some(window.on_focus_in(&handle, cx, move |_w, cx| {
+                let _ = entity.update(cx, |this, cx| this.on_window_focused(cx));
+            }));
+        }
+
         if self.quit_requested {
             self.quit_requested = false;
             if let Some(handle) = self.settings_window.take() {
