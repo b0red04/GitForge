@@ -570,6 +570,15 @@ pub fn render_local_branch_dropdown(
                     .child(branch.name.clone()),
             );
 
+        if branch.commits_ahead > 0 || branch.commits_behind > 0 {
+            let sync_color = if is_head { accent } else { muted };
+            row = row.child(super::branch_sync_badge::render_sync_indicators(
+                branch.commits_ahead,
+                branch.commits_behind,
+                sync_color,
+            ));
+        }
+
         if has_conflict {
             row = row.child(
                 svg()

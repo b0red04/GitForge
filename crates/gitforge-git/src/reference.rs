@@ -15,4 +15,6 @@ pub struct RefInfo {
     pub target_commit_id: String,
     pub is_head: bool,
     pub remote_name: Option<String>,
+    pub commits_ahead: u32,
+    pub commits_behind: u32,
 }

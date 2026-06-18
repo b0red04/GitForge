@@ -1,6 +1,6 @@
 use crate::error::{GitError, GitResult};
 use crate::repository::Repository;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 impl Repository {
     /// Spawns a `git` subprocess.
@@ -165,5 +165,84 @@ impl Repository {
     pub fn delete_tag(&self, name: &str) -> GitResult<()> {
         self.run_git(&["tag", "-d", name])?;
         Ok(())
+    }
+
+    /// Returns `(ahead, behind)` commit counts for each local branch with an upstream.
+    pub fn local_branch_tracking(&self) -> GitResult<HashMap<String, (u32, u32)>> {
+        let output = self.run_git(&[
+            "for-each-ref",
+            "--format=%(refname:short)\t%(upstream:track)",
+            "refs/heads/",
+        ])?;
+        let text = String::from_utf8_lossy(&output.stdout);
+        let mut tracking = HashMap::new();
+
+        for line in text.lines() {
+            let Some((name, track)) = line.split_once('\t') else {
+                continue;
+            };
+            if name.is_empty() {
+                continue;
+            }
+            let (ahead, behind) = parse_upstream_track(track);
+            if ahead > 0 || behind > 0 {
+                tracking.insert(name.to_string(), (ahead, behind));
+            }
+        }
+
+        Ok(tracking)
+    }
+}
+
+/// Parse git `%(upstream:track)` output, e.g. `[ahead 2, behind 14]`.
+pub fn parse_upstream_track(track: &str) -> (u32, u32) {
+    let track = track.trim();
+    if track.is_empty() {
+        return (0, 0);
+    }
+
+    let inner = track.trim_start_matches('[').trim_end_matches(']');
+    let mut ahead = 0;
+    let mut behind = 0;
+
+    for part in inner.split(',') {
+        let part = part.trim();
+        if let Some(n) = part.strip_prefix("ahead ") {
+            ahead = n.trim().parse().unwrap_or(0);
+        } else if let Some(n) = part.strip_prefix("behind ") {
+            behind = n.trim().parse().unwrap_or(0);
+        }
+    }
+
+    (ahead, behind)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_upstream_track;
+
+    #[test]
+    fn parse_upstream_track_behind_only() {
+        assert_eq!(parse_upstream_track("[behind 14]"), (0, 14));
+    }
+
+    #[test]
+    fn parse_upstream_track_ahead_only() {
+        assert_eq!(parse_upstream_track("[ahead 2]"), (2, 0));
+    }
+
+    #[test]
+    fn parse_upstream_track_both() {
+        assert_eq!(parse_upstream_track("[ahead 2, behind 3]"), (2, 3));
+    }
+
+    #[test]
+    fn parse_upstream_track_empty() {
+        assert_eq!(parse_upstream_track(""), (0, 0));
+    }
+
+    #[test]
+    fn parse_upstream_track_up_to_date() {
+        assert_eq!(parse_upstream_track("[]"), (0, 0));
     }
 }
