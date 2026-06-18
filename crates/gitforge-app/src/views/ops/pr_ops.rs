@@ -212,16 +212,6 @@ impl GitForgeApp {
         cx.notify();
     }
 
-    pub fn set_create_pr_provider(&mut self, provider: String, cx: &mut Context<Self>) {
-        if self.create_pr.provider == provider {
-            return;
-        }
-        self.create_pr.provider = provider;
-        self.create_pr.open_dropdown = CreatePrDropdown::None;
-        self.load_create_pr_repos(cx);
-        cx.notify();
-    }
-
     pub fn toggle_create_pr_dropdown(
         &mut self,
         dropdown: CreatePrDropdown,

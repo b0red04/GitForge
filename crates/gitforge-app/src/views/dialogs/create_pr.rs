@@ -7,6 +7,14 @@ use gpui::*;
 
 use crate::views::app::GitForgeApp;
 
+/// Vertical offset (from the dialog surface's padding-box origin) at which the
+/// floating dropdown is anchored. Because GPUI paints strictly in tree order
+/// (there is no z-index), the dropdown is emitted as the dialog's last child so
+/// it paints above the Title/Description fields; this offset re-anchors it to
+/// float just below the From/To repo+branch row. Retune here if the dialog
+/// layout above that row changes (header + From/To row height).
+const DROPDOWN_TOP_OFFSET: Pixels = px(150.0);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CreatePrDropdown {
     None,
@@ -106,48 +114,12 @@ pub fn render(
     let ent_ai = entity.clone();
     let ent_draft = entity.clone();
 
-    let providers = [
-        ("github", "GitHub"),
-        ("gitlab", "GitLab"),
-        ("codeberg", "Codeberg"),
-    ];
-    let mut tabs = div()
-        .flex()
-        .gap_4()
-        .border_b_1()
-        .border_color(border)
-        .pb_2();
-    for (id, label) in providers {
-        let is_active = state.provider == id;
-        let ent_tab = entity.clone();
-        let provider_id = id.to_string();
-        tabs = tabs.child(
-            div()
-                .id(ElementId::Name(format!("pr-tab-{id}").into()))
-                .flex()
-                .flex_col()
-                .items_center()
-                .gap_1()
-                .cursor_pointer()
-                .text_xs()
-                .text_color(if is_active { text_color } else { muted })
-                .border_b_2()
-                .border_color(if is_active {
-                    accent
-                } else {
-                    gpui::transparent_black()
-                })
-                .pb_1()
-                .child(label)
-                .on_click(move |_ev, _window, cx| {
-                    if let Some(e) = ent_tab.upgrade() {
-                        e.update(cx, |this, cx| {
-                            this.set_create_pr_provider(provider_id.clone(), cx);
-                        });
-                    }
-                }),
-        );
-    }
+    let provider_label = match state.provider.as_str() {
+        "github" => "GitHub",
+        "gitlab" => "GitLab",
+        "codeberg" => "Codeberg",
+        other => other,
+    };
 
     let desc_focus = state.description_input.focus_handle().clone();
 
@@ -222,6 +194,7 @@ pub fn render(
     };
 
     let dialog = dialog_surface(px(520.0), dc)
+        .relative()
         .child(
             div()
                 .flex()
@@ -244,6 +217,17 @@ pub fn render(
                                 .font_weight(FontWeight::BOLD)
                                 .text_color(text_color)
                                 .child("Create Pull Request"),
+                        )
+                        .child(
+                            div()
+                                .px_2()
+                                .py_0p5()
+                                .border_1()
+                                .border_color(border)
+                                .rounded(px(3.0))
+                                .text_xs()
+                                .text_color(muted)
+                                .child(provider_label.to_string()),
                         ),
                 )
                 .child(
@@ -262,7 +246,6 @@ pub fn render(
                         }),
                 ),
         )
-        .child(tabs)
         .child(
             div()
                 .flex()
@@ -332,14 +315,6 @@ pub fn render(
                         )),
                 ),
         )
-        .child(div().relative().child({
-            let dropdown = render_open_dropdown(state, colors, entity.clone());
-            if let Some(menu) = dropdown {
-                div().relative().child(menu)
-            } else {
-                div()
-            }
-        }))
         .child(
             div()
                 .flex()
@@ -466,6 +441,11 @@ pub fn render(
                 ),
         );
 
+    let dialog = match render_open_dropdown(state, colors, entity.clone()) {
+        Some(menu) => dialog.child(menu),
+        None => dialog,
+    };
+
     dialog_overlay(dc)
         .inset_0()
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
@@ -571,7 +551,7 @@ fn render_open_dropdown(
     let mut menu = div()
         .id("create-pr-dropdown")
         .absolute()
-        .top(px(0.0))
+        .top(DROPDOWN_TOP_OFFSET)
         .left(px(0.0))
         .w(px(220.0))
         .max_h(px(180.0))
@@ -633,7 +613,7 @@ fn loading_dropdown(colors: &AppColors) -> Stateful<Div> {
     div()
         .id("create-pr-dropdown-loading")
         .absolute()
-        .top(px(0.0))
+        .top(DROPDOWN_TOP_OFFSET)
         .left(px(0.0))
         .w(px(220.0))
         .bg(surface)
