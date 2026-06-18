@@ -42,6 +42,8 @@ impl EmbeddedAssets {
         embed!("icons/refresh.svg");
         embed!("icons/cloud.svg");
         embed!("icons/terminal.svg");
+        embed!("icons/globe.svg");
+        embed!("icons/laptop.svg");
 
         Self { files }
     }
