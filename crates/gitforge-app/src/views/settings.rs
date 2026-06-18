@@ -20,6 +20,10 @@ pub struct AppSettings {
     pub sidebar_pull_requests_expanded: bool,
     pub window_width: f32,
     pub window_height: f32,
+    #[serde(default = "default_sidebar_width")]
+    pub sidebar_width: f32,
+    #[serde(default = "default_right_panel_width")]
+    pub right_panel_width: f32,
     pub ai: AiSettings,
     #[serde(default)]
     pub show_checkpoint_refs: bool,
@@ -129,6 +133,14 @@ fn default_true() -> bool {
     true
 }
 
+fn default_sidebar_width() -> f32 {
+    super::layout::SIDEBAR_WIDTH
+}
+
+fn default_right_panel_width() -> f32 {
+    super::layout::RIGHT_DEFAULT_WIDTH
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolSettings {
     #[serde(default = "default_editor_command")]
@@ -226,6 +238,8 @@ impl Default for AppSettings {
             sidebar_pull_requests_expanded: true,
             window_width: 1280.0,
             window_height: 800.0,
+            sidebar_width: default_sidebar_width(),
+            right_panel_width: default_right_panel_width(),
             ai: AiSettings::default(),
             show_checkpoint_refs: false,
             commit_limit: default_commit_limit(),
