@@ -263,7 +263,7 @@ impl GitForgeApp {
             return;
         }
         let cooldown = std::time::Duration::from_secs(
-            behavior.fetch_interval_minutes.max(1) * 60,
+            behavior.fetch_interval_minutes.max(1).saturating_mul(60),
         );
         if should_focus_fetch(self.last_auto_fetch_at, std::time::Instant::now(), cooldown) {
             self.last_auto_fetch_at = Some(std::time::Instant::now());
@@ -545,7 +545,7 @@ impl GitForgeApp {
         if !behavior.periodic_fetch_enabled || self.repo_session.active_tab().is_none() {
             return;
         }
-        let interval_secs = behavior.fetch_interval_minutes.max(1) * 60;
+        let interval_secs = behavior.fetch_interval_minutes.max(1).saturating_mul(60);
 
         cx.spawn(async move |this, cx| {
             loop {
