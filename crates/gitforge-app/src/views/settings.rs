@@ -54,13 +54,13 @@ pub struct RepoBehaviorSettings {
 }
 
 fn default_fetch_interval_minutes() -> u64 {
-    15
+    1
 }
 
 impl Default for RepoBehaviorSettings {
     fn default() -> Self {
         Self {
-            periodic_fetch_enabled: false,
+            periodic_fetch_enabled: true,
             fetch_interval_minutes: default_fetch_interval_minutes(),
             auto_push_on_commit: false,
         }
