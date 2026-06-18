@@ -175,6 +175,22 @@ impl RepoSession {
 
         let has_uncommitted = repo_state_data.status.has_changes();
 
+        // Capture the user's selection BEFORE `set_data` wipes it, keyed by
+        // stable commit id. A fetch can prepend commits and shift every index,
+        // so remembering the (unstable) index would silently land on a
+        // different commit — the id lets us re-resolve to the new index below.
+        // The borrow from `commit_id_at` ends immediately because we copy the
+        // id into an owned `String`, leaving `graph_panel` free for the
+        // mutable `set_data` call that follows.
+        let prev_selection = match self.graph_panel.selection() {
+            GraphSelection::Commit(idx) => self
+                .graph_panel
+                .commit_id_at(idx)
+                .map(|id| PriorSelection::Commit(id.to_string())),
+            GraphSelection::Uncommitted => Some(PriorSelection::Uncommitted),
+            GraphSelection::None => None,
+        };
+
         let commit_count = repo_state_data.commits.len();
         let start = std::time::Instant::now();
 
@@ -203,15 +219,42 @@ impl RepoSession {
         let preserve_staging = in_history && self.status_panel.is_graph_staging();
         self.status_panel
             .set_status(repo_state_data.status.clone(), preserve_staging);
-        self.diff_panel.clear();
 
-        if has_uncommitted {
-            self.graph_panel.select_uncommitted();
-            if in_history {
-                self.status_panel.enter_graph_staging();
+        // Decide what to do with selection after the rebuild. The cached
+        // `CommitDiffState` for a preserved real commit stays valid: commits
+        // are immutable, so a fetch can add new ones but never change the
+        // diff of an existing one. We only clear the diff panel when the
+        // prior selection cannot be preserved.
+        let new_commit_ids: Vec<&str> = repo_state_data
+            .commits
+            .iter()
+            .map(|c| c.id.as_str())
+            .collect();
+        match reselect_after_refresh(prev_selection, has_uncommitted, &new_commit_ids) {
+            RefreshSelection::PreservedCommit(idx) => {
+                self.graph_panel.select_commit(idx);
+                // Intentionally skip `diff_panel.clear()`: the cached diff for
+                // this immutable commit is still valid, and skipping the clear
+                // lets `sync_diff_view` hit its cache key and avoid a rebuild.
             }
-        } else {
-            self.graph_panel.clear_selection();
+            RefreshSelection::PreservedUncommitted => {
+                self.graph_panel.select_uncommitted();
+                if in_history {
+                    self.status_panel.enter_graph_staging();
+                }
+                self.diff_panel.clear();
+            }
+            RefreshSelection::Fallback => {
+                self.diff_panel.clear();
+                if has_uncommitted {
+                    self.graph_panel.select_uncommitted();
+                    if in_history {
+                        self.status_panel.enter_graph_staging();
+                    }
+                } else {
+                    self.graph_panel.clear_selection();
+                }
+            }
         }
     }
 
@@ -412,6 +455,63 @@ pub(crate) fn drop_caret_index(
     }
 }
 
+/// The user's graph selection captured *before* a refresh rebuilds the commit
+/// list. Used by [`reselect_after_refresh`] to decide what to re-select
+/// afterwards. Stored by stable commit id rather than (unstable) index.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum PriorSelection {
+    /// A real commit was selected; we remember its stable id.
+    Commit(String),
+    /// The working-tree / uncommitted node was selected.
+    Uncommitted,
+}
+
+/// What [`RepoSession::apply_repo_state_to_panels`] should do with the graph
+/// selection after a refresh, given the user's prior selection and the
+/// post-refresh commit list.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum RefreshSelection {
+    /// Re-select this index in the new commit list. The prior commit is still
+    /// present (possibly at a shifted index because the fetch prepended commits).
+    PreservedCommit(usize),
+    /// Keep the working-tree node selected.
+    PreservedUncommitted,
+    /// The prior selection is no longer valid (commit pruned, working tree
+    /// newly clean, or nothing was selected). The caller falls back to its
+    /// default: auto-pick uncommitted if there are changes, else clear.
+    Fallback,
+}
+
+/// Pure decision: given the user's prior selection, the post-refresh working
+/// tree state, and the post-refresh commit list (in display order), what should
+/// `apply_repo_state_to_panels` re-select?
+///
+/// `new_commit_ids` is the post-refresh commit list in display order; a
+/// returned [`RefreshSelection::PreservedCommit`] index refers to a position in
+/// that slice. Keeping this free of GPUI/`GraphPanel` types makes the
+/// index-stability edge cases (commit pruned, working tree changed, nothing
+/// selected) exhaustively unit-testable.
+pub(crate) fn reselect_after_refresh(
+    prev: Option<PriorSelection>,
+    has_uncommitted: bool,
+    new_commit_ids: &[&str],
+) -> RefreshSelection {
+    match prev {
+        Some(PriorSelection::Commit(id)) => match new_commit_ids.iter().position(|c| *c == id) {
+            Some(idx) => RefreshSelection::PreservedCommit(idx),
+            None => RefreshSelection::Fallback,
+        },
+        Some(PriorSelection::Uncommitted) => {
+            if has_uncommitted {
+                RefreshSelection::PreservedUncommitted
+            } else {
+                RefreshSelection::Fallback
+            }
+        }
+        None => RefreshSelection::Fallback,
+    }
+}
+
 #[cfg(test)]
 mod reorder_tests {
     use super::*;
@@ -582,5 +682,120 @@ mod reorder_tests {
         assert_eq!(drop_caret_index(&t, Some(20), Some((10, false))), None);
         // Before the tab just after source: before 30 -> caret 2 == src + 1.
         assert_eq!(drop_caret_index(&t, Some(20), Some((30, true))), None);
+    }
+}
+
+#[cfg(test)]
+mod refresh_selection_tests {
+    use super::*;
+
+    // ---- reselect_after_refresh: real commit preserved ----
+
+    #[test]
+    fn preserved_commit_keeps_index_when_unchanged() {
+        let ids = ["a", "b", "c"];
+        let prev = Some(PriorSelection::Commit("b".into()));
+        assert_eq!(
+            reselect_after_refresh(prev, true, &ids),
+            RefreshSelection::PreservedCommit(1),
+        );
+    }
+
+    #[test]
+    fn preserved_commit_re_resolves_when_fetch_prepended_commits() {
+        // The specific bug being fixed: a fetch added "new1" and "new2" at the
+        // front, so "b" moved from index 1 to index 3. The old code reset
+        // selection entirely; we must land on the *new* index for the same id.
+        let ids = ["new1", "new2", "a", "b", "c"];
+        let prev = Some(PriorSelection::Commit("b".into()));
+        assert_eq!(
+            reselect_after_refresh(prev, true, &ids),
+            RefreshSelection::PreservedCommit(3),
+        );
+    }
+
+    #[test]
+    fn preserved_commit_survives_even_when_working_tree_has_changes() {
+        // Pre-fix behavior was to force-jump to the uncommitted node whenever
+        // the repo had changes. The fix keeps the user's commit selected.
+        let ids = ["a", "b"];
+        let prev = Some(PriorSelection::Commit("a".into()));
+        assert_eq!(
+            reselect_after_refresh(prev, true, &ids),
+            RefreshSelection::PreservedCommit(0),
+        );
+    }
+
+    // ---- reselect_after_refresh: commit gone (pruned/dropped) ----
+
+    #[test]
+    fn pruned_commit_falls_back_when_working_tree_has_changes() {
+        let ids = ["a", "c"]; // "b" disappeared (e.g. its remote branch was pruned)
+        let prev = Some(PriorSelection::Commit("b".into()));
+        assert_eq!(
+            reselect_after_refresh(prev, true, &ids),
+            RefreshSelection::Fallback,
+        );
+    }
+
+    #[test]
+    fn pruned_commit_falls_back_when_working_tree_clean() {
+        let ids = ["a", "c"];
+        let prev = Some(PriorSelection::Commit("b".into()));
+        assert_eq!(
+            reselect_after_refresh(prev, false, &ids),
+            RefreshSelection::Fallback,
+        );
+    }
+
+    #[test]
+    fn preserved_commit_falls_back_when_commit_list_emptied() {
+        let prev = Some(PriorSelection::Commit("a".into()));
+        assert_eq!(
+            reselect_after_refresh(prev, false, &[]),
+            RefreshSelection::Fallback,
+        );
+    }
+
+    // ---- reselect_after_refresh: uncommitted node ----
+
+    #[test]
+    fn uncommitted_preserved_when_working_tree_still_dirty() {
+        let prev = Some(PriorSelection::Uncommitted);
+        assert_eq!(
+            reselect_after_refresh(prev, true, &["a", "b"]),
+            RefreshSelection::PreservedUncommitted,
+        );
+    }
+
+    #[test]
+    fn uncommitted_falls_back_when_working_tree_becomes_clean() {
+        // User had the working tree selected, then committed/stashed everything
+        // before the refresh tick — the uncommitted node no longer exists.
+        let prev = Some(PriorSelection::Uncommitted);
+        assert_eq!(
+            reselect_after_refresh(prev, false, &["a", "b"]),
+            RefreshSelection::Fallback,
+        );
+    }
+
+    // ---- reselect_after_refresh: no prior selection ----
+
+    #[test]
+    fn no_prior_selection_falls_back_even_with_changes() {
+        // First load of a repo: nothing was selected, so we do NOT preserve
+        // anything — the caller's fallback auto-selects uncommitted.
+        assert_eq!(
+            reselect_after_refresh(None, true, &["a", "b"]),
+            RefreshSelection::Fallback,
+        );
+    }
+
+    #[test]
+    fn no_prior_selection_falls_back_when_clean() {
+        assert_eq!(
+            reselect_after_refresh(None, false, &["a", "b"]),
+            RefreshSelection::Fallback,
+        );
     }
 }
