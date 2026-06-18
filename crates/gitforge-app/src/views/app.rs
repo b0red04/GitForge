@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use super::command_palette::CommandPalette;
 use super::commands::TitlebarMenu;
 use super::dialogs::CreatePrState;
-use super::repo_session::RepoSession;
+use super::repo_session::{drop_caret_index, RepoSession};
 use super::settings::AppSettings;
 use super::settings_window::SettingsWindow;
 
@@ -626,11 +626,33 @@ impl Render for GitForgeApp {
 
         let repo_tab_views = self.repo_session.repo_tab_views();
         if !repo_tab_views.is_empty() {
+            // GPUI clears its active drag on mouse-up whether or not the drop
+            // hit a target. If our `tab_drag_source` flag survived (e.g. the
+            // drag was cancelled off-target), treat it as inactive here so a
+            // tab isn't left dimmed and a caret isn't left drawn. The stale
+            // stored value is harmless: it's overwritten on the next drag start
+            // (`on_drag`) or drop, and `has_active_drag` gates every read.
+            let drag_source = self
+                .repo_session
+                .tab_drag_source
+                .filter(|_| cx.has_active_drag());
+            // Derive the insertion-caret index from the live drop target. When
+            // the cursor is over the bar's tail (no specific tab target) the
+            // caret sits at the end. Positions immediately adjacent to the
+            // dragged tab represent a no-op move and are collapsed to `None`.
+            let drop_caret = drop_caret_index(
+                &self.repo_session.open_repo_tabs,
+                drag_source,
+                self.repo_session.tab_drop_target,
+            );
+
             inner = inner.child(super::repo_tabs::render_repo_tab_bar(
                 &repo_tab_views,
                 self.repo_session.active_repo_tab_id,
                 &self.colors,
                 entity.clone(),
+                drag_source,
+                drop_caret,
             ));
         }
 
