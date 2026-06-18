@@ -426,7 +426,7 @@ impl GitForgeApp {
         cx: &mut Context<Self>,
     ) {
         self.run_git_op("Create branch", cx, move |repo| {
-            repo.create_branch(&name, start_point.as_deref())
+            repo.create_and_checkout_branch(&name, start_point.as_deref())
         });
     }
 
