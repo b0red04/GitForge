@@ -170,6 +170,7 @@ pub struct AiSettingsUiState {
 
 impl SettingsDraft {
     pub fn from_settings(settings: &AppSettings) -> Self {
+        let repo_defaults = RepoBehaviorSettings::default();
         Self {
             theme: settings.theme.clone(),
             editor_command: settings.tools.editor_command.clone(),
@@ -207,10 +208,10 @@ impl SettingsDraft {
                 settings.ai.summary_max_chars.to_string()
             },
             repo_path: None,
-            repo_periodic_fetch_enabled: false,
-            repo_fetch_interval_minutes: 15,
-            repo_fetch_interval_text: "15".to_string(),
-            repo_auto_push_on_commit: false,
+            repo_periodic_fetch_enabled: repo_defaults.periodic_fetch_enabled,
+            repo_fetch_interval_minutes: repo_defaults.fetch_interval_minutes,
+            repo_fetch_interval_text: repo_defaults.fetch_interval_minutes.to_string(),
+            repo_auto_push_on_commit: repo_defaults.auto_push_on_commit,
             auto_update: settings.auto_update,
         }
     }
@@ -3021,7 +3022,7 @@ fn render_repositories_section(
                     &draft.repo_fetch_interval_text,
                     SettingsTextField::RepoFetchInterval,
                     focused == SettingsTextField::RepoFetchInterval && input_focused,
-                    "15",
+                    "1",
                     colors,
                     entity.clone(),
                     input_focus,

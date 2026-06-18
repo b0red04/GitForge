@@ -20,6 +20,10 @@ pub struct AppSettings {
     pub sidebar_pull_requests_expanded: bool,
     pub window_width: f32,
     pub window_height: f32,
+    #[serde(default = "default_sidebar_width")]
+    pub sidebar_width: f32,
+    #[serde(default = "default_right_panel_width")]
+    pub right_panel_width: f32,
     pub ai: AiSettings,
     #[serde(default)]
     pub show_checkpoint_refs: bool,
@@ -54,13 +58,13 @@ pub struct RepoBehaviorSettings {
 }
 
 fn default_fetch_interval_minutes() -> u64 {
-    15
+    1
 }
 
 impl Default for RepoBehaviorSettings {
     fn default() -> Self {
         Self {
-            periodic_fetch_enabled: false,
+            periodic_fetch_enabled: true,
             fetch_interval_minutes: default_fetch_interval_minutes(),
             auto_push_on_commit: false,
         }
@@ -127,6 +131,14 @@ fn default_commit_limit() -> usize {
 
 fn default_true() -> bool {
     true
+}
+
+fn default_sidebar_width() -> f32 {
+    super::layout::SIDEBAR_WIDTH
+}
+
+fn default_right_panel_width() -> f32 {
+    super::layout::RIGHT_DEFAULT_WIDTH
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -226,6 +238,8 @@ impl Default for AppSettings {
             sidebar_pull_requests_expanded: true,
             window_width: 1280.0,
             window_height: 800.0,
+            sidebar_width: default_sidebar_width(),
+            right_panel_width: default_right_panel_width(),
             ai: AiSettings::default(),
             show_checkpoint_refs: false,
             commit_limit: default_commit_limit(),
