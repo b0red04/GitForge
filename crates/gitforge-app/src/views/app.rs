@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use super::command_palette::CommandPalette;
 use super::commands::TitlebarMenu;
 use super::dialogs::CreatePrState;
-use super::repo_session::{drop_caret_index, RepoSession};
+use super::repo_session::{RepoSession, drop_caret_index};
 use super::settings::AppSettings;
 use super::settings_window::SettingsWindow;
 
@@ -505,11 +505,8 @@ impl Render for GitForgeApp {
             true,
         );
 
-        let toolbar = super::toolbar::render_toolbar(
-            active_repo_state,
-            &self.colors,
-            entity.clone(),
-        );
+        let toolbar =
+            super::toolbar::render_toolbar(active_repo_state, &self.colors, entity.clone());
 
         let graph_panel = super::panel_resize::wrap_with_right_edge_resize_handle(
             self.repo_session.graph_panel.render(
@@ -650,6 +647,7 @@ impl Render for GitForgeApp {
                 &repo_tab_views,
                 self.repo_session.active_repo_tab_id,
                 &self.colors,
+                window,
                 entity.clone(),
                 drag_source,
                 drop_caret,
@@ -667,8 +665,7 @@ impl Render for GitForgeApp {
             Decorations::Client { tiling } => tiling,
         };
 
-        let resize_listener =
-            super::panel_resize::render_panel_resize_listener(entity.clone());
+        let resize_listener = super::panel_resize::render_panel_resize_listener(entity.clone());
 
         let workspace_base = div()
             .relative()

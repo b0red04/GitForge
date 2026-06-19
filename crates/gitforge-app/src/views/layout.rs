@@ -29,6 +29,15 @@ pub const TOOLBAR_HEIGHT: f32 = 40.0;
 
 pub const ROW_HEIGHT: f32 = 28.0;
 
+/// Snap a logical pixel length to the nearest whole device pixel at `scale`.
+///
+/// Fractional display scaling (e.g. 125% on 4K) otherwise leaves 1px strokes
+/// and flex text at sub-pixel sizes, which makes icons look faint and can
+/// trigger premature ellipsis.
+pub fn snap_px(value: f32, scale: f32) -> Pixels {
+    (px(value) * scale).round() / scale
+}
+
 /// Center history pane: flex-grow weight in the main content row.
 pub fn grow_center(mut pane: Div) -> Div {
     pane = pane
