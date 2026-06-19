@@ -764,9 +764,7 @@ fn graph_spacer(width: f32, row_height: Pixels) -> Div {
 }
 
 fn snapped_graph_row_height(window: &Window) -> Pixels {
-    let raw = px(ROW_HEIGHT);
-    let scale = window.scale_factor();
-    (raw * scale).round() / scale
+    layout::snap_px(ROW_HEIGHT, window.scale_factor())
 }
 
 fn build_refs_by_commit(references: &[RefInfo]) -> HashMap<String, Arc<[RefInfo]>> {
