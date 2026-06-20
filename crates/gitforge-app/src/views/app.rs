@@ -79,13 +79,6 @@ pub enum AppDialog {
         target: Option<String>,
     },
     StashPush,
-    Push {
-        branch: Option<String>,
-        remote: Option<String>,
-    },
-    Pull {
-        remote: Option<String>,
-    },
     CloneRepo,
     AddRemote,
     SshGenerateKey,
