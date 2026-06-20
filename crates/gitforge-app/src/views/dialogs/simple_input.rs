@@ -1,4 +1,3 @@
-use gitforge_git::RefKind;
 use gitforge_ui::{
     AppColors, DialogColors, TextInput, TextInputEvent, TextInputRenderOpts,
     attach_dialog_input_keys, dialog_actions, dialog_overlay, dialog_surface, dialog_title,
@@ -43,18 +42,6 @@ pub fn meta(dialog: &AppDialog) -> Option<SimpleInputMeta> {
         AppDialog::StashPush => Some(SimpleInputMeta {
             title: "Stash Changes",
             placeholder: "Stash message (optional)",
-            confirm_label: "Confirm",
-            width: px(360.0),
-        }),
-        AppDialog::Push { .. } => Some(SimpleInputMeta {
-            title: "Push",
-            placeholder: "Branch name (empty = current)",
-            confirm_label: "Confirm",
-            width: px(360.0),
-        }),
-        AppDialog::Pull { .. } => Some(SimpleInputMeta {
-            title: "Pull",
-            placeholder: "Remote name (empty = origin)",
             confirm_label: "Confirm",
             width: px(360.0),
         }),
@@ -127,30 +114,6 @@ pub fn confirm(
                 },
                 cx,
             );
-        }
-        AppDialog::Push { .. } => {
-            let branch = if input.is_empty() {
-                app.repo_session.active_repo_state().and_then(|rs| {
-                    rs.references
-                        .iter()
-                        .find(|r| r.is_head && r.kind == RefKind::Branch)
-                        .map(|r| r.name.clone())
-                })
-            } else {
-                Some(input.to_string())
-            };
-            let Some(branch_name) = branch else {
-                return;
-            };
-            app.push_current_branch("origin".into(), branch_name, false, cx);
-        }
-        AppDialog::Pull { .. } => {
-            let remote = if input.is_empty() {
-                "origin".into()
-            } else {
-                input.to_string()
-            };
-            app.pull_from_remote(remote, false, cx);
         }
         AppDialog::CloneRepo => {
             if input.is_empty() {

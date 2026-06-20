@@ -84,7 +84,7 @@ pub fn render_toolbar(
                 move |_ev, _window, cx| {
                     if let Some(e) = ent_pull.upgrade() {
                         e.update(cx, |this, cx| {
-                            this.open_pull_dialog(cx);
+                            this.pull_current(cx);
                         });
                     }
                 },
@@ -98,7 +98,7 @@ pub fn render_toolbar(
                 move |_ev, _window, cx| {
                     if let Some(e) = ent_push.upgrade() {
                         e.update(cx, |this, cx| {
-                            this.open_push_dialog(cx);
+                            this.push_current(cx);
                         });
                     }
                 },

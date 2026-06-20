@@ -598,6 +598,40 @@ impl GitForgeApp {
         self.run_git_op("Pull", cx, move |repo| repo.pull(Some(&remote), rebase));
     }
 
+    pub fn push_current(&mut self, cx: &mut Context<Self>) {
+        match self
+            .repo_session
+            .active_repo_state()
+            .and_then(|state| state.head_branch.clone())
+        {
+            Some(branch) => self.push_current_branch("origin".into(), branch, false, cx),
+            None => {
+                self.push_toast(
+                    crate::views::toasts::ToastKind::Warning,
+                    "Cannot push: HEAD is detached (no current branch).".to_string(),
+                    cx,
+                );
+            }
+        }
+    }
+
+    pub fn pull_current(&mut self, cx: &mut Context<Self>) {
+        match self
+            .repo_session
+            .active_repo_state()
+            .and_then(|state| state.head_branch.clone())
+        {
+            Some(_branch) => self.pull_from_remote("origin".into(), false, cx),
+            None => {
+                self.push_toast(
+                    crate::views::toasts::ToastKind::Warning,
+                    "Cannot pull: HEAD is detached (no current branch).".to_string(),
+                    cx,
+                );
+            }
+        }
+    }
+
     pub fn clone_repository(&mut self, url: String, path: String, cx: &mut Context<Self>) {
         let path_buf = std::path::PathBuf::from(&path);
         self.run_blocking_op_returning(
