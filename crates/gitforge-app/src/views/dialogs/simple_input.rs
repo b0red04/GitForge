@@ -7,6 +7,7 @@ use gitforge_ui::{
 use gpui::*;
 
 use crate::views::app::{AppDialog, GitForgeApp};
+use crate::views::toasts::ToastKind;
 
 #[derive(Clone, Copy)]
 pub struct SimpleInputMeta {
@@ -145,6 +146,23 @@ pub fn confirm(
             app.push_current_branch("origin".into(), branch_name, false, cx);
         }
         AppDialog::Pull { .. } => {
+            // Pre-flight: refuse to pull into a dirty working tree. `git pull`
+            // itself aborts with "Your local changes ... would be overwritten",
+            // but bailing here gives the user an actionable warning before we
+            // spawn a blocking op that's guaranteed to fail.
+            let dirty = app
+                .repo_session
+                .active_repo_state()
+                .map(|rs| rs.status.has_changes())
+                .unwrap_or(false);
+            if dirty {
+                app.push_toast(
+                    ToastKind::Warning,
+                    "Pull aborted: commit or stash uncommitted changes first",
+                    cx,
+                );
+                return;
+            }
             let remote = if input.is_empty() {
                 "origin".into()
             } else {

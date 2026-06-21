@@ -401,7 +401,12 @@ impl GitForgeApp {
         R: Send + 'static,
     {
         let Some(handle) = self.repo_session.require_active_repo_handle() else {
-            cx.notify();
+            tracing::warn!("{label}: no active repo handle");
+            self.push_toast(
+                crate::views::toasts::ToastKind::Warning,
+                "No repository open",
+                cx,
+            );
             return;
         };
         let fx = super::dispatch::OpEffects {
@@ -595,7 +600,10 @@ impl GitForgeApp {
     }
 
     pub fn pull_from_remote(&mut self, remote: String, rebase: bool, cx: &mut Context<Self>) {
-        self.run_git_op("Pull", cx, move |repo| repo.pull(Some(&remote), rebase));
+        let status = format!("Pulling {}...", remote);
+        self.run_git_op_with_status("Pull", &status, cx, move |repo| {
+            repo.pull(Some(&remote), rebase)
+        });
     }
 
     pub fn clone_repository(&mut self, url: String, path: String, cx: &mut Context<Self>) {

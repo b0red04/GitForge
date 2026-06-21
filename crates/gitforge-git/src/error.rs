@@ -14,6 +14,13 @@ pub enum GitError {
         stderr: String,
     },
 
+    #[error("Local changes would be overwritten by {command}: {stderr}")]
+    LocalChangesOverwritten {
+        command: String,
+        paths: Vec<String>,
+        stderr: String,
+    },
+
     #[error("Authentication failed for {remote}: {stderr}")]
     AuthenticationFailed { remote: String, stderr: String },
 
@@ -55,6 +62,15 @@ impl GitError {
             }
             GitError::MergeConflict { paths, .. } => {
                 format!("Merge conflict in {} file(s)", paths.len())
+            }
+            GitError::LocalChangesOverwritten { paths, .. } if paths.is_empty() => {
+                "Local changes would be overwritten — commit or stash before pulling".to_string()
+            }
+            GitError::LocalChangesOverwritten { paths, .. } => {
+                format!(
+                    "Local changes in {} file(s) would be overwritten — commit or stash before pulling",
+                    paths.len()
+                )
             }
             GitError::AuthenticationFailed { remote, stderr } => {
                 format!(
@@ -171,6 +187,13 @@ pub(crate) fn classify_git_failure(args: &[&str], output: &std::process::Output)
                 stderr: stderr_trim.to_string(),
             }
         }
+        "pull" | "merge" if is_local_changes_overwritten(stderr_trim) => {
+            GitError::LocalChangesOverwritten {
+                command: command.to_string(),
+                paths: extract_overwritten_paths(stderr_trim),
+                stderr: stderr_trim.to_string(),
+            }
+        }
         "commit" | "commit-tree" if is_empty_commit(stderr_trim) => GitError::EmptyCommit,
         "branch" if is_not_fully_merged(stderr_trim) => GitError::BranchNotFullyMerged {
             name: extract_branch_name(args).unwrap_or_default(),
@@ -250,6 +273,43 @@ fn is_merge_conflict(stderr: &str) -> bool {
         || stderr.contains("Merge conflict")
         || stderr.contains("Automatic merge failed")
         || stderr.contains("merge conflict")
+}
+
+/// Detects git's "Your local changes ... would be overwritten by merge" refusal.
+/// Emitted by `git pull` (and `git merge`) when the working tree has uncommitted
+/// edits that conflict with the incoming changes.
+fn is_local_changes_overwritten(stderr: &str) -> bool {
+    stderr.contains("Your local changes") && stderr.contains("would be overwritten")
+}
+
+/// Extracts the file paths listed under the "would be overwritten by merge"
+/// header. Git prints them one per line, indented by a tab, between the header
+/// and the trailing "Please commit your changes or stash them before you merge"
+/// (or "Please move or remove them before you merge.") line.
+fn extract_overwritten_paths(stderr: &str) -> Vec<String> {
+    let mut paths = Vec::new();
+    let mut in_list = false;
+    for line in stderr.lines() {
+        let trimmed = line.trim();
+        if in_list {
+            if trimmed.is_empty()
+                || trimmed.starts_with("Please ")
+                || trimmed.starts_with("Aborting")
+            {
+                in_list = false;
+                continue;
+            }
+            // Git prints each path tab-indented; accept any non-empty line in
+            // the list region as a path (the region is delimited above/below).
+            let path = trimmed.trim_matches('\'').trim_matches('"');
+            if !path.is_empty() {
+                paths.push(path.to_string());
+            }
+        } else if trimmed.contains("Your local changes to the following files") {
+            in_list = true;
+        }
+    }
+    paths
 }
 
 /// Extracts file paths from git merge/rebase conflict output. Git emits lines
@@ -348,6 +408,65 @@ mod tests {
     }
 
     #[test]
+    fn classifies_pull_local_changes_overwritten_commit_wording() {
+        // The "Please commit your changes or stash them before you merge"
+        // wording — git's default when the working tree blocks a pull/merge.
+        let out = fail_output(
+            "error: Your local changes to the following files would be overwritten by merge:\n\
+            \tREADME.md\n\
+            \tsrc/main.rs\n\
+            Please commit your changes or stash them before you merge.\n\
+            Aborting",
+        );
+        match classify_git_failure(&["pull", "origin", "main"], &out) {
+            GitError::LocalChangesOverwritten { command, paths, .. } => {
+                assert_eq!(command, "pull");
+                assert_eq!(paths, vec!["README.md", "src/main.rs"]);
+            }
+            other => panic!("expected LocalChangesOverwritten, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn classifies_pull_local_changes_overwritten_move_wording() {
+        // The alternate "Please move or remove them before you merge." wording.
+        let out = fail_output(
+            "error: Your local changes to the following files would be overwritten by merge:\n\
+            \tconfig.toml\n\
+            Please move or remove them before you merge.\n\
+            Aborting",
+        );
+        match classify_git_failure(&["pull", "origin"], &out) {
+            GitError::LocalChangesOverwritten { paths, .. } => {
+                assert_eq!(paths, vec!["config.toml"]);
+            }
+            other => panic!("expected LocalChangesOverwritten, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn local_changes_overwritten_is_real_error_not_info() {
+        let e = GitError::LocalChangesOverwritten {
+            command: "pull".into(),
+            paths: vec!["a.txt".into()],
+            stderr: "...".into(),
+        };
+        assert!(!e.is_info());
+    }
+
+    #[test]
+    fn local_changes_overwritten_toast_mentions_stash() {
+        let e = GitError::LocalChangesOverwritten {
+            command: "pull".into(),
+            paths: vec!["a.txt".into(), "b.txt".into()],
+            stderr: "...".into(),
+        };
+        let msg = e.toast_message();
+        assert!(msg.contains("commit or stash"), "toast: {msg}");
+        assert!(msg.contains("2 file"), "toast: {msg}");
+    }
+
+    #[test]
     fn classifies_empty_commit() {
         let out = fail_output("On branch main\nnothing to commit, working tree clean");
         assert!(matches!(
@@ -379,7 +498,8 @@ mod tests {
 
     #[test]
     fn classifies_auth_failure() {
-        let out = fail_output("fatal: Authentication failed for 'https://github.com/user/repo.git'");
+        let out =
+            fail_output("fatal: Authentication failed for 'https://github.com/user/repo.git'");
         match classify_git_failure(&["push", "origin", "main"], &out) {
             GitError::AuthenticationFailed { remote, .. } => assert_eq!(remote, "origin"),
             other => panic!("expected AuthenticationFailed, got {other:?}"),
@@ -388,7 +508,9 @@ mod tests {
 
     #[test]
     fn classifies_network_error() {
-        let out = fail_output("fatal: unable to access 'https://github.com/user/repo.git': Could not resolve host: github.com");
+        let out = fail_output(
+            "fatal: unable to access 'https://github.com/user/repo.git': Could not resolve host: github.com",
+        );
         assert!(matches!(
             classify_git_failure(&["fetch", "origin"], &out),
             GitError::NetworkError { .. }
@@ -428,11 +550,18 @@ mod tests {
     fn toast_message_redacts_credentials_in_auth_failure() {
         let e = GitError::AuthenticationFailed {
             remote: "https://user:ghp_token@github.com/owner/repo.git".into(),
-            stderr: "fatal: Authentication failed for 'https://user:secret@github.com/repo.git'".into(),
+            stderr: "fatal: Authentication failed for 'https://user:secret@github.com/repo.git'"
+                .into(),
         };
         let msg = e.toast_message();
-        assert!(msg.contains("ghp_token") == false, "token leaked in toast: {msg}");
-        assert!(msg.contains("secret") == false, "password leaked in toast: {msg}");
+        assert!(
+            msg.contains("ghp_token") == false,
+            "token leaked in toast: {msg}"
+        );
+        assert!(
+            msg.contains("secret") == false,
+            "password leaked in toast: {msg}"
+        );
         assert!(msg.contains("***@"), "expected redaction marker: {msg}");
     }
 
@@ -452,10 +581,7 @@ mod tests {
             "https://github.com/owner/repo.git"
         );
         // Non-URL text is unchanged.
-        assert_eq!(
-            redact_credentials("nothing to commit"),
-            "nothing to commit"
-        );
+        assert_eq!(redact_credentials("nothing to commit"), "nothing to commit");
     }
 
     #[test]
