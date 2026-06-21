@@ -485,7 +485,8 @@ impl GitForgeApp {
         FOk: FnOnce(&mut Self, T, &mut Context<Self>) + Send + 'static,
     {
         let Some(handle) = self.repo_session.require_active_repo_handle() else {
-            cx.notify();
+            tracing::warn!("{label}: no active repo handle");
+            self.push_toast(ToastKind::Warning, "No repository open", cx);
             return;
         };
         self.run_op(
@@ -554,6 +555,29 @@ mod tests {
         let action = err("Commit", AppError::Git(GitError::EmptyCommit), &TOAST);
         assert_eq!(action.surface, Surface::Info("Commit: Nothing to commit".into()));
         assert_eq!(action.error_detail, Some("Nothing to commit".into()));
+    }
+
+    #[test]
+    fn git_local_changes_overwritten_on_git_channel_surfaces_error() {
+        // Regression: a `git pull` that aborts with "Your local changes ... would
+        // be overwritten" used to be silently swallowed (or surfaced as a raw
+        // OperationFailed). It now carries a structured variant that classifies
+        // as a real error and surfaces on the default Toast channel.
+        let e = GitError::LocalChangesOverwritten {
+            command: "pull".into(),
+            paths: vec!["README.md".into()],
+            stderr: "...".into(),
+        };
+        let action = err("Pull", AppError::Git(e), &OpEffects::GIT);
+        match action.surface {
+            Surface::Error(msg) => {
+                assert!(msg.starts_with("Pull: "), "surface: {msg}");
+                assert!(msg.contains("commit or stash"), "surface: {msg}");
+            }
+            other => panic!("expected Surface::Error, got {other:?}"),
+        }
+        assert!(action.error_detail.is_some());
+        assert!(!action.refresh_repo, "errors must not refresh");
     }
 
     #[test]
