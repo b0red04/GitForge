@@ -3,6 +3,7 @@ use gpui::prelude::FluentBuilder;
 use gpui::*;
 
 use super::app::GitForgeApp;
+use super::layout;
 use super::repo_session::{move_repo_tab_to_end, reorder_repo_tab};
 
 /// Drag payload carrying the id of the repository tab being dragged. Used as
@@ -65,15 +66,19 @@ pub struct RepoTabView {
 
 /// Width of the insertion caret drawn at the current drop position.
 const DROP_CARET_WIDTH: f32 = 2.0;
+const TAB_LABEL_MAX_WIDTH: f32 = 180.0;
 
 pub fn render_repo_tab_bar(
     tabs: &[RepoTabView],
     active_tab_id: Option<u64>,
     colors: &AppColors,
+    window: &Window,
     entity: WeakEntity<GitForgeApp>,
     drag_source: Option<u64>,
     drop_caret: Option<usize>,
 ) -> impl IntoElement {
+    let scale = window.scale_factor();
+    let label_max_width = layout::snap_px(TAB_LABEL_MAX_WIDTH, scale);
     let surface = rgba_to_hsla(colors.surface);
     let surface_high = rgba_to_hsla(colors.surface_high);
     let border = rgba_to_hsla(colors.border);
@@ -186,9 +191,11 @@ pub fn render_repo_tab_bar(
             })
             .child(
                 div()
+                    .flex_shrink_0()
+                    .min_w(px(0.0))
                     .text_sm()
                     .text_color(label_color)
-                    .max_w(px(180.0))
+                    .max_w(label_max_width)
                     .overflow_hidden()
                     .text_ellipsis()
                     .child(name),
@@ -201,6 +208,7 @@ pub fn render_repo_tab_bar(
         tab_el = tab_el.child(
             div()
                 .id(ElementId::NamedInteger("repo-tab-close".into(), tab.id))
+                .flex_shrink_0()
                 .flex()
                 .items_center()
                 .justify_center()

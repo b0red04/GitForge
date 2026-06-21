@@ -597,6 +597,44 @@ impl GitForgeApp {
         .detach();
     }
 
+    /// Debounce window for [`fetch_on_activate`]. Coalesces rapid tab
+    /// switches so only the finally-active tab actually fetches.
+    const FETCH_ON_ACTIVATE_DEBOUNCE_MS: u64 = 400;
+
+    /// Fetches all remotes shortly after a tab becomes active. Debounced by a
+    /// generation counter so rapid tab switches coalesce into a single fetch
+    /// for the finally-active tab. Quiet: no status banner; errors toast via
+    /// `OpEffects::GIT`; success triggers a full `RepoState` refresh. Runs
+    /// unconditionally (not gated on `periodic_fetch_enabled`).
+    pub(crate) fn fetch_on_activate(&mut self, cx: &mut Context<Self>) {
+        self.fetch_on_activate_generation =
+            self.fetch_on_activate_generation.wrapping_add(1);
+        let generation = self.fetch_on_activate_generation;
+        if self.repo_session.active_tab().is_none() {
+            return;
+        }
+        cx.spawn(async move |this, cx| {
+            tokio::time::sleep(std::time::Duration::from_millis(
+                Self::FETCH_ON_ACTIVATE_DEBOUNCE_MS,
+            ))
+            .await;
+            this.update(cx, |this, cx| {
+                if this.fetch_on_activate_generation != generation {
+                    return;
+                }
+                if this.repo_session.active_tab().is_none() {
+                    return;
+                }
+                this.last_auto_fetch_at = Some(std::time::Instant::now());
+                this.run_git_op("Fetch on activate", cx, move |repo| {
+                    repo.fetch_all(true)
+                });
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     pub fn fetch_remote(&mut self, remote: String, cx: &mut Context<Self>) {
         let status = format!("Fetching {}...", remote);
         self.run_git_op_with_status("Fetch", &status, cx, move |repo| {
@@ -622,6 +660,40 @@ impl GitForgeApp {
         self.run_git_op_with_status("Pull", &status, cx, move |repo| {
             repo.pull(Some(&remote), rebase)
         });
+    }
+
+    pub fn push_current(&mut self, cx: &mut Context<Self>) {
+        match self
+            .repo_session
+            .active_repo_state()
+            .and_then(|state| state.head_branch.clone())
+        {
+            Some(branch) => self.push_current_branch("origin".into(), branch, false, cx),
+            None => {
+                self.push_toast(
+                    crate::views::toasts::ToastKind::Warning,
+                    "Cannot push: HEAD is detached (no current branch).".to_string(),
+                    cx,
+                );
+            }
+        }
+    }
+
+    pub fn pull_current(&mut self, cx: &mut Context<Self>) {
+        match self
+            .repo_session
+            .active_repo_state()
+            .and_then(|state| state.head_branch.clone())
+        {
+            Some(_branch) => self.pull_from_remote("origin".into(), false, cx),
+            None => {
+                self.push_toast(
+                    crate::views::toasts::ToastKind::Warning,
+                    "Cannot pull: HEAD is detached (no current branch).".to_string(),
+                    cx,
+                );
+            }
+        }
     }
 
     pub fn clone_repository(&mut self, url: String, path: String, cx: &mut Context<Self>) {

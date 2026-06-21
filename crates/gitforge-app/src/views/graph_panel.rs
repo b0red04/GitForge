@@ -23,6 +23,7 @@ const AUTHOR_COL_MIN: f32 = 60.0;
 const AUTHOR_COL_MAX: f32 = 200.0;
 const VISIBLE_REF_PILLS: usize = 4;
 const RESIZE_HANDLE_WIDTH: f32 = 6.0;
+const ROW_SEPARATOR_ALPHA: f32 = 0.9;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum HistoryColumn {
@@ -211,10 +212,7 @@ impl GraphPanel {
             return;
         };
 
-        let target_ref = self
-            .references
-            .iter()
-            .find(|r| r.name == *branch_name);
+        let target_ref = self.references.iter().find(|r| r.name == *branch_name);
 
         let Some(target) = target_ref else { return };
 
@@ -477,7 +475,13 @@ impl GraphPanel {
         let mut list = uniform_list(
             "commit-list",
             total_items,
-            move |visible_range: Range<usize>, _window: &mut Window, _cx: &mut App| {
+            move |visible_range: Range<usize>, window: &mut Window, _cx: &mut App| {
+                let row_height = snapped_graph_row_height(window);
+                let row_separator_left = if show_graph_col {
+                    graph_col_width + RESIZE_HANDLE_WIDTH
+                } else {
+                    0.0
+                };
                 let mut rows = Vec::with_capacity(visible_range.len());
 
                 for item_i in visible_range {
@@ -492,20 +496,17 @@ impl GraphPanel {
                         let wip_entity = list_entity.clone();
                         let mut row = div()
                             .id("uncommitted-row")
+                            .w_full()
                             .px_0()
                             .py_0()
                             .bg(row_bg)
-                            .border_b_1()
-                            .border_color(rgba_to_hsla(Rgba {
-                                r: 0.3,
-                                g: 0.3,
-                                b: 0.15,
-                                a: 0.5,
-                            }))
                             .flex()
                             .flex_row()
                             .items_center()
-                            .h(graph_row_height())
+                            .relative()
+                            .h(row_height)
+                            .min_h(row_height)
+                            .max_h(row_height)
                             .cursor_pointer()
                             .on_click(move |_ev, _window, cx| {
                                 if let Some(e) = wip_entity.upgrade() {
@@ -516,7 +517,7 @@ impl GraphPanel {
                             });
                         if show_graph_col {
                             row = row
-                                .child(graph_spacer(graph_col_width))
+                                .child(graph_spacer(graph_col_width, row_height))
                                 .child(resize_spacer());
                         }
                         if show_sha_col {
@@ -527,8 +528,11 @@ impl GraphPanel {
                         row = row.child(
                             div()
                                 .flex_1()
+                                .flex()
+                                .items_center()
                                 .pl_2()
                                 .text_xs()
+                                .whitespace_nowrap()
                                 .font_weight(FontWeight::BOLD)
                                 .text_color(rgba_to_hsla(cl_for_row.warning))
                                 .child("Uncommitted Changes"),
@@ -543,6 +547,7 @@ impl GraphPanel {
                                 .child(resize_spacer())
                                 .child(div().w(px(time_col_width)).flex_shrink_0());
                         }
+                        row = row.child(render_row_separator(&cl_for_row, row_separator_left));
 
                         rows.push(row.into_any_element());
                         continue;
@@ -573,26 +578,22 @@ impl GraphPanel {
                         detached_head_commit.as_deref(),
                     );
 
-                    let has_body = commit.message != commit.summary && !commit.message.is_empty();
                     let tip_message: SharedString = commit.message.clone().into();
                     let tip_colors = cl.clone();
 
                     let mut row = div()
                         .id(ElementId::Name(format!("commit-row-{commit_idx}").into()))
+                        .w_full()
                         .px_0()
                         .py_0()
                         .bg(row_bg)
-                        .border_b_1()
-                        .border_color(rgba_to_hsla(Rgba {
-                            r: 0.2,
-                            g: 0.2,
-                            b: 0.2,
-                            a: 0.3,
-                        }))
                         .flex()
                         .flex_row()
                         .items_center()
-                        .h(graph_row_height())
+                        .relative()
+                        .h(row_height)
+                        .min_h(row_height)
+                        .max_h(row_height)
                         .cursor_pointer()
                         .on_click(move |_ev, _window, cx| {
                             if let Some(e) = click_entity.upgrade() {
@@ -603,7 +604,7 @@ impl GraphPanel {
                         });
                     if show_graph_col {
                         row = row
-                            .child(graph_spacer(graph_col_width))
+                            .child(graph_spacer(graph_col_width, row_height))
                             .child(resize_spacer());
                     }
                     if show_sha_col {
@@ -612,9 +613,12 @@ impl GraphPanel {
                                 div()
                                     .w(px(hash_col_width))
                                     .flex_shrink_0()
+                                    .flex()
+                                    .items_center()
                                     .pl_2()
                                     .text_xs()
                                     .font_family("monospace")
+                                    .whitespace_nowrap()
                                     .text_color(rgba_to_hsla(cl.accent))
                                     .child(short_id),
                             )
@@ -624,7 +628,6 @@ impl GraphPanel {
                         div()
                             .flex_1()
                             .min_w(px(0.0))
-                            .text_sm()
                             .pl_1()
                             .pr_2()
                             .text_color(rgba_to_hsla(cl.text))
@@ -633,24 +636,28 @@ impl GraphPanel {
                             .items_center()
                             .gap_1()
                             .overflow_hidden()
-                            .child(ref_pills)
+                            .child(ref_pills.flex_shrink_0())
                             .child({
-                                let mut desc =
-                                    div().min_w(px(0.0)).overflow_hidden().text_ellipsis().id(
-                                        ElementId::Name(format!("commit-desc-{commit_idx}").into()),
-                                    );
-                                if has_body {
-                                    desc = desc.tooltip(move |_window, cx| {
-                                        cx.new(|_cx| {
-                                            CommitMessageTooltip::new(
-                                                tip_message.clone(),
-                                                tip_colors.clone(),
-                                            )
-                                        })
-                                        .into()
-                                    });
-                                }
-                                desc.child(summary)
+                                let mut desc = div().flex_1().min_w(px(0.0)).overflow_hidden().id(
+                                    ElementId::Name(format!("commit-desc-{commit_idx}").into()),
+                                );
+                                desc = desc.tooltip(move |_window, cx| {
+                                    cx.new(|_cx| {
+                                        CommitMessageTooltip::new(
+                                            tip_message.clone(),
+                                            tip_colors.clone(),
+                                        )
+                                    })
+                                    .into()
+                                });
+                                desc.child(
+                                    div()
+                                        .w_full()
+                                        .truncate()
+                                        .text_sm()
+                                        .line_height(px(16.0))
+                                        .child(summary),
+                                )
                             }),
                     );
                     if show_author_col {
@@ -658,10 +665,11 @@ impl GraphPanel {
                             div()
                                 .w(px(author_col_width))
                                 .flex_shrink_0()
+                                .flex()
+                                .items_center()
                                 .text_xs()
                                 .text_color(rgba_to_hsla(cl.text_muted))
-                                .overflow_hidden()
-                                .text_ellipsis()
+                                .truncate()
                                 .child(author_name),
                         );
                     }
@@ -670,13 +678,18 @@ impl GraphPanel {
                             div()
                                 .w(px(time_col_width))
                                 .flex_shrink_0()
+                                .flex()
+                                .items_center()
+                                .justify_end()
                                 .pr_2()
                                 .text_xs()
                                 .text_color(rgba_to_hsla(cl.text_muted))
+                                .whitespace_nowrap()
                                 .text_align(TextAlign::Right)
                                 .child(time_label),
                         );
                     }
+                    row = row.child(render_row_separator(&cl, row_separator_left));
 
                     rows.push(row.into_any_element());
                 }
@@ -746,12 +759,12 @@ impl UniformListDecoration for CommitGraphDecoration {
     }
 }
 
-fn graph_spacer(width: f32) -> Div {
-    div().w(px(width)).h(graph_row_height()).flex_shrink_0()
+fn graph_spacer(width: f32, row_height: Pixels) -> Div {
+    div().w(px(width)).h(row_height).flex_shrink_0()
 }
 
-fn graph_row_height() -> Pixels {
-    px(ROW_HEIGHT)
+fn snapped_graph_row_height(window: &Window) -> Pixels {
+    layout::snap_px(ROW_HEIGHT, window.scale_factor())
 }
 
 fn build_refs_by_commit(references: &[RefInfo]) -> HashMap<String, Arc<[RefInfo]>> {
@@ -1031,6 +1044,20 @@ fn history_panel_shell(bg: Hsla, border: Hsla) -> Div {
     panel_shell(ShellWidth::Full, bg, true, true).border_color(border)
 }
 
+fn row_separator_color(colors: &AppColors) -> Hsla {
+    rgba_to_hsla(colors.border).alpha(ROW_SEPARATOR_ALPHA)
+}
+
+fn render_row_separator(colors: &AppColors, left_offset: f32) -> Div {
+    div()
+        .absolute()
+        .left(px(left_offset.max(0.0)))
+        .right_0()
+        .bottom_0()
+        .h(px(1.0))
+        .bg(row_separator_color(colors))
+}
+
 fn render_resize_event_listener(entity: WeakEntity<super::app::GitForgeApp>) -> impl IntoElement {
     canvas(
         |_bounds, _window, _cx| {},
@@ -1194,6 +1221,15 @@ fn render_ref_pills(
     commit_id: &str,
     detached_head_commit: Option<&str>,
 ) -> Div {
+    enum RefPillDisplay<'a> {
+        Single(&'a RefInfo),
+        CombinedLocalRemote {
+            local: &'a RefInfo,
+            remote: &'a RefInfo,
+            label: String,
+        },
+    }
+
     let mut row = div()
         .flex()
         .flex_row()
@@ -1215,6 +1251,17 @@ fn render_ref_pills(
         .iter()
         .filter(|rf| !(rf.kind == RefKind::RemoteBranch && is_remote_head(rf)))
         .collect();
+
+    // Track remote refs by bare branch name (origin/main => main), which lets
+    // us collapse local+remote branch pairs into a single combined pill.
+    let mut remote_by_bare: HashMap<&str, Vec<&RefInfo>> = HashMap::new();
+    for rf in visible.iter() {
+        if rf.kind == RefKind::RemoteBranch
+            && let Some(bare) = bare_remote_name(rf)
+        {
+            remote_by_bare.entry(bare).or_default().push(*rf);
+        }
+    }
 
     // Detect remote branch names that are ambiguous across multiple remotes on
     // this commit (e.g. origin/main + upstream/main). These keep their remote
@@ -1250,13 +1297,57 @@ fn render_ref_pills(
         VISIBLE_REF_PILLS
     };
 
-    for rf in visible.iter().take(visible_limit) {
-        let label = ref_pill_label(rf, &ambiguous);
-        let icon = ref_pill_icon(rf);
-        row = row.child(render_ref_pill(rf, cl, label, icon));
+    let mut consumed: HashSet<&str> = HashSet::new();
+    let mut display_pills = Vec::new();
+    for rf in visible.iter().copied() {
+        if consumed.contains(rf.name.as_str()) {
+            continue;
+        }
+
+        if rf.kind == RefKind::Branch {
+            let branch_name = rf.name.as_str();
+            if !ambiguous.contains(branch_name)
+                && let Some(remotes) = remote_by_bare.get(branch_name)
+            {
+                let mut candidates = remotes
+                    .iter()
+                    .copied()
+                    .filter(|remote| !consumed.contains(remote.name.as_str()));
+                if let Some(remote) = candidates.next()
+                    && candidates.next().is_none()
+                {
+                    display_pills.push(RefPillDisplay::CombinedLocalRemote {
+                        local: rf,
+                        remote,
+                        label: truncate_chars(branch_name, 20),
+                    });
+                    consumed.insert(rf.name.as_str());
+                    consumed.insert(remote.name.as_str());
+                    continue;
+                }
+            }
+        }
+
+        display_pills.push(RefPillDisplay::Single(rf));
+        consumed.insert(rf.name.as_str());
     }
 
-    let hidden_count = visible.len().saturating_sub(visible_limit);
+    for pill in display_pills.iter().take(visible_limit) {
+        row = row.child(match pill {
+            RefPillDisplay::Single(rf) => {
+                let label = ref_pill_label(rf, &ambiguous);
+                let icon = ref_pill_icon(rf);
+                render_ref_pill(rf, cl, label, icon)
+            }
+            RefPillDisplay::CombinedLocalRemote {
+                local,
+                remote,
+                label,
+            } => render_combined_branch_pill(local, remote, cl, label.clone()),
+        });
+    }
+
+    let hidden_count = display_pills.len().saturating_sub(visible_limit);
     if hidden_count > 0 {
         let bg = cl.surface_high;
         row = row.child(
@@ -1274,6 +1365,57 @@ fn render_ref_pills(
     }
 
     row
+}
+
+fn render_combined_branch_pill(
+    local: &RefInfo,
+    remote: &RefInfo,
+    cl: &AppColors,
+    label: String,
+) -> Div {
+    // Prefer remote tint for merged local+remote pills so users can quickly
+    // spot that this branch is synced to a remote. Keep HEAD emphasis when the
+    // local branch is currently checked out.
+    let pill_color = if local.is_head {
+        ref_pill_color(local, cl)
+    } else {
+        ref_pill_color(remote, cl)
+    };
+    let text_color = contrast_text_for(pill_color);
+    let mut pill = div()
+        .px_2()
+        .border_1()
+        .border_color(rgba_to_hsla(cl.border))
+        .rounded(px(3.0))
+        .bg(rgba_to_hsla(pill_color))
+        .text_xs()
+        .text_color(text_color)
+        .flex_shrink_0()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_0p5();
+
+    if let Some(path) = ref_pill_icon(local) {
+        pill = pill.child(
+            svg()
+                .flex_none()
+                .size(px(11.0))
+                .path(path)
+                .text_color(text_color),
+        );
+    }
+    if let Some(path) = ref_pill_icon(remote) {
+        pill = pill.child(
+            svg()
+                .flex_none()
+                .size(px(11.0))
+                .path(path)
+                .text_color(text_color),
+        );
+    }
+
+    pill.child(label)
 }
 
 fn render_ref_pill(
