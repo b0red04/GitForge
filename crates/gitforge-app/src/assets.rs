@@ -26,7 +26,10 @@ impl EmbeddedAssets {
         embed!("icons/git-commit.svg");
         embed!("icons/git-branch.svg");
         embed!("icons/git-merge.svg");
+        embed!("icons/git_merge_conflict.svg");
         embed!("icons/git-pull-request.svg");
+        embed!("icons/github.svg");
+        embed!("icons/gitlab.svg");
         embed!("icons/tag.svg");
         embed!("icons/file.svg");
         embed!("icons/folder.svg");
