@@ -201,6 +201,7 @@ impl GitForgeApp {
         self.save_settings();
         cx.notify();
         self.restart_periodic_fetch(cx);
+        self.fetch_on_activate(cx);
         self.refresh_pull_requests(cx);
     }
 
