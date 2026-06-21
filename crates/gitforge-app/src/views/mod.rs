@@ -1,4 +1,5 @@
 pub mod app;
+pub mod branch_status_badges;
 pub mod branch_sync_badge;
 pub mod command_palette;
 pub mod commands;

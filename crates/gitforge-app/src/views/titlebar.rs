@@ -1,10 +1,12 @@
 use gitforge_git::{RefKind, RepoState};
-use gitforge_hosting::HostingAccount;
+use gitforge_hosting::{HostingAccount, PullRequest};
 use gitforge_ui::{AppColors, rgba_to_hsla, window_control_button};
 use gpui::*;
 
+use super::branch_status_badges;
 use super::commands::{MenuEntries, MenuEntry, TitlebarMenu, titlebar_menu_entries};
 use super::layout::{TITLEBAR_HEIGHT, WINDOW_CORNER_RADIUS};
+use super::ops::pr_ops::pull_request_for_branch;
 use super::window_chrome::{apply_top_corner_radius, seal_rounded_corners};
 
 struct TitlebarRepoContext {
@@ -78,6 +80,8 @@ fn no_repo_prompt(muted: Hsla) -> Div {
 
 fn branch_selector_button(
     repo: &TitlebarRepoContext,
+    has_conflict: bool,
+    warning: Hsla,
     muted: Hsla,
     text_color: Hsla,
     hover_bg: Hsla,
@@ -96,7 +100,7 @@ fn branch_selector_button(
         gpui::transparent_black()
     };
 
-    div()
+    let mut row = div()
         .id("titlebar-branch-selector")
         .flex()
         .items_center()
@@ -118,25 +122,34 @@ fn branch_selector_button(
                 .overflow_hidden()
                 .text_ellipsis()
                 .child(repo.branch_name.clone()),
-        )
-        .child(
-            svg()
-                .flex_none()
-                .size(px(12.0))
-                .path("icons/chevron-down.svg")
-                .text_color(muted),
-        )
-        .on_click(move |_ev, _window, cx| {
-            if let Some(e) = entity.upgrade() {
-                e.update(cx, |app, cx| app.toggle_local_branch_dropdown(cx));
-            }
-        })
-        .on_mouse_move(|_, _, cx| cx.stop_propagation())
-        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        );
+
+    if has_conflict {
+        row = row.child(branch_status_badges::render_conflict_badge(warning));
+    }
+
+    row.child(
+        svg()
+            .flex_none()
+            .size(px(12.0))
+            .path("icons/chevron-down.svg")
+            .text_color(muted),
+    )
+    .on_click(move |_ev, _window, cx| {
+        if let Some(e) = entity.upgrade() {
+            e.update(cx, |app, cx| app.toggle_local_branch_dropdown(cx));
+        }
+    })
+    .on_mouse_move(|_, _, cx| cx.stop_propagation())
+    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
 }
 
 fn repo_breadcrumb_with_selector(
     repo: TitlebarRepoContext,
+    repo_state: &RepoState,
+    pull_requests: &[PullRequest],
+    provider_id: Option<&str>,
+    colors: &AppColors,
     muted: Hsla,
     text_color: Hsla,
     hover_bg: Hsla,
@@ -144,7 +157,18 @@ fn repo_breadcrumb_with_selector(
     dropdown_open: bool,
     entity: WeakEntity<super::app::GitForgeApp>,
 ) -> Div {
-    div()
+    let warning = rgba_to_hsla(colors.warning);
+    let has_conflict = !repo.is_detached
+        && repo_state
+            .conflicting_local_branches
+            .contains(&repo.branch_name);
+    let current_pr = if repo.is_detached {
+        None
+    } else {
+        pull_request_for_branch(pull_requests, &repo.branch_name)
+    };
+
+    let mut breadcrumb = div()
         .flex()
         .flex_row()
         .items_center()
@@ -160,13 +184,28 @@ fn repo_breadcrumb_with_selector(
         .child(div().text_sm().text_color(muted).flex_none().child("/"))
         .child(branch_selector_button(
             &repo,
+            has_conflict,
+            warning,
             muted,
             text_color,
             hover_bg,
             active_bg,
             dropdown_open,
+            entity.clone(),
+        ));
+
+    if let Some(pr) = current_pr {
+        breadcrumb = breadcrumb.child(branch_status_badges::render_pr_link(
+            pr.number,
+            provider_id,
+            text_color,
+            hover_bg,
+            pr.html_url.clone(),
             entity,
-        ))
+        ));
+    }
+
+    breadcrumb
 }
 
 fn render_window_controls(
@@ -751,6 +790,8 @@ pub fn render_titlebar_accounts(
 
 pub fn render_titlebar(
     repo_state: Option<&RepoState>,
+    pull_requests: &[PullRequest],
+    provider_id: Option<&str>,
     hosting_accounts: &[HostingAccount],
     colors: &AppColors,
     window: &Window,
@@ -806,18 +847,21 @@ pub fn render_titlebar(
         }
     }
 
-    left_cluster = if let Some(repo) = repo_context {
-        left_cluster.child(repo_breadcrumb_with_selector(
+    left_cluster = match (repo_context, repo_state) {
+        (Some(repo), Some(rs)) => left_cluster.child(repo_breadcrumb_with_selector(
             repo,
+            rs,
+            pull_requests,
+            provider_id,
+            colors,
             muted,
             icon_hover,
             hover_bg,
             rgba_to_hsla(colors.selection_bg),
             branch_dropdown_open,
             entity.clone(),
-        ))
-    } else {
-        left_cluster.child(no_repo_prompt(muted))
+        )),
+        _ => left_cluster.child(no_repo_prompt(muted)),
     };
 
     let mut bar = div()

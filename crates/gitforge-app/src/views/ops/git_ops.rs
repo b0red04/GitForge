@@ -338,7 +338,9 @@ impl GitForgeApp {
 
         let patch = format!("--- a/{}\n+++ b/{}\n{}", path, path, hunks);
 
-        self.run_git_op(label, cx, move |repo| repo.apply_patch(&patch, true, reverse));
+        self.run_git_op(label, cx, move |repo| {
+            repo.apply_patch(&patch, true, reverse)
+        });
     }
 
     pub fn select_status_diff_line(
@@ -411,7 +413,7 @@ impl GitForgeApp {
         };
         let fx = super::dispatch::OpEffects {
             refresh_repo: true,
-            refresh_prs: false,
+            refresh_prs: true,
             remote_status: Some(status.to_string()),
             error_channel: super::dispatch::ErrorChannel::Toast,
         };
@@ -469,12 +471,28 @@ impl GitForgeApp {
 
     pub fn checkout_branch(&mut self, name: String, cx: &mut Context<Self>) {
         self.local_branch_dropdown_open = false;
-        self.run_git_op("Checkout", cx, move |repo| repo.checkout_branch(&name));
+        self.run_git_blocking(
+            "Checkout",
+            cx,
+            super::dispatch::OpEffects::GIT,
+            move |repo| repo.checkout_branch(&name),
+            |this, _, cx| {
+                this.refresh_pull_requests(cx);
+            },
+        );
     }
 
     pub fn checkout_remote_branch(&mut self, name: String, cx: &mut Context<Self>) {
         self.local_branch_dropdown_open = false;
-        self.run_git_op("Checkout", cx, move |repo| repo.checkout_remote_branch(&name));
+        self.run_git_blocking(
+            "Checkout",
+            cx,
+            super::dispatch::OpEffects::GIT,
+            move |repo| repo.checkout_remote_branch(&name),
+            |this, _, cx| {
+                this.refresh_pull_requests(cx);
+            },
+        );
     }
 
     pub fn merge_branch(&mut self, branch: String, no_ff: bool, cx: &mut Context<Self>) {
@@ -560,15 +578,15 @@ impl GitForgeApp {
                         if this.periodic_fetch_generation != generation {
                             return false;
                         }
-                    let behavior = this.active_repo_behavior_settings();
-                    if !behavior.periodic_fetch_enabled
-                        || this.repo_session.active_tab().is_none()
-                    {
-                        return false;
-                    }
-                    this.last_auto_fetch_at = Some(std::time::Instant::now());
-                    this.fetch_all(cx);
-                    true
+                        let behavior = this.active_repo_behavior_settings();
+                        if !behavior.periodic_fetch_enabled
+                            || this.repo_session.active_tab().is_none()
+                        {
+                            return false;
+                        }
+                        this.last_auto_fetch_at = Some(std::time::Instant::now());
+                        this.fetch_all(cx);
+                        true
                     })
                     .unwrap_or(false);
                 if !should_continue {
@@ -691,9 +709,11 @@ impl GitForgeApp {
             move |repo| repo.unified_diff_for_commit(&commit_id),
             move |this, diff_text, cx| {
                 let file_diffs = gitforge_diff::parser::parse_unified_diff(&diff_text);
-                this.repo_session
-                    .diff_panel
-                    .set_diff(CommitDiffState::new(id_for_state, file_diffs, None));
+                this.repo_session.diff_panel.set_diff(CommitDiffState::new(
+                    id_for_state,
+                    file_diffs,
+                    None,
+                ));
                 cx.notify();
             },
         );

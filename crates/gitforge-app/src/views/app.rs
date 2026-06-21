@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use super::command_palette::CommandPalette;
 use super::commands::TitlebarMenu;
 use super::dialogs::CreatePrState;
-use super::repo_session::{drop_caret_index, RepoSession};
+use super::repo_session::{RepoSession, drop_caret_index};
 use super::settings::AppSettings;
 use super::settings_window::SettingsWindow;
 
@@ -505,11 +505,8 @@ impl Render for GitForgeApp {
             true,
         );
 
-        let toolbar = super::toolbar::render_toolbar(
-            active_repo_state,
-            &self.colors,
-            entity.clone(),
-        );
+        let toolbar =
+            super::toolbar::render_toolbar(active_repo_state, &self.colors, entity.clone());
 
         let graph_panel = super::panel_resize::wrap_with_right_edge_resize_handle(
             self.repo_session.graph_panel.render(
@@ -600,8 +597,11 @@ impl Render for GitForgeApp {
                 .child(err.clone())
         });
 
+        let origin_hosting = self.resolve_origin_hosting();
         let titlebar = super::titlebar::render_titlebar(
             active_repo_state,
+            pull_requests,
+            origin_hosting.as_ref().map(|ctx| ctx.provider_id.as_str()),
             &self.hosting_accounts,
             &self.colors,
             window,
@@ -667,8 +667,7 @@ impl Render for GitForgeApp {
             Decorations::Client { tiling } => tiling,
         };
 
-        let resize_listener =
-            super::panel_resize::render_panel_resize_listener(entity.clone());
+        let resize_listener = super::panel_resize::render_panel_resize_listener(entity.clone());
 
         let workspace_base = div()
             .relative()
