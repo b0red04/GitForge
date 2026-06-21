@@ -63,13 +63,17 @@ impl GitError {
             GitError::MergeConflict { paths, .. } => {
                 format!("Merge conflict in {} file(s)", paths.len())
             }
-            GitError::LocalChangesOverwritten { paths, .. } if paths.is_empty() => {
-                "Local changes would be overwritten — commit or stash before pulling".to_string()
-            }
-            GitError::LocalChangesOverwritten { paths, .. } => {
+            GitError::LocalChangesOverwritten { paths, command, .. } if paths.is_empty() => {
                 format!(
-                    "Local changes in {} file(s) would be overwritten — commit or stash before pulling",
-                    paths.len()
+                    "Local changes would be overwritten — commit or stash before {}",
+                    action_gerund(command)
+                )
+            }
+            GitError::LocalChangesOverwritten { paths, command, .. } => {
+                format!(
+                    "Local changes in {} file(s) would be overwritten — commit or stash before {}",
+                    paths.len(),
+                    action_gerund(command)
                 )
             }
             GitError::AuthenticationFailed { remote, stderr } => {
@@ -275,6 +279,16 @@ fn is_merge_conflict(stderr: &str) -> bool {
         || stderr.contains("merge conflict")
 }
 
+/// Maps the git subcommand stored in [`GitError::LocalChangesOverwritten`]
+/// to the gerund used in user-facing toast messages. Only "pull" and "merge"
+/// produce that variant; anything else falls back to "pulling".
+fn action_gerund(command: &str) -> &str {
+    match command {
+        "merge" => "merging",
+        _ => "pulling",
+    }
+}
+
 /// Detects git's "Your local changes ... would be overwritten by merge" refusal.
 /// Emitted by `git pull` (and `git merge`) when the working tree has uncommitted
 /// edits that conflict with the incoming changes.
@@ -464,6 +478,43 @@ mod tests {
         let msg = e.toast_message();
         assert!(msg.contains("commit or stash"), "toast: {msg}");
         assert!(msg.contains("2 file"), "toast: {msg}");
+    }
+
+    #[test]
+    fn local_changes_overwritten_toast_reflects_command() {
+        // The toast must mirror the operation that actually failed: "merging"
+        // for a failed `git merge`, "pulling" for a failed `git pull`.
+        let merge = GitError::LocalChangesOverwritten {
+            command: "merge".into(),
+            paths: vec!["a.txt".into()],
+            stderr: "...".into(),
+        };
+        let merge_empty = GitError::LocalChangesOverwritten {
+            command: "merge".into(),
+            paths: vec![],
+            stderr: "...".into(),
+        };
+        let pull = GitError::LocalChangesOverwritten {
+            command: "pull".into(),
+            paths: vec!["a.txt".into()],
+            stderr: "...".into(),
+        };
+
+        assert!(
+            merge.toast_message().contains("before merging"),
+            "merge toast should say 'merging': {}",
+            merge.toast_message()
+        );
+        assert!(
+            merge_empty.toast_message().contains("before merging"),
+            "empty-paths merge toast should say 'merging': {}",
+            merge_empty.toast_message()
+        );
+        assert!(
+            pull.toast_message().contains("before pulling"),
+            "pull toast should say 'pulling': {}",
+            pull.toast_message()
+        );
     }
 
     #[test]
