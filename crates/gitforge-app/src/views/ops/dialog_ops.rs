@@ -104,21 +104,6 @@ impl GitForgeApp {
         cx.notify();
     }
 
-    pub fn open_push_dialog(&mut self, cx: &mut Context<Self>) {
-        self.active_dialog = AppDialog::Push {
-            branch: None,
-            remote: None,
-        };
-        self.dialog_input.clear();
-        cx.notify();
-    }
-
-    pub fn open_pull_dialog(&mut self, cx: &mut Context<Self>) {
-        self.active_dialog = AppDialog::Pull { remote: None };
-        self.dialog_input.clear();
-        cx.notify();
-    }
-
     pub fn open_clone_dialog(&mut self, cx: &mut Context<Self>) {
         self.active_dialog = AppDialog::CloneRepo;
         self.dialog_input.clear();

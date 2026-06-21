@@ -234,8 +234,14 @@ fn hamburger_button(
     icon_color: Hsla,
     icon_hover: Hsla,
     hover_bg: Hsla,
+    window: &Window,
     entity: WeakEntity<super::app::GitForgeApp>,
 ) -> Stateful<Div> {
+    let scale = window.scale_factor();
+    let line_height = super::layout::snap_px(1.0, scale);
+    let line_gap = super::layout::snap_px(3.0, scale);
+    let line_width = super::layout::snap_px(14.0, scale);
+
     div()
         .id("titlebar-hamburger")
         .group("hamburger")
@@ -243,31 +249,31 @@ fn hamburger_button(
         .flex_col()
         .items_center()
         .justify_center()
-        .gap(px(3.0))
-        .w(px(28.0))
-        .h(px(24.0))
+        .gap(line_gap)
+        .w(super::layout::snap_px(28.0, scale))
+        .h(super::layout::snap_px(24.0, scale))
         .rounded(px(4.0))
         .cursor_pointer()
         .hover(|s| s.bg(hover_bg))
         .active(|s| s.bg(hover_bg))
         .child(
             div()
-                .w(px(14.0))
-                .h(px(1.0))
+                .w(line_width)
+                .h(line_height)
                 .bg(icon_color)
                 .group_hover("hamburger", |s| s.bg(icon_hover)),
         )
         .child(
             div()
-                .w(px(14.0))
-                .h(px(1.0))
+                .w(line_width)
+                .h(line_height)
                 .bg(icon_color)
                 .group_hover("hamburger", |s| s.bg(icon_hover)),
         )
         .child(
             div()
-                .w(px(14.0))
-                .h(px(1.0))
+                .w(line_width)
+                .h(line_height)
                 .bg(icon_color)
                 .group_hover("hamburger", |s| s.bg(icon_hover)),
         )
@@ -790,6 +796,7 @@ pub fn render_titlebar(
             icon_color,
             icon_hover,
             hover_bg,
+            window,
             entity.clone(),
         ));
 

@@ -104,8 +104,7 @@ impl Repository {
             .all()
             .map_err(|e| GitError::OperationFailed(e.to_string()))?
         {
-            let mut reference =
-                reference.map_err(|e| GitError::OperationFailed(e.to_string()))?;
+            let mut reference = reference.map_err(|e| GitError::OperationFailed(e.to_string()))?;
             let full_name = reference.name().as_bstr().to_string();
             if !include_custom_refs && !is_standard_git_ref(&full_name) {
                 continue;
@@ -236,7 +235,10 @@ impl Repository {
         let message_ref = commit
             .message()
             .map_err(|e| GitError::OperationFailed(e.to_string()))?;
-        let summary = message_ref.title.to_string();
+        // Use gix's normalized summary (trimmed/folded) instead of raw title.
+        // Raw title can include a trailing newline for single-line commits,
+        // which causes inconsistent row text metrics in the graph UI.
+        let summary = message_ref.summary().to_string();
         let body = message_ref.body.map(|b| b.to_string()).unwrap_or_default();
         let message = if body.is_empty() {
             summary.clone()

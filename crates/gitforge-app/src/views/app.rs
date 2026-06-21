@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use super::command_palette::CommandPalette;
 use super::commands::TitlebarMenu;
 use super::dialogs::CreatePrState;
-use super::repo_session::{drop_caret_index, RepoSession};
+use super::repo_session::{RepoSession, drop_caret_index};
 use super::settings::AppSettings;
 use super::settings_window::SettingsWindow;
 
@@ -79,13 +79,6 @@ pub enum AppDialog {
         target: Option<String>,
     },
     StashPush,
-    Push {
-        branch: Option<String>,
-        remote: Option<String>,
-    },
-    Pull {
-        remote: Option<String>,
-    },
     CloneRepo,
     AddRemote,
     SshGenerateKey,
@@ -136,6 +129,7 @@ pub struct GitForgeApp {
     pub(crate) settings_window: Option<WindowHandle<SettingsWindow>>,
     pub(crate) quit_requested: bool,
     pub(crate) periodic_fetch_generation: u64,
+    pub(crate) fetch_on_activate_generation: u64,
     pub(crate) last_auto_fetch_at: Option<std::time::Instant>,
     pub(crate) focus_subscription: Option<gpui::Subscription>,
     pub(crate) toasts: super::toasts::Toasts,
@@ -195,6 +189,7 @@ impl GitForgeApp {
             settings_window: None,
             quit_requested: false,
             periodic_fetch_generation: 0,
+            fetch_on_activate_generation: 0,
             last_auto_fetch_at: None,
             focus_subscription: None,
             toasts: super::toasts::Toasts::new(),
@@ -505,11 +500,8 @@ impl Render for GitForgeApp {
             true,
         );
 
-        let toolbar = super::toolbar::render_toolbar(
-            active_repo_state,
-            &self.colors,
-            entity.clone(),
-        );
+        let toolbar =
+            super::toolbar::render_toolbar(active_repo_state, &self.colors, entity.clone());
 
         let graph_panel = super::panel_resize::wrap_with_right_edge_resize_handle(
             self.repo_session.graph_panel.render(
@@ -650,6 +642,7 @@ impl Render for GitForgeApp {
                 &repo_tab_views,
                 self.repo_session.active_repo_tab_id,
                 &self.colors,
+                window,
                 entity.clone(),
                 drag_source,
                 drop_caret,
@@ -667,8 +660,7 @@ impl Render for GitForgeApp {
             Decorations::Client { tiling } => tiling,
         };
 
-        let resize_listener =
-            super::panel_resize::render_panel_resize_listener(entity.clone());
+        let resize_listener = super::panel_resize::render_panel_resize_listener(entity.clone());
 
         let workspace_base = div()
             .relative()

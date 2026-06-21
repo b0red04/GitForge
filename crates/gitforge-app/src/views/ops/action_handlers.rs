@@ -314,7 +314,7 @@ impl GitForgeApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.open_push_dialog(cx);
+        self.push_current(cx);
     }
 
     pub(crate) fn handle_pull_current(
@@ -323,7 +323,7 @@ impl GitForgeApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.open_pull_dialog(cx);
+        self.pull_current(cx);
     }
 
     pub(crate) fn handle_create_pull_request(
