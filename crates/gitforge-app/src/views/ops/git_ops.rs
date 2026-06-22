@@ -680,20 +680,36 @@ impl GitForgeApp {
     }
 
     pub fn pull_current(&mut self, cx: &mut Context<Self>) {
-        match self
+        let Some(_branch) = self
             .repo_session
             .active_repo_state()
             .and_then(|state| state.head_branch.clone())
-        {
-            Some(_branch) => self.pull_from_remote("origin".into(), false, cx),
-            None => {
-                self.push_toast(
-                    crate::views::toasts::ToastKind::Warning,
-                    "Cannot pull: HEAD is detached (no current branch).".to_string(),
-                    cx,
-                );
-            }
+        else {
+            self.push_toast(
+                crate::views::toasts::ToastKind::Warning,
+                "Cannot pull: HEAD is detached (no current branch).".to_string(),
+                cx,
+            );
+            return;
+        };
+        // Pre-flight: refuse to pull into a dirty working tree. `git pull`
+        // itself aborts with "Your local changes ... would be overwritten", but
+        // bailing here gives the user an actionable warning before we spawn a
+        // blocking op that's guaranteed to fail.
+        let dirty = self
+            .repo_session
+            .active_repo_state()
+            .map(|rs| rs.status.has_changes())
+            .unwrap_or(false);
+        if dirty {
+            self.push_toast(
+                crate::views::toasts::ToastKind::Warning,
+                "Pull aborted: commit or stash uncommitted changes first",
+                cx,
+            );
+            return;
         }
+        self.pull_from_remote("origin".into(), false, cx);
     }
 
     pub fn clone_repository(&mut self, url: String, path: String, cx: &mut Context<Self>) {
