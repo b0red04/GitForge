@@ -4,25 +4,29 @@
 //! constructors. Because trait methods take `&HostingAccount` (which reads its
 //! token from the secrets backend), tests store throwaway tokens.
 //!
-//! ## Race-safety
+//! ## Isolation from the user's real config
 //!
-//! `secrets::store_token` does a non-atomic read-modify-write on
-//! `hosting_tokens.json`.  When multiple test binaries (one per `tests/*.rs`)
-//! run in parallel as separate processes, concurrent writes can clobber each
-//! other.  We solve this by writing **all** test tokens to the file in a single
-//! pass via [`ensure_test_tokens`] (guarded by `OnceLock`, so it runs once per
-//! process).  Every process writes the same keys+values, so the last writer
-//! always leaves the file in the correct state.
+//! `secrets::store_token` reads/writes `hosting_tokens.json` under the config
+//! dir. To prevent parallel test binaries from clobbering the user's real
+//! tokens, [`ensure_test_tokens`] redirects the hosting crate at a per-process
+//! temp dir via `GITFORGE_CONFIG_DIR` before any token write. Each process
+//! then writes the same set of test keys into its own file, so there are no
+//! cross-process races and the user's `~/.config/gitforge/hosting_tokens.json`
+//! is never touched.
 
 use gitforge_hosting::HostingAccount;
 use std::sync::OnceLock;
 
-/// The token file path — mirrors `secrets::tokens_file()` (private).
+/// The token file path — mirrors `secrets::tokens_file()` (private), honoring
+/// the same `GITFORGE_CONFIG_DIR` override.
 fn token_file_path() -> std::path::PathBuf {
-    dirs::config_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join("gitforge")
-        .join("hosting_tokens.json")
+    let base = std::env::var("GITFORGE_CONFIG_DIR").map(std::path::PathBuf::from);
+    base.unwrap_or_else(|_| {
+        dirs::config_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from("."))
+            .join("gitforge")
+    })
+    .join("hosting_tokens.json")
 }
 
 /// Write all test-known tokens to the file in a single pass, merging with any
@@ -61,7 +65,25 @@ const ALL_TEST_TOKENS: &[(&str, &str)] = &[
 /// Seed the token file exactly once per process.  Safe to call from any test.
 pub fn ensure_test_tokens() {
     static DONE: OnceLock<()> = OnceLock::new();
-    DONE.get_or_init(seed_token_file);
+    DONE.get_or_init(|| {
+        // Redirect the hosting crate's `secrets::config_dir()` at a
+        // per-process temp dir so this test binary never reads or writes the
+        // user's real `~/.config/gitforge/hosting_tokens.json`. Each parallel
+        // test binary gets its own dir (keyed by PID), eliminating the
+        // cross-process read-modify-write race that previously lost user
+        // tokens.
+        let temp_dir = std::env::temp_dir().join(format!("gitforge-test-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&temp_dir);
+        // SAFETY: this runs once inside `OnceLock::get_or_init`, before any
+        // test body runs. Test binaries are single-process; the only threads
+        // alive at this point are the test harness's, which haven't started
+        // reading `GITFORGE_CONFIG_DIR` yet (the first such read is inside
+        // `secrets::config_dir()` triggered by a test body, below).
+        unsafe {
+            std::env::set_var("GITFORGE_CONFIG_DIR", &temp_dir);
+        }
+        seed_token_file();
+    });
 }
 
 /// Returns a `HostingAccount` backed by the shared test token (`"test:hosting"`).

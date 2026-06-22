@@ -6,6 +6,13 @@ use std::path::PathBuf;
 const KEYRING_SERVICE: &str = "gitforge-hosting";
 
 fn config_dir() -> PathBuf {
+    // Tests override this via `GITFORGE_CONFIG_DIR` to keep their token writes
+    // out of the user's real `~/.config/gitforge/hosting_tokens.json` (which
+    // parallel test binaries used to clobber, losing the user's real tokens).
+    // Production leaves it unset and falls back to the platform config dir.
+    if let Ok(dir) = std::env::var("GITFORGE_CONFIG_DIR") {
+        return PathBuf::from(dir);
+    }
     dirs::config_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join("gitforge")

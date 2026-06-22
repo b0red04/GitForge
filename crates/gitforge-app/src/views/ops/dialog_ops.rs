@@ -55,6 +55,7 @@ impl GitForgeApp {
         self.dialog_force = false;
         self.hosting_repos.clear();
         self.hosting_repos_loading = false;
+        self.add_repo_tab = crate::views::dialogs::AddRepoTab::Local;
         cx.notify();
     }
 

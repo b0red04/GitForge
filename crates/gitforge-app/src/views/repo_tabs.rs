@@ -234,6 +234,32 @@ pub fn render_repo_tab_bar(
         row = row.child(render_drop_caret(tabs.len(), accent));
     }
 
+    // "+" affordance to add a new repository. Opens the unified Add Repository
+    // dialog (Local folder picker + connected-account repo browser). Sits flush
+    // against the last tab (the `flex_1` tail below absorbs the remaining
+    // width). Visible in the empty state too, so the user can open their first
+    // repo from the bar.
+    let ent_add = entity.clone();
+    row = row.child(
+        div()
+            .id("repo-tab-bar-add")
+            .flex_none()
+            .h(px(28.0))
+            .w(px(28.0))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(px(3.0))
+            .cursor_pointer()
+            .hover(move |s| s.bg(surface_high))
+            .child(svg().size(px(16.0)).path("icons/plus.svg").text_color(muted))
+            .on_click(move |_ev, _window, cx| {
+                if let Some(e) = ent_add.upgrade() {
+                    e.update(cx, |app, cx| app.open_add_repo_dialog(cx));
+                }
+            }),
+    );
+
     let ent_tail_move = entity.clone();
     let ent_tail_drop = entity.clone();
     row = row.child(

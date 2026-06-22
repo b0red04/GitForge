@@ -1,3 +1,4 @@
+pub mod add_repo;
 pub mod create_pr;
 pub mod credential_add;
 pub mod delete_branch;
@@ -13,6 +14,7 @@ use gpui::*;
 
 use crate::views::app::{AppDialog, GitForgeApp};
 
+pub use add_repo::AddRepoTab;
 pub use create_pr::{CreatePrDropdown, CreatePrState};
 
 pub fn confirm(
@@ -24,7 +26,7 @@ pub fn confirm(
     cx: &mut Context<GitForgeApp>,
 ) {
     match &dialog {
-        AppDialog::None | AppDialog::CreatePullRequest => {}
+        AppDialog::None | AppDialog::CreatePullRequest | AppDialog::AddRepo => {}
         AppDialog::CloneFromHosting { .. } => {}
         d if simple_input::is_simple(d) => simple_input::confirm(app, dialog, input, input_2, cx),
         AppDialog::CredentialAdd => credential_add::confirm(app, input, input_2, cx),
@@ -49,8 +51,10 @@ pub fn render(
     colors: &gitforge_ui::AppColors,
     entity: WeakEntity<GitForgeApp>,
     window: &mut Window,
+    hosting_accounts: &[gitforge_hosting::HostingAccount],
     hosting_repos: &[gitforge_hosting::RemoteRepo],
     hosting_repos_loading: bool,
+    add_repo_tab: &AddRepoTab,
     create_pr: &CreatePrState,
 ) -> Stateful<Div> {
     match dialog {
@@ -72,6 +76,16 @@ pub fn render(
         AppDialog::CloneFromHosting { .. } | AppDialog::SearchHosting { .. } => {
             hosting_browse::render(dialog, colors, entity, hosting_repos, hosting_repos_loading)
         }
+        AppDialog::AddRepo => add_repo::render(
+            colors,
+            entity,
+            window,
+            hosting_accounts,
+            add_repo_tab,
+            dialog_input,
+            hosting_repos,
+            hosting_repos_loading,
+        ),
         AppDialog::CredentialAdd => {
             credential_add::render(dialog_input, dialog_input_2, colors, entity, window)
         }

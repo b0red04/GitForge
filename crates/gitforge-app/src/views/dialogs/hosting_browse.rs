@@ -62,71 +62,76 @@ pub fn render(
     } else {
         let mut list = div().flex().flex_col().gap_1();
         for (i, repo) in hosting_repos.iter().enumerate() {
-            let ent_clone = entity.clone();
-            let clone_url = repo.clone_url.clone();
-            let repo_name = repo.name.clone();
-            let vis = if repo.is_private { "private" } else { "public" };
-            let stars = repo.stars;
-            let desc = repo.description.as_deref().unwrap_or("");
-
-            list = list.child(
-                div()
-                    .id(ElementId::NamedInteger("hosting-repo".into(), i as u64))
-                    .px_2()
-                    .py_1()
-                    .border_1()
-                    .border_color(dc.border)
-                    .rounded(px(3.0))
-                    .cursor_pointer()
-                    .hover(|s| s.bg(rgba_to_hsla(colors.surface_high)))
-                    .on_click(move |_ev, _window, cx| {
-                        if let Some(e) = ent_clone.upgrade() {
-                            let url = clone_url.clone();
-                            let name = repo_name.clone();
-                            e.update(cx, |this, cx| {
-                                this.clone_hosting_repo(url, name, cx);
-                            });
-                        }
-                    })
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap_0()
-                            .child(
-                                div()
-                                    .flex()
-                                    .items_center()
-                                    .gap_2()
-                                    .child(
-                                        div()
-                                            .text_sm()
-                                            .font_weight(FontWeight::SEMIBOLD)
-                                            .text_color(dc.text)
-                                            .child(repo.name.clone()),
-                                    )
-                                    .child(div().text_xs().text_color(dc.muted).child(vis))
-                                    .child(
-                                        div()
-                                            .text_xs()
-                                            .text_color(dc.accent)
-                                            .child(format!("*{}", stars)),
-                                    ),
-                            )
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(dc.muted)
-                                    .overflow_hidden()
-                                    .child(desc.to_string()),
-                            ),
-                    ),
-            );
+            list = list.child(render_repo_row(repo, i, colors, dc, entity.clone()));
         }
         content = content.child(list);
     }
 
     dialog_overlay(dc).child(content)
+}
+
+/// One clickable repository card. Shared between the `CloneFromHosting` /
+/// `SearchHosting` list and the unified `AddRepo` dialog. Clicking calls
+/// `clone_hosting_repo(url, name, cx)` on the app.
+pub(crate) fn render_repo_row(
+    repo: &gitforge_hosting::RemoteRepo,
+    index: usize,
+    colors: &AppColors,
+    dc: DialogColors,
+    entity: WeakEntity<crate::views::app::GitForgeApp>,
+) -> Stateful<Div> {
+    let clone_url = repo.clone_url.clone();
+    let repo_name = repo.name.clone();
+    let vis = if repo.is_private { "private" } else { "public" };
+    let stars = repo.stars;
+    let desc = repo.description.as_deref().unwrap_or("");
+
+    div()
+        .id(ElementId::NamedInteger("hosting-repo".into(), index as u64))
+        .px_2()
+        .py_1()
+        .border_1()
+        .border_color(dc.border)
+        .rounded(px(3.0))
+        .cursor_pointer()
+        .hover(|s| s.bg(rgba_to_hsla(colors.surface_high)))
+        .on_click(move |_ev, _window, cx| {
+            if let Some(e) = entity.upgrade() {
+                let url = clone_url.clone();
+                let name = repo_name.clone();
+                e.update(cx, |this, cx| {
+                    this.clone_hosting_repo(url, name, cx);
+                });
+            }
+        })
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap_0()
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .child(
+                            div()
+                                .text_sm()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(dc.text)
+                                .child(repo.name.clone()),
+                        )
+                        .child(div().text_xs().text_color(dc.muted).child(vis))
+                        .child(div().text_xs().text_color(dc.accent).child(format!("*{}", stars))),
+                )
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(dc.muted)
+                        .overflow_hidden()
+                        .child(desc.to_string()),
+                ),
+        )
 }
 
 fn dialog_title_gpui(title: &str, colors: DialogColors) -> Div {
