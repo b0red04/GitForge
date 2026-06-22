@@ -1297,10 +1297,10 @@ fn render_ref_pills(
         VISIBLE_REF_PILLS
     };
 
-    let mut consumed: HashSet<&str> = HashSet::new();
+    let mut consumed: HashSet<(RefKind, &str)> = HashSet::new();
     let mut display_pills = Vec::new();
     for rf in visible.iter().copied() {
-        if consumed.contains(rf.name.as_str()) {
+        if consumed.contains(&(rf.kind, rf.name.as_str())) {
             continue;
         }
 
@@ -1312,7 +1312,7 @@ fn render_ref_pills(
                 let mut candidates = remotes
                     .iter()
                     .copied()
-                    .filter(|remote| !consumed.contains(remote.name.as_str()));
+                    .filter(|remote| !consumed.contains(&(remote.kind, remote.name.as_str())));
                 if let Some(remote) = candidates.next()
                     && candidates.next().is_none()
                 {
@@ -1321,15 +1321,15 @@ fn render_ref_pills(
                         remote,
                         label: truncate_chars(branch_name, 20),
                     });
-                    consumed.insert(rf.name.as_str());
-                    consumed.insert(remote.name.as_str());
+                    consumed.insert((rf.kind, rf.name.as_str()));
+                    consumed.insert((remote.kind, remote.name.as_str()));
                     continue;
                 }
             }
         }
 
         display_pills.push(RefPillDisplay::Single(rf));
-        consumed.insert(rf.name.as_str());
+        consumed.insert((rf.kind, rf.name.as_str()));
     }
 
     for pill in display_pills.iter().take(visible_limit) {

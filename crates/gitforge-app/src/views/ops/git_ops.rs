@@ -476,9 +476,7 @@ impl GitForgeApp {
             cx,
             super::dispatch::OpEffects::GIT,
             move |repo| repo.checkout_branch(&name),
-            |this, _, cx| {
-                this.refresh_pull_requests(cx);
-            },
+            |_, _, _| {},
         );
     }
 
@@ -489,9 +487,7 @@ impl GitForgeApp {
             cx,
             super::dispatch::OpEffects::GIT,
             move |repo| repo.checkout_remote_branch(&name),
-            |this, _, cx| {
-                this.refresh_pull_requests(cx);
-            },
+            |_, _, _| {},
         );
     }
 
@@ -663,11 +659,15 @@ impl GitForgeApp {
     }
 
     pub fn push_current(&mut self, cx: &mut Context<Self>) {
-        match self
-            .repo_session
-            .active_repo_state()
-            .and_then(|state| state.head_branch.clone())
-        {
+        let Some(state) = self.repo_session.active_repo_state() else {
+            self.push_toast(
+                crate::views::toasts::ToastKind::Warning,
+                "Cannot push: no repository open.".to_string(),
+                cx,
+            );
+            return;
+        };
+        match state.head_branch.clone() {
             Some(branch) => self.push_current_branch("origin".into(), branch, false, cx),
             None => {
                 self.push_toast(
@@ -680,27 +680,28 @@ impl GitForgeApp {
     }
 
     pub fn pull_current(&mut self, cx: &mut Context<Self>) {
-        let Some(_branch) = self
-            .repo_session
-            .active_repo_state()
-            .and_then(|state| state.head_branch.clone())
-        else {
+        let Some(state) = self.repo_session.active_repo_state() else {
+            self.push_toast(
+                crate::views::toasts::ToastKind::Warning,
+                "Cannot pull: no repository open.".to_string(),
+                cx,
+            );
+            return;
+        };
+        let head_branch = state.head_branch.clone();
+        // Pre-flight: refuse to pull into a dirty working tree. `git pull`
+        // itself aborts with "Your local changes ... would be overwritten", but
+        // bailing here gives the user an actionable warning before we spawn a
+        // blocking op that's guaranteed to fail.
+        let dirty = state.status.has_changes();
+        if head_branch.is_none() {
             self.push_toast(
                 crate::views::toasts::ToastKind::Warning,
                 "Cannot pull: HEAD is detached (no current branch).".to_string(),
                 cx,
             );
             return;
-        };
-        // Pre-flight: refuse to pull into a dirty working tree. `git pull`
-        // itself aborts with "Your local changes ... would be overwritten", but
-        // bailing here gives the user an actionable warning before we spawn a
-        // blocking op that's guaranteed to fail.
-        let dirty = self
-            .repo_session
-            .active_repo_state()
-            .map(|rs| rs.status.has_changes())
-            .unwrap_or(false);
+        }
         if dirty {
             self.push_toast(
                 crate::views::toasts::ToastKind::Warning,
