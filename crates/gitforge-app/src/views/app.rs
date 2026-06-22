@@ -592,8 +592,11 @@ impl Render for GitForgeApp {
                 .child(err.clone())
         });
 
+        let origin_hosting = self.resolve_origin_hosting();
         let titlebar = super::titlebar::render_titlebar(
             active_repo_state,
+            pull_requests,
+            origin_hosting.as_ref().map(|ctx| ctx.provider_id.as_str()),
             &self.hosting_accounts,
             &self.colors,
             window,

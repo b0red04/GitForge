@@ -1,5 +1,5 @@
 use gitforge_git::RefKind;
-use gitforge_hosting::{CreatePullRequestRequest, HostingAccount, urls};
+use gitforge_hosting::{CreatePullRequestRequest, HostingAccount, PullRequest, urls};
 use gpui::Context;
 
 use crate::views::app::{AppDialog, GitForgeApp};
@@ -20,6 +20,14 @@ pub(crate) enum PullRequestSidebarHint {
     NoOrigin,
     UnsupportedProvider,
     NoAccount,
+}
+
+pub(crate) fn pull_request_for_branch<'a>(
+    prs: &'a [PullRequest],
+    branch: &str,
+) -> Option<&'a PullRequest> {
+    prs.iter()
+        .find(|pr| pr.head_branch.as_deref() == Some(branch))
 }
 
 impl GitForgeApp {

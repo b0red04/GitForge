@@ -338,7 +338,9 @@ impl GitForgeApp {
 
         let patch = format!("--- a/{}\n+++ b/{}\n{}", path, path, hunks);
 
-        self.run_git_op(label, cx, move |repo| repo.apply_patch(&patch, true, reverse));
+        self.run_git_op(label, cx, move |repo| {
+            repo.apply_patch(&patch, true, reverse)
+        });
     }
 
     pub fn select_status_diff_line(
@@ -409,6 +411,10 @@ impl GitForgeApp {
             );
             return;
         };
+        // `refresh_prs: false`: `refresh_repository` already calls
+        // `refresh_pull_requests` in its success callback, so an additional
+        // flag-driven refresh here would only fire a duplicate, racing API
+        // call before the repo state has updated.
         let fx = super::dispatch::OpEffects {
             refresh_repo: true,
             refresh_prs: false,
@@ -469,12 +475,24 @@ impl GitForgeApp {
 
     pub fn checkout_branch(&mut self, name: String, cx: &mut Context<Self>) {
         self.local_branch_dropdown_open = false;
-        self.run_git_op("Checkout", cx, move |repo| repo.checkout_branch(&name));
+        self.run_git_blocking(
+            "Checkout",
+            cx,
+            super::dispatch::OpEffects::GIT,
+            move |repo| repo.checkout_branch(&name),
+            |_, _, _| {},
+        );
     }
 
     pub fn checkout_remote_branch(&mut self, name: String, cx: &mut Context<Self>) {
         self.local_branch_dropdown_open = false;
-        self.run_git_op("Checkout", cx, move |repo| repo.checkout_remote_branch(&name));
+        self.run_git_blocking(
+            "Checkout",
+            cx,
+            super::dispatch::OpEffects::GIT,
+            move |repo| repo.checkout_remote_branch(&name),
+            |_, _, _| {},
+        );
     }
 
     pub fn merge_branch(&mut self, branch: String, no_ff: bool, cx: &mut Context<Self>) {
@@ -560,15 +578,15 @@ impl GitForgeApp {
                         if this.periodic_fetch_generation != generation {
                             return false;
                         }
-                    let behavior = this.active_repo_behavior_settings();
-                    if !behavior.periodic_fetch_enabled
-                        || this.repo_session.active_tab().is_none()
-                    {
-                        return false;
-                    }
-                    this.last_auto_fetch_at = Some(std::time::Instant::now());
-                    this.fetch_all(cx);
-                    true
+                        let behavior = this.active_repo_behavior_settings();
+                        if !behavior.periodic_fetch_enabled
+                            || this.repo_session.active_tab().is_none()
+                        {
+                            return false;
+                        }
+                        this.last_auto_fetch_at = Some(std::time::Instant::now());
+                        this.fetch_all(cx);
+                        true
                     })
                     .unwrap_or(false);
                 if !should_continue {
@@ -645,11 +663,15 @@ impl GitForgeApp {
     }
 
     pub fn push_current(&mut self, cx: &mut Context<Self>) {
-        match self
-            .repo_session
-            .active_repo_state()
-            .and_then(|state| state.head_branch.clone())
-        {
+        let Some(state) = self.repo_session.active_repo_state() else {
+            self.push_toast(
+                crate::views::toasts::ToastKind::Warning,
+                "Cannot push: no repository open.".to_string(),
+                cx,
+            );
+            return;
+        };
+        match state.head_branch.clone() {
             Some(branch) => self.push_current_branch("origin".into(), branch, false, cx),
             None => {
                 self.push_toast(
@@ -662,35 +684,30 @@ impl GitForgeApp {
     }
 
     pub fn pull_current(&mut self, cx: &mut Context<Self>) {
-        let Some(_branch) = self
-            .repo_session
-            .active_repo_state()
-            .and_then(|state| state.head_branch.clone())
-        else {
+        let Some(state) = self.repo_session.active_repo_state() else {
+            self.push_toast(
+                crate::views::toasts::ToastKind::Warning,
+                "Cannot pull: no repository open.".to_string(),
+                cx,
+            );
+            return;
+        };
+        let head_branch = state.head_branch.clone();
+        if head_branch.is_none() {
             self.push_toast(
                 crate::views::toasts::ToastKind::Warning,
                 "Cannot pull: HEAD is detached (no current branch).".to_string(),
                 cx,
             );
             return;
-        };
-        // Pre-flight: refuse to pull into a dirty working tree. `git pull`
-        // itself aborts with "Your local changes ... would be overwritten", but
-        // bailing here gives the user an actionable warning before we spawn a
-        // blocking op that's guaranteed to fail.
-        let dirty = self
-            .repo_session
-            .active_repo_state()
-            .map(|rs| rs.status.has_changes())
-            .unwrap_or(false);
-        if dirty {
-            self.push_toast(
-                crate::views::toasts::ToastKind::Warning,
-                "Pull aborted: commit or stash uncommitted changes first",
-                cx,
-            );
-            return;
         }
+        // No dirty-tree pre-flight: `git pull` itself performs the authoritative
+        // "Your local changes ... would be overwritten" check and aborts only
+        // when local edits actually conflict with incoming changes. That abort
+        // is classified into `GitError::LocalChangesOverwritten` (with an
+        // actionable "commit or stash before pulling" toast), so a broad
+        // `has_changes()` pre-flight here would only block pulls that would
+        // otherwise merge cleanly.
         self.pull_from_remote("origin".into(), false, cx);
     }
 
@@ -779,9 +796,11 @@ impl GitForgeApp {
             move |repo| repo.unified_diff_for_commit(&commit_id),
             move |this, diff_text, cx| {
                 let file_diffs = gitforge_diff::parser::parse_unified_diff(&diff_text);
-                this.repo_session
-                    .diff_panel
-                    .set_diff(CommitDiffState::new(id_for_state, file_diffs, None));
+                this.repo_session.diff_panel.set_diff(CommitDiffState::new(
+                    id_for_state,
+                    file_diffs,
+                    None,
+                ));
                 cx.notify();
             },
         );
