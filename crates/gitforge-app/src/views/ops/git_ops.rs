@@ -411,9 +411,13 @@ impl GitForgeApp {
             );
             return;
         };
+        // `refresh_prs: false`: `refresh_repository` already calls
+        // `refresh_pull_requests` in its success callback, so an additional
+        // flag-driven refresh here would only fire a duplicate, racing API
+        // call before the repo state has updated.
         let fx = super::dispatch::OpEffects {
             refresh_repo: true,
-            refresh_prs: true,
+            refresh_prs: false,
             remote_status: Some(status.to_string()),
             error_channel: super::dispatch::ErrorChannel::Toast,
         };
@@ -689,11 +693,6 @@ impl GitForgeApp {
             return;
         };
         let head_branch = state.head_branch.clone();
-        // Pre-flight: refuse to pull into a dirty working tree. `git pull`
-        // itself aborts with "Your local changes ... would be overwritten", but
-        // bailing here gives the user an actionable warning before we spawn a
-        // blocking op that's guaranteed to fail.
-        let dirty = state.status.has_changes();
         if head_branch.is_none() {
             self.push_toast(
                 crate::views::toasts::ToastKind::Warning,
@@ -702,14 +701,13 @@ impl GitForgeApp {
             );
             return;
         }
-        if dirty {
-            self.push_toast(
-                crate::views::toasts::ToastKind::Warning,
-                "Pull aborted: commit or stash uncommitted changes first",
-                cx,
-            );
-            return;
-        }
+        // No dirty-tree pre-flight: `git pull` itself performs the authoritative
+        // "Your local changes ... would be overwritten" check and aborts only
+        // when local edits actually conflict with incoming changes. That abort
+        // is classified into `GitError::LocalChangesOverwritten` (with an
+        // actionable "commit or stash before pulling" toast), so a broad
+        // `has_changes()` pre-flight here would only block pulls that would
+        // otherwise merge cleanly.
         self.pull_from_remote("origin".into(), false, cx);
     }
 
