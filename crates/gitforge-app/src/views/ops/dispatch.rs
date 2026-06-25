@@ -245,7 +245,11 @@ pub struct DispatchAction<T> {
 /// `error_detail` is `Some` for every error, so the shell fires `on_error`
 /// uniformly; the `error_channel` only controls whether a toast also appears.
 /// Refresh flags fire only on success.
-pub fn plan_dispatch<T>(label: &str, result: Result<T, AppError>, fx: &OpEffects) -> DispatchAction<T> {
+pub fn plan_dispatch<T>(
+    label: &str,
+    result: Result<T, AppError>,
+    fx: &OpEffects,
+) -> DispatchAction<T> {
     match result {
         Ok(value) => DispatchAction {
             value: Some(value),
@@ -258,7 +262,9 @@ pub fn plan_dispatch<T>(label: &str, result: Result<T, AppError>, fx: &OpEffects
             let (severity, detail) = classify(&err);
             let surface = match (fx.error_channel, severity) {
                 (ErrorChannel::Toast, Severity::Info) => Surface::Info(join_label(label, &detail)),
-                (ErrorChannel::Toast, Severity::Error) => Surface::Error(join_label(label, &detail)),
+                (ErrorChannel::Toast, Severity::Error) => {
+                    Surface::Error(join_label(label, &detail))
+                }
                 (ErrorChannel::Silent, _) => Surface::Silent,
             };
             DispatchAction {
@@ -489,6 +495,14 @@ impl GitForgeApp {
             self.push_toast(ToastKind::Warning, "No repository open", cx);
             return;
         };
+        if self
+            .repo_session
+            .active_tab()
+            .is_some_and(|tab| tab.loading)
+        {
+            tracing::debug!("{label}: skipped, repo still loading");
+            return;
+        }
         self.run_op(
             label,
             cx,
@@ -553,7 +567,10 @@ mod tests {
     #[test]
     fn git_info_on_toast_channel_surfaces_info() {
         let action = err("Commit", AppError::Git(GitError::EmptyCommit), &TOAST);
-        assert_eq!(action.surface, Surface::Info("Commit: Nothing to commit".into()));
+        assert_eq!(
+            action.surface,
+            Surface::Info("Commit: Nothing to commit".into())
+        );
         assert_eq!(action.error_detail, Some("Nothing to commit".into()));
     }
 
@@ -598,7 +615,11 @@ mod tests {
 
     #[test]
     fn remote_error_on_toast_channel_surfaces_error() {
-        let action = err("Fetch PRs", AppError::Remote(RemoteError::error("503")), &TOAST);
+        let action = err(
+            "Fetch PRs",
+            AppError::Remote(RemoteError::error("503")),
+            &TOAST,
+        );
         assert_eq!(action.surface, Surface::Error("Fetch PRs: 503".into()));
         assert_eq!(action.error_detail, Some("503".into()));
     }
@@ -610,20 +631,31 @@ mod tests {
             AppError::Remote(RemoteError::info("no staged changes")),
             &TOAST,
         );
-        assert_eq!(action.surface, Surface::Info("Generate: no staged changes".into()));
+        assert_eq!(
+            action.surface,
+            Surface::Info("Generate: no staged changes".into())
+        );
         assert_eq!(action.error_detail, Some("no staged changes".into()));
     }
 
     #[test]
     fn remote_error_on_silent_channel_is_silent_but_fires_on_error() {
-        let action = err("Generate", AppError::Remote(RemoteError::error("rate limited")), &SILENT);
+        let action = err(
+            "Generate",
+            AppError::Remote(RemoteError::error("rate limited")),
+            &SILENT,
+        );
         assert_eq!(action.surface, Surface::Silent);
         assert_eq!(action.error_detail, Some("rate limited".into()));
     }
 
     #[test]
     fn remote_info_on_silent_channel_is_silent_but_fires_on_error() {
-        let action = err("Generate", AppError::Remote(RemoteError::info("nothing to do")), &SILENT);
+        let action = err(
+            "Generate",
+            AppError::Remote(RemoteError::info("nothing to do")),
+            &SILENT,
+        );
         assert_eq!(action.surface, Surface::Silent);
         assert_eq!(action.error_detail, Some("nothing to do".into()));
     }
@@ -685,7 +717,10 @@ mod tests {
             AppError::from(GitError::BranchNotFound { name: "x".into() }),
             &TOAST,
         );
-        assert_eq!(action.surface, Surface::Error("Op: Branch 'x' not found".into()));
+        assert_eq!(
+            action.surface,
+            Surface::Error("Op: Branch 'x' not found".into())
+        );
     }
 
     #[test]
@@ -750,13 +785,17 @@ mod tests {
     /// Run a future on a throwaway multi-thread tokio runtime (the blocking
     /// pool is required for `spawn_blocking`).
     fn block_on<R>(f: impl Future<Output = R>) -> R {
-        tokio::runtime::Runtime::new().expect("tokio runtime").block_on(f)
+        tokio::runtime::Runtime::new()
+            .expect("tokio runtime")
+            .block_on(f)
     }
 
     #[test]
     fn none_repo_yields_operation_failed() {
         let handle: Arc<Mutex<Option<Repository>>> = Arc::new(Mutex::new(None));
-        let res = block_on(with_repo_blocking(handle, |_: &Repository| Ok::<_, GitError>(5)));
+        let res = block_on(with_repo_blocking(handle, |_: &Repository| {
+            Ok::<_, GitError>(5)
+        }));
         assert!(matches!(
             res,
             Err(AppError::Git(GitError::OperationFailed(_)))
@@ -767,7 +806,9 @@ mod tests {
     fn some_repo_runs_op_and_returns_value() {
         let (repo, _scratch) = scratch_repo();
         let handle = Arc::new(Mutex::new(Some(repo)));
-        let res = block_on(with_repo_blocking(handle, |_: &Repository| Ok::<_, GitError>(42)));
+        let res = block_on(with_repo_blocking(handle, |_: &Repository| {
+            Ok::<_, GitError>(42)
+        }));
         assert_eq!(res.unwrap(), 42);
     }
 
@@ -775,7 +816,9 @@ mod tests {
     fn git_error_from_op_becomes_apperror_git() {
         let (repo, _scratch) = scratch_repo();
         let handle = Arc::new(Mutex::new(Some(repo)));
-        let res = block_on(with_repo_blocking(handle, |_| Err::<(), _>(GitError::EmptyCommit)));
+        let res = block_on(with_repo_blocking(handle, |_| {
+            Err::<(), _>(GitError::EmptyCommit)
+        }));
         assert!(matches!(res, Err(AppError::Git(GitError::EmptyCommit))));
     }
 
@@ -783,9 +826,10 @@ mod tests {
     fn join_error_from_panicking_op_becomes_remote_error() {
         let (repo, _scratch) = scratch_repo();
         let handle = Arc::new(Mutex::new(Some(repo)));
-        let res = block_on(with_repo_blocking(handle, |_: &Repository| -> Result<(), GitError> {
-            panic!("boom")
-        }));
+        let res = block_on(with_repo_blocking(
+            handle,
+            |_: &Repository| -> Result<(), GitError> { panic!("boom") },
+        ));
         assert!(matches!(res, Err(AppError::Remote(_))));
     }
 }

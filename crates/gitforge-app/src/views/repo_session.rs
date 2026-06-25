@@ -128,6 +128,12 @@ impl RepoSession {
         handle
     }
 
+    /// Whether the active tab has finished discovery and can run git ops.
+    pub(crate) fn active_repo_ready(&self) -> bool {
+        self.active_tab()
+            .is_some_and(|tab| !tab.loading && tab.repo_state.is_some())
+    }
+
     pub(crate) fn repo_tab_views(&self) -> Vec<RepoTabView> {
         self.open_repo_tabs
             .iter()
@@ -802,5 +808,81 @@ mod refresh_selection_tests {
             reselect_after_refresh(None, false, &["a", "b"]),
             RefreshSelection::Fallback,
         );
+    }
+}
+
+#[cfg(test)]
+mod active_repo_ready_tests {
+    use std::collections::HashSet;
+
+    use super::*;
+    use gitforge_git::RepoStatus;
+    use gpui::TestAppContext;
+
+    fn minimal_repo_state() -> RepoState {
+        RepoState {
+            path: PathBuf::from("/tmp/test-repo"),
+            head_branch: None,
+            head_commit: None,
+            commits: vec![],
+            references: vec![],
+            conflicting_local_branches: HashSet::new(),
+            status: RepoStatus::default(),
+            worktrees: vec![],
+        }
+    }
+
+    fn fake_tab(id: u64, loading: bool, has_state: bool) -> OpenRepoTab {
+        OpenRepoTab {
+            id,
+            path: PathBuf::from(format!("/repo/{id}")),
+            repo: Arc::new(Mutex::new(None)),
+            repo_state: has_state.then(minimal_repo_state),
+            loading,
+            last_error: None,
+            panel_snapshot: None,
+            pull_requests: Vec::new(),
+            pull_requests_loading: false,
+        }
+    }
+
+    fn session_with_tab(cx: &mut gpui::App, tab: OpenRepoTab) -> RepoSession {
+        let id = tab.id;
+        let mut session = RepoSession::new(cx);
+        session.open_repo_tabs.push(tab);
+        session.active_repo_tab_id = Some(id);
+        session
+    }
+
+    #[gpui::test]
+    fn active_repo_ready_false_when_no_tab(cx: &mut TestAppContext) {
+        cx.update(|app| {
+            let session = RepoSession::new(app);
+            assert!(!session.active_repo_ready());
+        });
+    }
+
+    #[gpui::test]
+    fn active_repo_ready_false_when_loading(cx: &mut TestAppContext) {
+        cx.update(|app| {
+            let session = session_with_tab(app, fake_tab(1, true, false));
+            assert!(!session.active_repo_ready());
+        });
+    }
+
+    #[gpui::test]
+    fn active_repo_ready_false_when_loaded_but_no_state(cx: &mut TestAppContext) {
+        cx.update(|app| {
+            let session = session_with_tab(app, fake_tab(1, false, false));
+            assert!(!session.active_repo_ready());
+        });
+    }
+
+    #[gpui::test]
+    fn active_repo_ready_true_when_loaded_with_state(cx: &mut TestAppContext) {
+        cx.update(|app| {
+            let session = session_with_tab(app, fake_tab(1, false, true));
+            assert!(session.active_repo_ready());
+        });
     }
 }
