@@ -253,7 +253,7 @@ impl GitForgeApp {
     /// enabled and enough time has passed since the last (periodic or
     /// focus-triggered) fetch — kicks off a debounced remote fetch.
     pub(crate) fn on_window_focused(&mut self, cx: &mut Context<Self>) {
-        if self.repo_session.active_tab().is_none() {
+        if !self.repo_session.active_repo_ready() {
             return;
         }
         self.load_status(cx);
@@ -607,8 +607,7 @@ impl GitForgeApp {
     /// `OpEffects::GIT`; success triggers a full `RepoState` refresh. Runs
     /// unconditionally (not gated on `periodic_fetch_enabled`).
     pub(crate) fn fetch_on_activate(&mut self, cx: &mut Context<Self>) {
-        self.fetch_on_activate_generation =
-            self.fetch_on_activate_generation.wrapping_add(1);
+        self.fetch_on_activate_generation = self.fetch_on_activate_generation.wrapping_add(1);
         let generation = self.fetch_on_activate_generation;
         if self.repo_session.active_tab().is_none() {
             return;
@@ -622,13 +621,11 @@ impl GitForgeApp {
                 if this.fetch_on_activate_generation != generation {
                     return;
                 }
-                if this.repo_session.active_tab().is_none() {
+                if !this.repo_session.active_repo_ready() {
                     return;
                 }
                 this.last_auto_fetch_at = Some(std::time::Instant::now());
-                this.run_git_op("Fetch on activate", cx, move |repo| {
-                    repo.fetch_all(true)
-                });
+                this.run_git_op("Fetch on activate", cx, move |repo| repo.fetch_all(true));
             })
             .ok();
         })
