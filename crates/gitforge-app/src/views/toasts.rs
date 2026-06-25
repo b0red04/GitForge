@@ -185,6 +185,7 @@ pub(crate) fn render_toasts(
             .py_2()
             .px_3()
             .flex()
+            .items_start()
             .gap_3()
             .shadow(vec![BoxShadow {
                 color: black().opacity(0.4),
@@ -198,7 +199,15 @@ pub(crate) fn render_toasts(
                 }
             })
             .child(div().w(px(3.0)).flex_shrink_0().bg(color).rounded(px(2.0)))
-            .child(div().flex_1().text_xs().text_color(text_color).child(msg))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w(px(0.0))
+                    .line_clamp(3)
+                    .text_xs()
+                    .text_color(text_color)
+                    .child(msg),
+            )
             .child(
                 div()
                     .id(ElementId::Name(format!("toast-dismiss-{id}").into()))
