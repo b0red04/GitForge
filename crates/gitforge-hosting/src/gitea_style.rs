@@ -151,10 +151,7 @@ impl HostingProvider for GiteaStyleProvider {
 
     async fn authenticate(&self, token: &str) -> Result<HostingAccount> {
         let client = self.make_client(token);
-        let response = client
-            .get(format!("{}/user", self.base_url))
-            .send()
-            .await?;
+        let response = client.get(format!("{}/user", self.base_url)).send().await?;
         let response = http::ensure_success(
             response,
             &format!("{} authentication failed", self.config.display_name),
@@ -220,8 +217,7 @@ impl HostingProvider for GiteaStyleProvider {
             ))
             .send()
             .await?;
-        let response =
-            http::ensure_success(response, "Failed to search repos").await?;
+        let response = http::ensure_success(response, "Failed to search repos").await?;
 
         let result: serde_json::Value = response.json().await?;
         let items = extract_envelope(&result, self.config.search_repos_envelope);
@@ -243,11 +239,8 @@ impl HostingProvider for GiteaStyleProvider {
             .post(format!("{}/repos/{}/{}/forks", self.base_url, owner, repo))
             .send()
             .await?;
-        let response = http::ensure_success(
-            response,
-            &format!("Failed to fork {}/{}", owner, repo),
-        )
-        .await?;
+        let response =
+            http::ensure_success(response, &format!("Failed to fork {}/{}", owner, repo)).await?;
 
         let fork: serde_json::Value = response.json().await?;
         Ok(json_to_remote_repo(&fork, self.config.stars_key))
@@ -287,8 +280,7 @@ impl HostingProvider for GiteaStyleProvider {
             .json(&body)
             .send()
             .await?;
-        let response =
-            http::ensure_success(response, "Failed to create pull request").await?;
+        let response = http::ensure_success(response, "Failed to create pull request").await?;
 
         let pr: serde_json::Value = response.json().await?;
         Ok(json_to_pull_request(&pr))

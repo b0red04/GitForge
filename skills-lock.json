@@ -1,11 +1,11 @@
 {
   "version": 1,
   "skills": {
-    "code-review": {
-      "source": "coderabbitai/skills",
+    "caveman-review": {
+      "source": "juliusbrussee/caveman",
       "sourceType": "github",
-      "skillPath": "skills/code-review/SKILL.md",
-      "computedHash": "6d117c3f8797e0c770c6b00a646a07028f3440b5d8042e8f841e88ed1116788f"
+      "skillPath": "skills/caveman-review/SKILL.md",
+      "computedHash": "fb7214a1c5793bae6ba8b1be4329e2e6f40dbec6dd911dfb335ad29f09c316a1"
     },
     "code-simplifier": {
       "source": "getsentry/skills",
@@ -54,6 +54,12 @@
       "sourceType": "github",
       "skillPath": "skills/engineering/prototype/SKILL.md",
       "computedHash": "e4d0c8f8cb3fc096ee99405a15491da466545cf4a3694bee5a0c9db2fa621a43"
+    },
+    "review": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "skillPath": "skills/in-progress/review/SKILL.md",
+      "computedHash": "8f98a68bf07ef9b80d5302d863efe896fbf7beb488f01904ad65c76fac394e82"
     },
     "tdd": {
       "source": "mattpocock/skills",

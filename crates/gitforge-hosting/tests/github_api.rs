@@ -49,15 +49,25 @@ async fn authenticate_maps_user_fields_and_stores_token() {
     ensure_test_tokens();
     let server = MockServer::start_async().await;
     server.mock(|when, then| {
-        when.method(GET).path("/user").header("Authorization", "Bearer ghp_test");
-        then.status(200).body(r#"{"login":"octocat","name":"The Octocat","avatar_url":"https://github.com/a.png"}"#);
+        when.method(GET)
+            .path("/user")
+            .header("Authorization", "Bearer ghp_test");
+        then.status(200).body(
+            r#"{"login":"octocat","name":"The Octocat","avatar_url":"https://github.com/a.png"}"#,
+        );
     });
 
-    let account = provider(&server).authenticate("ghp_test").await.expect("auth");
+    let account = provider(&server)
+        .authenticate("ghp_test")
+        .await
+        .expect("auth");
     assert_eq!(account.provider, "github");
     assert_eq!(account.username, "octocat");
     assert_eq!(account.display_name, "The Octocat");
-    assert_eq!(account.avatar_url.as_deref(), Some("https://github.com/a.png"));
+    assert_eq!(
+        account.avatar_url.as_deref(),
+        Some("https://github.com/a.png")
+    );
     assert_eq!(account.token_key, "github:octocat");
 }
 
@@ -67,10 +77,14 @@ async fn authenticate_falls_back_to_login_for_display_name() {
     let server = MockServer::start_async().await;
     server.mock(|when, then| {
         when.method(GET).path("/user");
-        then.status(200).body(r#"{"login":"octocat","name":null,"avatar_url":null}"#);
+        then.status(200)
+            .body(r#"{"login":"octocat","name":null,"avatar_url":null}"#);
     });
 
-    let account = provider(&server).authenticate("ghp_test").await.expect("auth");
+    let account = provider(&server)
+        .authenticate("ghp_test")
+        .await
+        .expect("auth");
     assert_eq!(account.display_name, "octocat");
     assert!(account.avatar_url.is_none());
 }
@@ -90,14 +104,16 @@ async fn list_repos_paginates_and_sorts_by_updated_desc() {
             .path("/user/repos")
             .query_param("page", "1")
             .query_param("per_page", "100");
-        then.status(200).body(serde_json::to_string(&page1).unwrap());
+        then.status(200)
+            .body(serde_json::to_string(&page1).unwrap());
     });
     server.mock(|when, then| {
         when.method(GET)
             .path("/user/repos")
             .query_param("page", "2")
             .query_param("per_page", "100");
-        then.status(200).body(serde_json::to_string(&page2).unwrap());
+        then.status(200)
+            .body(serde_json::to_string(&page2).unwrap());
     });
 
     let repos = provider(&server).list_repos(&account).await.expect("list");
@@ -139,7 +155,8 @@ async fn create_fork_posts_to_repo_forks_endpoint() {
 
     server.mock(|when, then| {
         when.method(POST).path("/repos/owner/repo/forks");
-        then.status(200).body(gh_repo_json("octocat/repo", "2024-01-01T00:00:00Z", 0).to_string());
+        then.status(200)
+            .body(gh_repo_json("octocat/repo", "2024-01-01T00:00:00Z", 0).to_string());
     });
 
     let fork = provider(&server)
@@ -166,7 +183,9 @@ async fn create_pull_request_sends_github_body_shape() {
     };
 
     server.mock(|when, then| {
-        when.method(POST).path("/repos/owner/repo/pulls").body_includes("\"head\":\"feature\"");
+        when.method(POST)
+            .path("/repos/owner/repo/pulls")
+            .body_includes("\"head\":\"feature\"");
         then.status(200).body(gh_pr_json(7, "T").to_string());
     });
 
@@ -188,12 +207,18 @@ async fn list_pull_requests_paginates() {
     let page2 = vec![gh_pr_json(100, "last")];
 
     server.mock(|when, then| {
-        when.method(GET).path("/repos/owner/repo/pulls").query_param("page", "1");
-        then.status(200).body(serde_json::to_string(&page1).unwrap());
+        when.method(GET)
+            .path("/repos/owner/repo/pulls")
+            .query_param("page", "1");
+        then.status(200)
+            .body(serde_json::to_string(&page1).unwrap());
     });
     server.mock(|when, then| {
-        when.method(GET).path("/repos/owner/repo/pulls").query_param("page", "2");
-        then.status(200).body(serde_json::to_string(&page2).unwrap());
+        when.method(GET)
+            .path("/repos/owner/repo/pulls")
+            .query_param("page", "2");
+        then.status(200)
+            .body(serde_json::to_string(&page2).unwrap());
     });
 
     let prs = provider(&server)
@@ -210,9 +235,8 @@ async fn list_branches_paginates_and_extracts_names() {
 
     server.mock(|when, then| {
         when.method(GET).path("/repos/owner/repo/branches");
-        then.status(200).body(
-            serde_json::json!([{"name": "main"}, {"name": "develop"}]).to_string(),
-        );
+        then.status(200)
+            .body(serde_json::json!([{"name": "main"}, {"name": "develop"}]).to_string());
     });
 
     let branches = provider(&server)
@@ -237,8 +261,10 @@ async fn error_on_non_2xx_response() {
         .await
         .expect_err("should fail");
     let msg = format!("{err}");
-    assert!(msg.contains("403") || msg.contains("Forbidden") || msg.contains("forbidden"),
-        "unexpected error message: {msg}");
+    assert!(
+        msg.contains("403") || msg.contains("Forbidden") || msg.contains("forbidden"),
+        "unexpected error message: {msg}"
+    );
 }
 
 #[test]

@@ -771,15 +771,15 @@ pub(super) fn render_context_menu_overlay(
                 ContextMenuAction::FilterToBranch(name.clone()),
             ),
         ],
-    ContextMenuAction::CheckoutRemote(name) => {
-        vec![
-            ("Checkout", ContextMenuAction::CheckoutRemote(name.clone())),
-            (
-                "Delete Remote Branch…",
-                ContextMenuAction::DeleteRemoteBranch(name.clone()),
-            ),
-        ]
-    }
+        ContextMenuAction::CheckoutRemote(name) => {
+            vec![
+                ("Checkout", ContextMenuAction::CheckoutRemote(name.clone())),
+                (
+                    "Delete Remote Branch…",
+                    ContextMenuAction::DeleteRemoteBranch(name.clone()),
+                ),
+            ]
+        }
         ContextMenuAction::DeleteTag(name) => {
             vec![("Delete Tag", ContextMenuAction::DeleteTag(name.clone()))]
         }

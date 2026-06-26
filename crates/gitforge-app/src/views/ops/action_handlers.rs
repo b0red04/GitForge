@@ -1,9 +1,9 @@
 use gpui::*;
 
 use crate::views::app::{
-    AddRemote, AppDialog, BackToDiff, CheckForUpdates, CloneFromGithub, CloneFromGitlab, CloneRepo, CloseDialog,
-    CloseTab, CreateBranch, CreatePullRequest, CreateWorktree, FetchAll, GitForgeApp, InitRepo,
-    MainViewMode, ManageAccounts, NewTab, OpenAiSettings, OpenInBrowser, OpenInEditor,
+    AddRemote, AppDialog, BackToDiff, CheckForUpdates, CloneFromGithub, CloneFromGitlab, CloneRepo,
+    CloseDialog, CloseTab, CreateBranch, CreatePullRequest, CreateWorktree, FetchAll, GitForgeApp,
+    InitRepo, MainViewMode, ManageAccounts, NewTab, OpenAiSettings, OpenInBrowser, OpenInEditor,
     OpenInFileManager, OpenInTerminal, OpenRepoManagement, OpenRepository, OpenSshKey, Preferences,
     PullCurrent, PushCurrent, QuitApp, RefreshRepository, ReopenClosedTab, SelectNextCommit,
     SelectPrevCommit, ShowCommandPalette, ShowHistory, ShowStatusPanel, SoftReset, StashPop,
@@ -192,6 +192,8 @@ impl GitForgeApp {
             cx.notify();
         } else if self.command_palette.is_visible() {
             self.command_palette.hide(cx);
+        } else if self.repo_session.diff_overlay_open {
+            self.toggle_diff_overlay(cx);
         } else if self.local_branch_dropdown_open {
             self.close_local_branch_dropdown(cx);
         } else if self.titlebar_menus_visible || self.active_titlebar_menu.is_some() {

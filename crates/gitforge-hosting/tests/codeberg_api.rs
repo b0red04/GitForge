@@ -43,7 +43,10 @@ async fn authenticate_uses_full_name_for_display() {
         then.status(200).body(r#"{"login":"alice","full_name":"Alice Doe","avatar_url":"https://codeberg.org/a.png"}"#);
     });
 
-    let account = provider(&server).authenticate("cb_test").await.expect("auth");
+    let account = provider(&server)
+        .authenticate("cb_test")
+        .await
+        .expect("auth");
     assert_eq!(account.provider, "codeberg");
     assert_eq!(account.username, "alice");
     assert_eq!(account.display_name, "Alice Doe");
@@ -56,10 +59,14 @@ async fn authenticate_falls_back_to_login_when_full_name_missing() {
     let server = MockServer::start_async().await;
     server.mock(|when, then| {
         when.method(GET).path("/user");
-        then.status(200).body(r#"{"login":"alice","full_name":null}"#);
+        then.status(200)
+            .body(r#"{"login":"alice","full_name":null}"#);
     });
 
-    let account = provider(&server).authenticate("cb_test").await.expect("auth");
+    let account = provider(&server)
+        .authenticate("cb_test")
+        .await
+        .expect("auth");
     assert_eq!(account.display_name, "alice");
 }
 
@@ -78,14 +85,16 @@ async fn list_repos_paginates_with_bare_array_and_limit_50() {
             .path("/user/repos")
             .query_param("page", "1")
             .query_param("limit", "50");
-        then.status(200).body(serde_json::to_string(&page1).unwrap());
+        then.status(200)
+            .body(serde_json::to_string(&page1).unwrap());
     });
     server.mock(|when, then| {
         when.method(GET)
             .path("/user/repos")
             .query_param("page", "2")
             .query_param("limit", "50");
-        then.status(200).body(serde_json::to_string(&page2).unwrap());
+        then.status(200)
+            .body(serde_json::to_string(&page2).unwrap());
     });
 
     let repos = provider(&server).list_repos(&account).await.expect("list");
@@ -126,7 +135,8 @@ async fn create_fork_posts_to_repos_forks() {
 
     server.mock(|when, then| {
         when.method(POST).path("/repos/owner/repo/forks");
-        then.status(200).body(cb_repo_json("alice/repo", "2024-01-01T00:00:00Z", 0).to_string());
+        then.status(200)
+            .body(cb_repo_json("alice/repo", "2024-01-01T00:00:00Z", 0).to_string());
     });
 
     let fork = provider(&server)
@@ -156,12 +166,15 @@ async fn create_pull_request_sends_head_colon_branch_for_cross_owner() {
         when.method(POST)
             .path("/repos/owner/repo/pulls")
             .body_includes("\"head\":\"alice:feature\"");
-        then.status(200).body(serde_json::json!({
-            "number": 3, "title": "T",
-            "html_url": "https://codeberg.org/owner/repo/pulls/3",
-            "state": "open",
-            "head": {"ref": "feature"}, "draft": false
-        }).to_string());
+        then.status(200).body(
+            serde_json::json!({
+                "number": 3, "title": "T",
+                "html_url": "https://codeberg.org/owner/repo/pulls/3",
+                "state": "open",
+                "head": {"ref": "feature"}, "draft": false
+            })
+            .to_string(),
+        );
     });
 
     let pr = provider(&server)
@@ -201,9 +214,8 @@ async fn list_branches_extracts_names() {
 
     server.mock(|when, then| {
         when.method(GET).path("/repos/owner/repo/branches");
-        then.status(200).body(
-            serde_json::json!([{"name": "main"}, {"name": "dev"}]).to_string(),
-        );
+        then.status(200)
+            .body(serde_json::json!([{"name": "main"}, {"name": "dev"}]).to_string());
     });
 
     let branches = provider(&server)

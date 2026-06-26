@@ -1,12 +1,12 @@
 use gpui::Action;
 
 use crate::views::app::{
-    AddRemote, BackToDiff, CloneFromGithub, CloneFromGitlab, CloneRepo, CloseTab, CreateBranch,
-    CreatePullRequest, CreateWorktree, InitRepo, ManageAccounts, NewTab, OpenAiSettings,
-    OpenInBrowser, OpenInEditor, OpenInFileManager, OpenInTerminal, OpenRepoManagement,
-    OpenRepository, OpenSshKey, Preferences, QuitApp, RefreshRepository, ReopenClosedTab,
-    SelectNextCommit, SelectPrevCommit, ShowCommandPalette, ShowHistory, ShowStatusPanel,
-    SoftReset, StashPop, StashPush, ToggleTheme, ViewFileAtCommit, CheckForUpdates,
+    AddRemote, BackToDiff, CheckForUpdates, CloneFromGithub, CloneFromGitlab, CloneRepo, CloseTab,
+    CreateBranch, CreatePullRequest, CreateWorktree, InitRepo, ManageAccounts, NewTab,
+    OpenAiSettings, OpenInBrowser, OpenInEditor, OpenInFileManager, OpenInTerminal,
+    OpenRepoManagement, OpenRepository, OpenSshKey, Preferences, QuitApp, RefreshRepository,
+    ReopenClosedTab, SelectNextCommit, SelectPrevCommit, ShowCommandPalette, ShowHistory,
+    ShowStatusPanel, SoftReset, StashPop, StashPush, ToggleTheme, ViewFileAtCommit,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

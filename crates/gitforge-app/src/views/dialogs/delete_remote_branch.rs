@@ -1,5 +1,7 @@
-use gitforge_ui::{AppColors, DialogColors, dialog_actions, dialog_body, dialog_overlay,
-    dialog_surface, dialog_title};
+use gitforge_ui::{
+    AppColors, DialogColors, dialog_actions, dialog_body, dialog_overlay, dialog_surface,
+    dialog_title,
+};
 use gpui::*;
 
 use crate::views::app::{AppDialog, GitForgeApp};
