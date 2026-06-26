@@ -48,11 +48,7 @@ impl GitForgeApp {
         cx.notify();
     }
 
-    pub fn open_delete_remote_branch_dialog(
-        &mut self,
-        full_name: String,
-        cx: &mut Context<Self>,
-    ) {
+    pub fn open_delete_remote_branch_dialog(&mut self, full_name: String, cx: &mut Context<Self>) {
         let Some((remote, branch)) = full_name.split_once('/') else {
             self.push_toast(
                 crate::views::toasts::ToastKind::Warning,

@@ -1,4 +1,4 @@
-use crate::error::{classify_git_failure, GitError, GitResult};
+use crate::error::{GitError, GitResult, classify_git_failure};
 use crate::repository::Repository;
 use std::process::Command;
 
@@ -76,7 +76,10 @@ impl Repository {
             })?;
 
         if !output.status.success() {
-            return Err(classify_git_failure(&["cherry-pick", "--continue"], &output));
+            return Err(classify_git_failure(
+                &["cherry-pick", "--continue"],
+                &output,
+            ));
         }
         Ok(())
     }

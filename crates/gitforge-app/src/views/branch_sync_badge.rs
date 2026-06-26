@@ -5,11 +5,7 @@ pub fn render_sync_indicators(ahead: u32, behind: u32, color: Hsla) -> Div {
         return div();
     }
 
-    let mut container = div()
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap(px(4.0));
+    let mut container = div().flex().flex_none().items_center().gap(px(4.0));
 
     if ahead > 0 {
         container = container.child(

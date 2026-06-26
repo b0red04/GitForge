@@ -9,10 +9,7 @@ pub enum GitError {
     OperationFailed(String),
 
     #[error("Merge conflict: {stderr}")]
-    MergeConflict {
-        paths: Vec<String>,
-        stderr: String,
-    },
+    MergeConflict { paths: Vec<String>, stderr: String },
 
     #[error("Local changes would be overwritten by {command}: {stderr}")]
     LocalChangesOverwritten {
@@ -94,9 +91,7 @@ impl GitError {
             GitError::BranchNotFullyMerged { name } => {
                 format!("Branch '{name}' is not fully merged")
             }
-            GitError::InvalidReference {
-                label, value, ..
-            } => format!("Invalid {label} '{value}'"),
+            GitError::InvalidReference { label, value, .. } => format!("Invalid {label} '{value}'"),
             // Note: `reason` is omitted from toast (kept in full Display).
         }
     }

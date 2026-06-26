@@ -93,6 +93,18 @@ impl StatusPanel {
     }
 
     pub fn select_file(&mut self, section: StatusFileSection, file_idx: usize) {
+        let diff_open = self.view_mode == StatusViewMode::Diff;
+        let same_file = self
+            .selection
+            .as_ref()
+            .is_some_and(|s| s.section == section && s.file_idx == file_idx);
+        self.selection = Some(StatusSelection { section, file_idx });
+        if diff_open && !same_file {
+            self.view_mode = StatusViewMode::Status;
+        }
+    }
+
+    pub fn open_file_diff(&mut self, section: StatusFileSection, file_idx: usize) {
         self.selection = Some(StatusSelection { section, file_idx });
         self.view_mode = StatusViewMode::Diff;
         self.viewer.clear_selection();
@@ -672,12 +684,18 @@ fn render_status_file_entry(
         entry_row = entry_row
             .cursor_pointer()
             .hover(|s| s.bg(rgba_to_hsla(colors.sidebar_hover)))
-            .on_click(move |_ev, _window, cx| {
+            .on_click(move |event, _window, cx| {
                 if let Some(e) = ent.upgrade() {
-                    let p = path_owned.clone();
-                    e.update(cx, |this, cx| {
-                        this.select_status_file(section, idx, p, cx);
-                    });
+                    if event.click_count() >= 2 {
+                        let p = path_owned.clone();
+                        e.update(cx, |this, cx| {
+                            this.open_status_diff(section, idx, p, cx);
+                        });
+                    } else {
+                        e.update(cx, |this, cx| {
+                            this.select_status_file(section, idx, cx);
+                        });
+                    }
                 }
             });
     }

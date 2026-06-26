@@ -125,8 +125,7 @@ impl HostingProvider for GitLabProvider {
             ))
             .send()
             .await?;
-        let response =
-            http::ensure_success(response, "Failed to search GitLab projects").await?;
+        let response = http::ensure_success(response, "Failed to search GitLab projects").await?;
 
         let projects: Vec<serde_json::Value> = response.json().await?;
         Ok(projects.iter().map(json_to_remote_repo).collect())
@@ -145,11 +144,8 @@ impl HostingProvider for GitLabProvider {
             .post(format!("{}/projects/{}/fork", self.base_url, project_path))
             .send()
             .await?;
-        let response = http::ensure_success(
-            response,
-            &format!("Failed to fork {}/{}", owner, repo),
-        )
-        .await?;
+        let response =
+            http::ensure_success(response, &format!("Failed to fork {}/{}", owner, repo)).await?;
 
         let fork: serde_json::Value = response.json().await?;
         Ok(json_to_remote_repo(&fork))
@@ -172,8 +168,7 @@ impl HostingProvider for GitLabProvider {
         let (project_path, body) = if is_cross_fork {
             let source_path = format!("{}/{}", req.head_owner, req.repo);
             let target_path = format!("{}/{}", req.owner, req.repo);
-            let target_project_id =
-                fetch_project_id(&client, &self.base_url, &target_path).await?;
+            let target_project_id = fetch_project_id(&client, &self.base_url, &target_path).await?;
             let body = serde_json::json!({
                 "source_branch": req.head_branch,
                 "target_branch": req.base_branch,
@@ -203,8 +198,7 @@ impl HostingProvider for GitLabProvider {
             .json(&body)
             .send()
             .await?;
-        let response =
-            http::ensure_success(response, "Failed to create merge request").await?;
+        let response = http::ensure_success(response, "Failed to create merge request").await?;
 
         let mr: serde_json::Value = response.json().await?;
         Ok(json_to_pull_request(&mr))

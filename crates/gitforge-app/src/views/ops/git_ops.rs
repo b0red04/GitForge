@@ -48,6 +48,41 @@ impl GitForgeApp {
         cx.notify();
     }
 
+    pub fn open_diff_overlay_for_file(&mut self, file_idx: usize, cx: &mut Context<Self>) {
+        self.repo_session.diff_panel.select_file(file_idx);
+        self.prepare_diff_overlay_state();
+        if !self.repo_session.diff_overlay_open {
+            self.repo_session.diff_overlay_open = true;
+        }
+        cx.notify();
+    }
+
+    fn prepare_diff_overlay_state(&mut self) {
+        self.repo_session.diff_panel.set_diff_mode();
+        let (selected_file_idx, file_count) = self
+            .repo_session
+            .diff_panel
+            .diff_state()
+            .map(|d| (d.selected_file_idx, d.file_diffs.len()))
+            .unwrap_or((None, 0));
+        if let Some(file_idx) = normalized_overlay_file_idx(selected_file_idx, file_count) {
+            self.repo_session.diff_panel.select_file(file_idx);
+        }
+    }
+
+    /// Toggle the large diff overlay that renders the selected file's line-level
+    /// diff over the sidebar + commit graph. The right-hand file list stays
+    /// visible to drive file selection; everything beneath the overlay is
+    /// occluded (disabled) while open.
+    pub fn toggle_diff_overlay(&mut self, cx: &mut Context<Self>) {
+        let opening = !self.repo_session.diff_overlay_open;
+        if opening {
+            self.prepare_diff_overlay_state();
+        }
+        self.repo_session.diff_overlay_open = opening;
+        cx.notify();
+    }
+
     pub fn view_file_at_commit(&mut self, file_path: String, cx: &mut Context<Self>) {
         let Some(idx) = self.repo_session.graph_panel.selected_idx() else {
             return;
@@ -151,10 +186,20 @@ impl GitForgeApp {
         &mut self,
         section: StatusFileSection,
         idx: usize,
-        path: String,
         cx: &mut Context<Self>,
     ) {
         self.repo_session.status_panel.select_file(section, idx);
+        cx.notify();
+    }
+
+    pub fn open_status_diff(
+        &mut self,
+        section: StatusFileSection,
+        idx: usize,
+        path: String,
+        cx: &mut Context<Self>,
+    ) {
+        self.repo_session.status_panel.open_file_diff(section, idx);
 
         let is_staged = section == StatusFileSection::Staged;
 
@@ -729,12 +774,7 @@ impl GitForgeApp {
         self.run_git_op("Remove remote", cx, move |repo| repo.remote_remove(&name));
     }
 
-    pub fn delete_remote_branch(
-        &mut self,
-        remote: String,
-        branch: String,
-        cx: &mut Context<Self>,
-    ) {
+    pub fn delete_remote_branch(&mut self, remote: String, branch: String, cx: &mut Context<Self>) {
         let status = format!("Deleting {remote}/{branch}…");
         self.run_git_op_with_status("Delete remote branch", &status, cx, move |repo| {
             repo.delete_remote_branch(&remote, &branch)
@@ -805,11 +845,19 @@ impl GitForgeApp {
             move |repo| repo.unified_diff_for_commit(&commit_id),
             move |this, diff_text, cx| {
                 let file_diffs = gitforge_diff::parser::parse_unified_diff(&diff_text);
+                let has_files = !file_diffs.is_empty();
                 this.repo_session.diff_panel.set_diff(CommitDiffState::new(
                     id_for_state,
                     file_diffs,
                     None,
                 ));
+                // Keep the large diff overlay populated while browsing commits
+                // via keyboard: auto-select the first file of each newly-loaded
+                // commit. With the overlay closed this preserves the existing
+                // behaviour (no file pre-selected in the right-hand list).
+                if this.repo_session.diff_overlay_open && has_files {
+                    this.repo_session.diff_panel.select_file(0);
+                }
                 cx.notify();
             },
         );
@@ -831,9 +879,23 @@ fn should_focus_fetch(
     }
 }
 
+fn normalized_overlay_file_idx(
+    selected_file_idx: Option<usize>,
+    file_count: usize,
+) -> Option<usize> {
+    if file_count == 0 {
+        return None;
+    }
+    Some(
+        selected_file_idx
+            .filter(|idx| *idx < file_count)
+            .unwrap_or(0),
+    )
+}
+
 #[cfg(test)]
 mod tests {
-    use super::should_focus_fetch;
+    use super::{normalized_overlay_file_idx, should_focus_fetch};
 
     #[test]
     fn focus_fetch_fires_when_never_fetched() {
@@ -865,5 +927,22 @@ mod tests {
             now,
             cooldown,
         ));
+    }
+
+    #[test]
+    fn overlay_file_idx_none_when_commit_has_no_files() {
+        assert_eq!(normalized_overlay_file_idx(None, 0), None);
+        assert_eq!(normalized_overlay_file_idx(Some(3), 0), None);
+    }
+
+    #[test]
+    fn overlay_file_idx_keeps_valid_selection() {
+        assert_eq!(normalized_overlay_file_idx(Some(2), 3), Some(2));
+    }
+
+    #[test]
+    fn overlay_file_idx_falls_back_to_first_file() {
+        assert_eq!(normalized_overlay_file_idx(None, 3), Some(0));
+        assert_eq!(normalized_overlay_file_idx(Some(9), 3), Some(0));
     }
 }

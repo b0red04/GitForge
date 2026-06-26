@@ -53,11 +53,18 @@ async fn authenticate_uses_username_key() {
     ensure_test_tokens();
     let server = MockServer::start_async().await;
     server.mock(|when, then| {
-        when.method(GET).path("/user").header("PRIVATE-TOKEN", "gl_test");
-        then.status(200).body(r#"{"username":"bob","name":"Bob Smith","avatar_url":"https://gitlab.com/a.png"}"#);
+        when.method(GET)
+            .path("/user")
+            .header("PRIVATE-TOKEN", "gl_test");
+        then.status(200).body(
+            r#"{"username":"bob","name":"Bob Smith","avatar_url":"https://gitlab.com/a.png"}"#,
+        );
     });
 
-    let account = provider(&server).authenticate("gl_test").await.expect("auth");
+    let account = provider(&server)
+        .authenticate("gl_test")
+        .await
+        .expect("auth");
     assert_eq!(account.provider, "gitlab");
     assert_eq!(account.username, "bob");
     assert_eq!(account.display_name, "Bob Smith");
@@ -72,7 +79,12 @@ async fn list_repos_paginates_projects_endpoint() {
     let page1: Vec<_> = (0..100)
         .map(|i| gl_project_json(&format!("u/p{}", i), "2020-01-01T00:00:00Z", i, "public"))
         .collect();
-    let page2 = vec![gl_project_json("u/new", "2024-06-01T00:00:00Z", 999, "public")];
+    let page2 = vec![gl_project_json(
+        "u/new",
+        "2024-06-01T00:00:00Z",
+        999,
+        "public",
+    )];
 
     server.mock(|when, then| {
         when.method(GET)
@@ -80,14 +92,16 @@ async fn list_repos_paginates_projects_endpoint() {
             .query_param("membership", "true")
             .query_param("page", "1")
             .query_param("per_page", "100");
-        then.status(200).body(serde_json::to_string(&page1).unwrap());
+        then.status(200)
+            .body(serde_json::to_string(&page1).unwrap());
     });
     server.mock(|when, then| {
         when.method(GET)
             .path("/projects")
             .query_param("page", "2")
             .query_param("per_page", "100");
-        then.status(200).body(serde_json::to_string(&page2).unwrap());
+        then.status(200)
+            .body(serde_json::to_string(&page2).unwrap());
     });
 
     let repos = provider(&server).list_repos(&account).await.expect("list");
@@ -107,8 +121,13 @@ async fn search_repos_hits_projects_search_endpoint() {
             .path("/projects")
             .query_param("search", "foo");
         then.status(200).body(
-            serde_json::json!([gl_project_json("u/foo", "2024-01-01T00:00:00Z", 42, "private")])
-                .to_string(),
+            serde_json::json!([gl_project_json(
+                "u/foo",
+                "2024-01-01T00:00:00Z",
+                42,
+                "private"
+            )])
+            .to_string(),
         );
     });
 
@@ -118,7 +137,10 @@ async fn search_repos_hits_projects_search_endpoint() {
         .expect("search");
     assert_eq!(repos.len(), 1);
     assert_eq!(repos[0].full_name, "u/foo");
-    assert!(repos[0].is_private, "visibility=private should map to is_private=true");
+    assert!(
+        repos[0].is_private,
+        "visibility=private should map to is_private=true"
+    );
 }
 
 #[tokio::test]
@@ -128,7 +150,8 @@ async fn create_fork_posts_to_url_encoded_project_fork() {
 
     server.mock(|when, then| {
         when.method(POST).path("/projects/owner%2Frepo/fork");
-        then.status(200).body(gl_project_json("bob/repo", "2024-01-01T00:00:00Z", 0, "public").to_string());
+        then.status(200)
+            .body(gl_project_json("bob/repo", "2024-01-01T00:00:00Z", 0, "public").to_string());
     });
 
     let fork = provider(&server)
@@ -188,7 +211,8 @@ async fn create_pull_request_cross_fork_resolves_target_project_id() {
 
     server.mock(|when, then| {
         when.method(GET).path("/projects/upstream%2Frepo");
-        then.status(200).body(r#"{"id": 4242, "path_with_namespace": "upstream/repo"}"#);
+        then.status(200)
+            .body(r#"{"id": 4242, "path_with_namespace": "upstream/repo"}"#);
     });
 
     server.mock(|when, then| {
@@ -217,9 +241,8 @@ async fn list_pull_requests_hits_merge_requests_endpoint() {
             .path("/projects/owner%2Frepo/merge_requests")
             .query_param("state", "opened")
             .query_param("per_page", "100");
-        then.status(200).body(
-            serde_json::json!([gl_mr_json(1, "a"), gl_mr_json(2, "b")]).to_string(),
-        );
+        then.status(200)
+            .body(serde_json::json!([gl_mr_json(1, "a"), gl_mr_json(2, "b")]).to_string());
     });
 
     let prs = provider(&server)
@@ -238,9 +261,8 @@ async fn list_branches_hits_repository_branches_endpoint() {
     server.mock(|when, then| {
         when.method(GET)
             .path("/projects/owner%2Frepo/repository/branches");
-        then.status(200).body(
-            serde_json::json!([{"name": "main"}, {"name": "dev"}]).to_string(),
-        );
+        then.status(200)
+            .body(serde_json::json!([{"name": "main"}, {"name": "dev"}]).to_string());
     });
 
     let branches = provider(&server)
@@ -269,5 +291,8 @@ async fn error_on_non_2xx() {
 #[test]
 fn repo_url_url_encodes_slashes_in_full_name() {
     let gl = GitLabProvider::new();
-    assert_eq!(gl.repo_url("group/sub/project"), "https://gitlab.com/group%2Fsub%2Fproject");
+    assert_eq!(
+        gl.repo_url("group/sub/project"),
+        "https://gitlab.com/group%2Fsub%2Fproject"
+    );
 }

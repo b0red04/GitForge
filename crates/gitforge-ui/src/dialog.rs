@@ -70,7 +70,10 @@ pub fn dialog_body(text: &str, colors: DialogColors) -> Div {
 }
 
 pub fn dialog_label(text: &str, colors: DialogColors) -> Div {
-    div().text_xs().text_color(colors.muted).child(text.to_string())
+    div()
+        .text_xs()
+        .text_color(colors.muted)
+        .child(text.to_string())
 }
 
 pub fn dialog_actions<E: 'static>(
@@ -146,7 +149,11 @@ fn dialog_button<E: 'static>(
         })
 }
 
-pub fn attach_dialog_input_keys<E, F>(field: Stateful<Div>, entity: WeakEntity<E>, on_event: F) -> Stateful<Div>
+pub fn attach_dialog_input_keys<E, F>(
+    field: Stateful<Div>,
+    entity: WeakEntity<E>,
+    on_event: F,
+) -> Stateful<Div>
 where
     E: 'static,
     F: Fn(&mut E, &mut Context<E>, &mut Window, TextInputEvent) + Clone + 'static,
@@ -154,7 +161,9 @@ where
     let ent = entity;
     field.on_key_down(move |ev, window, cx| {
         if let Some(e) = ent.upgrade() {
-            e.update(cx, |this, cx| on_event(this, cx, window, parse_key_event(ev)));
+            e.update(cx, |this, cx| {
+                on_event(this, cx, window, parse_key_event(ev))
+            });
         }
     })
 }

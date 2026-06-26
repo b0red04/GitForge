@@ -94,11 +94,7 @@ pub fn action_button(
     colors: WidgetColors,
 ) -> Stateful<Div> {
     let label = label.into();
-    let mut btn = div()
-        .id(id.into())
-        .cursor_pointer()
-        .text_xs()
-        .child(label);
+    let mut btn = div().id(id.into()).cursor_pointer().text_xs().child(label);
 
     if selected {
         btn = btn
@@ -108,7 +104,10 @@ pub fn action_button(
             .text_color(colors.background)
             .font_weight(FontWeight::SEMIBOLD);
     } else {
-        btn = btn.border_1().border_color(kind.border_color(colors)).text_color(kind.text_color(colors));
+        btn = btn
+            .border_1()
+            .border_color(kind.border_color(colors))
+            .text_color(kind.text_color(colors));
     }
 
     if let Some(hover_bg) = kind.hover_bg(colors) {
@@ -128,7 +127,11 @@ pub fn primary_button(
     colors: WidgetColors,
 ) -> Stateful<Div> {
     let label = label.into();
-    let bg = if disabled { colors.muted } else { colors.accent };
+    let bg = if disabled {
+        colors.muted
+    } else {
+        colors.accent
+    };
     let btn = div()
         .id(id.into())
         .cursor_pointer()

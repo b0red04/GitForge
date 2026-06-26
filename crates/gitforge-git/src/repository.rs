@@ -1,4 +1,4 @@
-use crate::error::{classify_git_failure, GitError, GitResult};
+use crate::error::{GitError, GitResult, classify_git_failure};
 use std::path::Path;
 use std::process::Command;
 

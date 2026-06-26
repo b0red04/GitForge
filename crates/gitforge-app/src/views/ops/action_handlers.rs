@@ -1,13 +1,14 @@
 use gpui::*;
 
 use crate::views::app::{
-    AddRemote, AppDialog, BackToDiff, CheckForUpdates, CloneFromGithub, CloneFromGitlab, CloneRepo, CloseDialog,
-    CloseTab, CreateBranch, CreatePullRequest, CreateWorktree, FetchAll, GitForgeApp, InitRepo,
-    MainViewMode, ManageAccounts, NewTab, OpenAiSettings, OpenInBrowser, OpenInEditor,
-    OpenInFileManager, OpenInTerminal, OpenRepoManagement, OpenRepository, OpenSshKey, Preferences,
-    PullCurrent, PushCurrent, QuitApp, RefreshRepository, ReopenClosedTab, SelectNextCommit,
-    SelectPrevCommit, ShowCommandPalette, ShowHistory, ShowStatusPanel, SoftReset, StashPop,
-    StashPush, ToggleTheme, ViewFileAtCommit,
+    AboutGitForge, AddRemote, AppDialog, BackToDiff, CheckForUpdates, CloneFromGithub,
+    CloneFromGitlab, CloneRepo, CloseDialog, CloseTab, CreateBranch, CreatePullRequest,
+    CreateWorktree, FetchAll, GitForgeApp, InitRepo, MainViewMode, ManageAccounts, NewTab,
+    OpenAiSettings, OpenInBrowser, OpenInEditor, OpenInFileManager, OpenInTerminal,
+    OpenRepoManagement, OpenRepository, OpenSshKey, Preferences, PullCurrent, PushCurrent, QuitApp,
+    RefreshRepository, ReopenClosedTab, SelectNextCommit, SelectPrevCommit, SelectTheme,
+    ShowCommandPalette, ShowHistory, ShowStatusPanel, SoftReset, StashPop, StashPush, ToggleTheme,
+    ViewFileAtCommit,
 };
 use crate::views::commands::{CommandAction, TitlebarMenu};
 use crate::views::settings_window::SettingsSection;
@@ -50,8 +51,8 @@ impl GitForgeApp {
         self.titlebar_menus_visible = !self.titlebar_menus_visible;
         if self.titlebar_menus_visible {
             self.local_branch_dropdown_open = false;
-        }
-        if !self.titlebar_menus_visible {
+            self.active_titlebar_menu = Some(TitlebarMenu::App);
+        } else {
             self.active_titlebar_menu = None;
         }
         cx.notify();
@@ -192,6 +193,8 @@ impl GitForgeApp {
             cx.notify();
         } else if self.command_palette.is_visible() {
             self.command_palette.hide(cx);
+        } else if self.repo_session.diff_overlay_open {
+            self.toggle_diff_overlay(cx);
         } else if self.local_branch_dropdown_open {
             self.close_local_branch_dropdown(cx);
         } else if self.titlebar_menus_visible || self.active_titlebar_menu.is_some() {
@@ -567,5 +570,23 @@ impl GitForgeApp {
         cx: &mut Context<Self>,
     ) {
         self.open_settings_window(Some(SettingsSection::Ai), cx);
+    }
+
+    pub(crate) fn handle_about_gitforge(
+        &mut self,
+        _action: &AboutGitForge,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_settings_window(Some(SettingsSection::About), cx);
+    }
+
+    pub(crate) fn handle_select_theme(
+        &mut self,
+        _action: &SelectTheme,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_settings_window(Some(SettingsSection::General), cx);
     }
 }

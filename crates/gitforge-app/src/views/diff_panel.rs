@@ -4,10 +4,13 @@ use gitforge_git::CommitInfo;
 use gitforge_ui::{AppColors, ShellWidth, WidgetColors, empty_state, panel_shell, rgba_to_hsla};
 use gpui::*;
 use std::ops::Range;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use super::diff_view::SharedHighlightState;
-use super::diff_viewer::{DiffViewer, file_diff_path_label};
+use super::diff_viewer::{
+    DiffViewer, DiffViewerHeader, file_diff_path_label, is_lfs_pointer, render_diff_viewer,
+};
 use super::layout::RIGHT_MIN_WIDTH;
 use super::path_display::{format_parent_path, split_path_display};
 
@@ -95,6 +98,9 @@ pub struct DiffSnapshot {
     pub highlight: Arc<SharedHighlightState>,
     pub scroll_handle: UniformListScrollHandle,
     pub code_scroll_handle: UniformListScrollHandle,
+    /// Whether the large diff overlay is open. Drives the active state of the
+    /// file-list header toggle button.
+    pub overlay_open: bool,
     pub app: WeakEntity<super::app::GitForgeApp>,
 }
 
@@ -124,6 +130,7 @@ impl DiffSnapshot {
                 None
             },
             selection: self.selection.clone(),
+            overlay_open: self.overlay_open,
         }
     }
 }
@@ -140,6 +147,7 @@ pub struct DiffViewKey {
     pub selected_file_idx: Option<usize>,
     pub view_mode_tag: u8,
     pub code_view_file: Option<String>,
+    pub overlay_open: bool,
     pub blame_file: Option<String>,
     pub selection: Option<Range<usize>>,
 }
@@ -191,9 +199,16 @@ impl DiffPanel {
 
     pub fn set_diff(&mut self, state: CommitDiffState) {
         self.viewer.clear_highlight_cache();
+        let selected_diff = state
+            .selected_file_idx
+            .and_then(|idx| state.file_diffs.get(idx))
+            .cloned();
         self.diff_state = Some(state);
-        self.viewer.set_diff_mode();
-        self.viewer.clear_selection();
+        if let Some(diff) = selected_diff {
+            self.viewer.set_diff(diff);
+        } else {
+            self.viewer.set_diff_mode();
+        }
     }
 
     pub fn clear(&mut self) {
@@ -202,10 +217,25 @@ impl DiffPanel {
     }
 
     pub fn select_file(&mut self, file_idx: usize) {
-        if let Some(ds) = self.diff_state.as_mut() {
-            ds.selected_file_idx = Some(file_idx);
+        let selected_diff = if let Some(ds) = self.diff_state.as_mut() {
+            let resolved_idx = if ds.file_diffs.get(file_idx).is_some() {
+                Some(file_idx)
+            } else if ds.file_diffs.is_empty() {
+                None
+            } else {
+                Some(0)
+            };
+            ds.selected_file_idx = resolved_idx;
+            resolved_idx.and_then(|idx| ds.file_diffs.get(idx)).cloned()
+        } else {
+            None
+        };
+
+        if let Some(diff) = selected_diff {
+            self.viewer.set_diff(diff);
+        } else {
+            self.viewer.set_diff_mode();
         }
-        self.viewer.set_diff_mode();
     }
 
     pub fn selected_file_path(&self) -> Option<String> {
@@ -283,6 +313,7 @@ impl DiffPanel {
         theme: String,
         loading: bool,
         selected_commit_id: Option<String>,
+        overlay_open: bool,
     ) -> DiffViewKey {
         DiffViewKey {
             theme,
@@ -294,6 +325,7 @@ impl DiffPanel {
             code_view_file: self.viewer.code_view_file().map(String::from),
             blame_file: self.viewer.blame_file_for_key(),
             selection: self.viewer.selected_range(),
+            overlay_open,
         }
     }
 
@@ -308,6 +340,7 @@ impl DiffPanel {
         colors: AppColors,
         loading: bool,
         selected_commit: Option<CommitInfo>,
+        overlay_open: bool,
         app: WeakEntity<super::app::GitForgeApp>,
     ) -> DiffSnapshot {
         let ctx = self.viewer.render_ctx();
@@ -325,8 +358,51 @@ impl DiffPanel {
             highlight: ctx.highlight,
             scroll_handle: ctx.scroll_handle,
             code_scroll_handle: ctx.code_scroll_handle,
+            overlay_open,
             app,
         }
+    }
+
+    /// Render the line-level diff for the currently-selected file, for display
+    /// inside the large diff overlay. Returns `None` when there is no diff
+    /// state or no file selected; the caller shows an empty state in that case.
+    ///
+    /// This completes the [`DiffViewer`] wiring that [`render_diff_panel`] never
+    /// used: the panel's viewer (scroll handle, highlight, selection, view mode)
+    /// is finally painted, via the shared [`render_diff_viewer`] renderer.
+    pub fn render_overlay_diff(
+        &self,
+        colors: &AppColors,
+        entity: WeakEntity<super::app::GitForgeApp>,
+    ) -> Option<Div> {
+        let ds = self.diff_state.as_ref()?;
+        let file_idx = ds
+            .selected_file_idx
+            .filter(|idx| *idx < ds.file_diffs.len())
+            .unwrap_or(0);
+        let diff = ds.file_diffs.get(file_idx)?;
+        if diff.lines.is_empty() && !diff.is_binary && !is_lfs_pointer(diff) {
+            return Some(empty_state(
+                "No line-level diff for this file",
+                WidgetColors::from_app(colors),
+            ));
+        }
+        let ctx = self.viewer.render_ctx();
+        // Line selection is intentionally a no-op in the commit-history overlay
+        // for now (no stage/unstage-line actions apply to committed files).
+        let on_select_line = Rc::new(|_line_i: usize, _extend: bool, _cx: &mut gpui::App| ());
+        Some(render_diff_viewer(
+            &ctx,
+            Some(diff),
+            colors,
+            DiffViewerHeader::CommitHistory {
+                entity: entity.clone(),
+            },
+            entity,
+            on_select_line,
+            "overlay-diff-lines",
+            "odl",
+        ))
     }
 }
 
@@ -343,19 +419,15 @@ fn render_diff_panel(snap: &DiffSnapshot) -> Div {
     {
         match (snap.selected_commit.as_ref(), &snap.diff_state) {
             (Some(commit), Some(diff_state)) => {
-                let commit_detail = render_commit_detail(
-                    commit,
-                    colors,
-                    border,
-                    text_color,
-                    muted,
-                );
+                let commit_detail = render_commit_detail(commit, colors, border, text_color, muted);
 
                 if diff_state.file_diffs.is_empty() {
-                    return diff_panel_root(surface).child(commit_detail).child(empty_state(
-                        "No changes in this commit",
-                        WidgetColors::from_app(&colors),
-                    ));
+                    return diff_panel_root(surface)
+                        .child(commit_detail)
+                        .child(empty_state(
+                            "No changes in this commit",
+                            WidgetColors::from_app(&colors),
+                        ));
                 }
 
                 let selected_file = diff_state.selected_file_idx;
@@ -365,6 +437,18 @@ fn render_diff_panel(snap: &DiffSnapshot) -> Div {
                 let file_click_entity = entity.clone();
 
                 let summary = format_change_summary(&file_diffs);
+                let overlay_open = snap.overlay_open;
+                let toggle_ent = entity.clone();
+                let toggle_icon = if overlay_open {
+                    "icons/generic_restore.svg"
+                } else {
+                    "icons/generic_maximize.svg"
+                };
+                let toggle_bg = if overlay_open {
+                    rgba_to_hsla(colors.sidebar_selected)
+                } else {
+                    gpui::transparent_black()
+                };
                 let mut file_list = div()
                     .id(ElementId::Name("commit-file-list".into()))
                     .flex_1()
@@ -376,13 +460,35 @@ fn render_diff_panel(snap: &DiffSnapshot) -> Div {
                 file_list = file_list.child(
                     div()
                         .flex_shrink_0()
+                        .flex()
+                        .items_center()
+                        .gap_2()
                         .px_3()
                         .py_2()
                         .border_b_1()
                         .border_color(border)
                         .text_xs()
                         .text_color(muted)
-                        .child(summary),
+                        .child(div().flex_1().child(summary))
+                        .child(
+                            div()
+                                .id(ElementId::Name("diff-overlay-toggle".into()))
+                                .flex_shrink_0()
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .size(px(18.0))
+                                .rounded(px(3.0))
+                                .bg(toggle_bg)
+                                .hover(move |s| s.bg(border))
+                                .cursor_pointer()
+                                .child(svg().size(px(13.0)).path(toggle_icon).text_color(muted))
+                                .on_click(move |_ev, _window, cx| {
+                                    if let Some(e) = toggle_ent.upgrade() {
+                                        e.update(cx, |this, cx| this.toggle_diff_overlay(cx));
+                                    }
+                                }),
+                        ),
                 );
 
                 for (fi, fd) in file_diffs.iter().enumerate() {
@@ -447,11 +553,17 @@ fn render_diff_panel(snap: &DiffSnapshot) -> Div {
                             .py_1p5()
                             .bg(bg)
                             .cursor_pointer()
-                            .on_click(move |_ev, _window, cx| {
+                            .on_click(move |ev, _window, cx| {
                                 if let Some(e) = click_ent.upgrade() {
-                                    e.update(cx, |this, cx| {
-                                        this.select_diff_file(fi, cx);
-                                    });
+                                    if ev.click_count() >= 2 {
+                                        e.update(cx, |this, cx| {
+                                            this.open_diff_overlay_for_file(fi, cx);
+                                        });
+                                    } else {
+                                        e.update(cx, |this, cx| {
+                                            this.select_diff_file(fi, cx);
+                                        });
+                                    }
                                 }
                             })
                             .child(
@@ -600,7 +712,10 @@ fn render_commit_detail(
 
     let parents = match commit.parent_ids.len() {
         0 => String::new(),
-        1 => format!(" · parent: {}", &commit.parent_ids[0][..6.min(commit.parent_ids[0].len())]),
+        1 => format!(
+            " · parent: {}",
+            &commit.parent_ids[0][..6.min(commit.parent_ids[0].len())]
+        ),
         n => format!(" · {n} parents"),
     };
     let initials = author_initials(&commit.author_name);

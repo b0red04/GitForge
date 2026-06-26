@@ -1,5 +1,5 @@
 use gitforge_git::{CommitLogOptions, RepoLoadOptions};
-use gitforge_ui::{AppColors, TextInput, Theme, rgba_to_hsla};
+use gitforge_ui::{AppColors, TextInput, Theme, WidgetColors, empty_state, rgba_to_hsla};
 use gpui::*;
 
 use std::path::PathBuf;
@@ -54,6 +54,8 @@ actions!(
         OpenAiSettings,
         CreatePullRequest,
         CheckForUpdates,
+        AboutGitForge,
+        SelectTheme,
     ]
 );
 
@@ -296,6 +298,7 @@ impl GitForgeApp {
             self.settings.theme.clone(),
             loading,
             selected_commit_id,
+            self.repo_session.diff_overlay_open,
         );
 
         if self.repo_session.diff_view.read(cx).key() == &key {
@@ -307,6 +310,7 @@ impl GitForgeApp {
             self.colors.clone(),
             loading,
             selected_commit,
+            self.repo_session.diff_overlay_open,
             app,
         );
         let diff_view = self.repo_session.diff_view.clone();
@@ -316,6 +320,123 @@ impl GitForgeApp {
                 cx.notify();
             });
         });
+    }
+
+    /// Build the large diff overlay that covers the sidebar + commit graph,
+    /// leaving the right-hand file list visible to drive file selection.
+    /// Returns `None` when the overlay is closed or not applicable (e.g. the
+    /// working-tree status view is active). The overlay uses `.occlude()` so
+    /// everything beneath it is disabled while it is open.
+    fn render_diff_overlay(&self, entity: WeakEntity<Self>) -> Option<Stateful<Div>> {
+        if !self.repo_session.diff_overlay_open {
+            return None;
+        }
+        // The overlay only makes sense for committed diffs in the history view.
+        if self.repo_session.view_mode != MainViewMode::CommitHistory {
+            return None;
+        }
+        if self.repo_session.graph_panel.is_uncommitted_selected() {
+            return None;
+        }
+
+        let colors = &self.colors;
+        let surface = rgba_to_hsla(colors.surface);
+        let border = rgba_to_hsla(colors.border);
+        let text_color = rgba_to_hsla(colors.text);
+        let muted = rgba_to_hsla(colors.text_muted);
+
+        let has_file = self
+            .repo_session
+            .diff_panel
+            .diff_state()
+            .and_then(|d| d.selected_file_idx)
+            .is_some();
+        let path_label = self
+            .repo_session
+            .diff_panel
+            .selected_file_path()
+            .unwrap_or_default();
+
+        let body = self
+            .repo_session
+            .diff_panel
+            .render_overlay_diff(colors, entity.clone())
+            .unwrap_or_else(|| {
+                empty_state(
+                    "Select a file to view its diff",
+                    WidgetColors::from_app(colors),
+                )
+            });
+
+        let close_ent = entity.clone();
+        let header = div()
+            .flex_shrink_0()
+            .flex()
+            .items_center()
+            .gap_2()
+            .px_3()
+            .py_2()
+            .border_b_1()
+            .border_color(border)
+            .child(
+                div()
+                    .flex_1()
+                    .min_w(px(0.0))
+                    .overflow_hidden()
+                    .text_ellipsis()
+                    .text_sm()
+                    .font_family("monospace")
+                    .text_color(if has_file { text_color } else { muted })
+                    .child(if has_file {
+                        path_label
+                    } else {
+                        "Diff".to_string()
+                    }),
+            )
+            .child(
+                div()
+                    .id("diff-overlay-close")
+                    .flex_shrink_0()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .size(px(18.0))
+                    .rounded(px(3.0))
+                    .hover(move |s| s.bg(border))
+                    .cursor_pointer()
+                    .child(svg().size(px(13.0)).path("icons/x.svg").text_color(muted))
+                    .on_click(move |_ev, _window, cx| {
+                        if let Some(e) = close_ent.upgrade() {
+                            e.update(cx, |this, cx| this.toggle_diff_overlay(cx));
+                        }
+                    }),
+            );
+
+        Some(
+            div()
+                .id("diff-overlay")
+                .absolute()
+                .top_0()
+                .left_0()
+                .bottom_0()
+                .right(px(self.right_panel_width))
+                .flex()
+                .flex_col()
+                .min_h(px(0.0))
+                .bg(surface)
+                .overflow_hidden()
+                .occlude()
+                .child(header)
+                .child(
+                    div()
+                        .flex_1()
+                        .min_h(px(0.0))
+                        .flex()
+                        .flex_col()
+                        .overflow_hidden()
+                        .child(body),
+                ),
+        )
     }
 
     /// Pushes a transient toast notification and schedules its auto-dismissal.
@@ -698,7 +819,7 @@ impl Render for GitForgeApp {
 
         let resize_listener = super::panel_resize::render_panel_resize_listener(entity.clone());
 
-        let workspace_base = div()
+        let mut workspace_base = div()
             .relative()
             .flex_1()
             .h_full()
@@ -719,6 +840,13 @@ impl Render for GitForgeApp {
                     .child(right_panel),
             )
             .child(resize_listener);
+
+        // The large diff overlay paints on top of the sidebar + graph and
+        // occludes them (disabling interaction beneath) while open. The
+        // right-hand file list stays visible to drive file selection.
+        if let Some(overlay) = self.render_diff_overlay(entity.clone()) {
+            workspace_base = workspace_base.child(overlay);
+        }
 
         let workspace_row = if matches!(decorations, Decorations::Client { .. }) {
             super::window_chrome::seal_rounded_corners(
@@ -845,6 +973,8 @@ impl Render for GitForgeApp {
             .on_action(cx.listener(Self::handle_open_ai_settings))
             .on_action(cx.listener(Self::handle_create_pull_request))
             .on_action(cx.listener(Self::handle_view_file))
+            .on_action(cx.listener(Self::handle_about_gitforge))
+            .on_action(cx.listener(Self::handle_select_theme))
             .child(super::window_chrome::render_window_chrome(
                 inner,
                 &self.colors,

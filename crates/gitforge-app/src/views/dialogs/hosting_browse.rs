@@ -122,7 +122,12 @@ pub(crate) fn render_repo_row(
                                 .child(repo.name.clone()),
                         )
                         .child(div().text_xs().text_color(dc.muted).child(vis))
-                        .child(div().text_xs().text_color(dc.accent).child(format!("*{}", stars))),
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(dc.accent)
+                                .child(format!("*{}", stars)),
+                        ),
                 )
                 .child(
                     div()
