@@ -475,22 +475,24 @@ fn render_diff_mode(
     let path_label = file_diff_path_label(diff);
 
     let file_header = match header {
-        DiffViewerHeader::CommitHistory { .. } => render_diff_file_header(path_label, colors),
+        DiffViewerHeader::CommitHistory { .. } => None,
         DiffViewerHeader::WorkingTree {
             section_label,
             is_staged,
             has_line_selection,
             entity,
-        } => append_working_tree_header_actions(
-            render_diff_file_header(path_label, colors),
-            colors,
-            section_label,
-            is_staged,
-            has_line_selection,
-            entity,
+        } => Some(
+            append_working_tree_header_actions(
+                render_diff_file_header(path_label, colors),
+                colors,
+                section_label,
+                is_staged,
+                has_line_selection,
+                entity,
+            )
+            .flex_shrink_0(),
         ),
-    }
-    .flex_shrink_0();
+    };
 
     let body = if let Some(special) = render_binary_or_lfs(diff, path_label, colors) {
         special
@@ -508,24 +510,28 @@ fn render_diff_mode(
         )
     };
 
-    div()
+    let body_container = div()
+        .flex_1()
+        .min_h(px(0.0))
+        .flex()
+        .flex_col()
+        .overflow_hidden()
+        .child(body);
+
+    let mut root = div()
         .flex_1()
         .min_h(px(0.0))
         .h_full()
         .bg(surface)
         .flex()
         .flex_col()
-        .overflow_hidden()
-        .child(file_header)
-        .child(
-            div()
-                .flex_1()
-                .min_h(px(0.0))
-                .flex()
-                .flex_col()
-                .overflow_hidden()
-                .child(body),
-        )
+        .overflow_hidden();
+
+    if let Some(file_header) = file_header {
+        root = root.child(file_header);
+    }
+
+    root.child(body_container)
 }
 
 fn render_code_view(
@@ -626,23 +632,28 @@ fn render_code_view(
                     .flex()
                     .flex_row()
                     .items_center()
+                    .overflow_hidden()
                     .bg(surface)
                     .child(
                         div()
                             .w(px(DIFF_LINE_NUM_WIDTH))
-                            .h_full()
+                            .h(px(DIFF_LINE_HEIGHT))
+                            .flex_shrink_0()
                             .flex()
                             .items_center()
+                            .overflow_hidden()
                             .bg(surface)
                             .border_r_1()
                             .border_color(border)
                             .child(
                                 div()
                                     .w_full()
+                                    .overflow_hidden()
                                     .text_xs()
                                     .font_family("monospace")
                                     .text_color(muted)
-                                    .pl_2()
+                                    .text_right()
+                                    .pr_1()
                                     .child(line_num),
                             ),
                     )
@@ -740,23 +751,28 @@ fn render_blame_view(
                     .flex()
                     .flex_row()
                     .items_center()
+                    .overflow_hidden()
                     .bg(surface)
                     .child(
                         div()
                             .w(px(DIFF_LINE_NUM_WIDTH))
-                            .h_full()
+                            .h(px(DIFF_LINE_HEIGHT))
+                            .flex_shrink_0()
                             .flex()
                             .items_center()
+                            .overflow_hidden()
                             .bg(surface)
                             .border_r_1()
                             .border_color(border)
                             .child(
                                 div()
                                     .w_full()
+                                    .overflow_hidden()
                                     .text_xs()
                                     .font_family("monospace")
                                     .text_color(muted)
-                                    .pl_2()
+                                    .text_right()
+                                    .pr_1()
                                     .child(line_num),
                             ),
                     )

@@ -193,8 +193,7 @@ impl GitForgeApp {
         } else if self.command_palette.is_visible() {
             self.command_palette.hide(cx);
         } else if self.repo_session.diff_overlay_open {
-            self.repo_session.diff_overlay_open = false;
-            cx.notify();
+            self.toggle_diff_overlay(cx);
         } else if self.local_branch_dropdown_open {
             self.close_local_branch_dropdown(cx);
         } else if self.titlebar_menus_visible || self.active_titlebar_menu.is_some() {

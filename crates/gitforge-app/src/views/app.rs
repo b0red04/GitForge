@@ -327,11 +327,12 @@ impl GitForgeApp {
         let text_color = rgba_to_hsla(colors.text);
         let muted = rgba_to_hsla(colors.text_muted);
 
-        let selected_file_idx = self
+        let has_file = self
             .repo_session
             .diff_panel
             .diff_state()
-            .and_then(|d| d.selected_file_idx);
+            .and_then(|d| d.selected_file_idx)
+            .is_some();
         let path_label = self
             .repo_session
             .diff_panel
@@ -367,12 +368,8 @@ impl GitForgeApp {
                     .text_ellipsis()
                     .text_sm()
                     .font_family("monospace")
-                    .text_color(if selected_file_idx.is_some() {
-                        text_color
-                    } else {
-                        muted
-                    })
-                    .child(if selected_file_idx.is_some() {
+                    .text_color(if has_file { text_color } else { muted })
+                    .child(if has_file {
                         path_label
                     } else {
                         "Diff".to_string()
