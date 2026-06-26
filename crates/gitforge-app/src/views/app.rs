@@ -343,7 +343,10 @@ impl GitForgeApp {
             .diff_panel
             .render_overlay_diff(colors, entity.clone())
             .unwrap_or_else(|| {
-                empty_state("Select a file to view its diff", WidgetColors::from_app(colors))
+                empty_state(
+                    "Select a file to view its diff",
+                    WidgetColors::from_app(colors),
+                )
             });
 
         let close_ent = entity.clone();
@@ -404,10 +407,20 @@ impl GitForgeApp {
                 .right(px(self.right_panel_width))
                 .flex()
                 .flex_col()
+                .min_h(px(0.0))
                 .bg(surface)
+                .overflow_hidden()
                 .occlude()
                 .child(header)
-                .child(div().flex_1().min_h(px(0.0)).flex().flex_col().child(body)),
+                .child(
+                    div()
+                        .flex_1()
+                        .min_h(px(0.0))
+                        .flex()
+                        .flex_col()
+                        .overflow_hidden()
+                        .child(body),
+                ),
         )
     }
 

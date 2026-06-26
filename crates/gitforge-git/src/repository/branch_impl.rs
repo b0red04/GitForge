@@ -52,11 +52,7 @@ impl Repository {
         };
 
         if self
-            .run_git(&[
-                "rev-parse",
-                "--verify",
-                &format!("refs/heads/{local_name}"),
-            ])
+            .run_git(&["rev-parse", "--verify", &format!("refs/heads/{local_name}")])
             .is_ok()
         {
             self.run_git(&["checkout", local_name])?;

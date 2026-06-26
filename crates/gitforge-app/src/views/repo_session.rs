@@ -389,6 +389,20 @@ impl RepoSession {
             snap.diff_code_file,
             snap.diff_code_content,
         );
+        if self.diff_overlay_open {
+            self.diff_panel.set_diff_mode();
+            let (selected_file_idx, file_count) = self
+                .diff_panel
+                .diff_state()
+                .map(|d| (d.selected_file_idx, d.file_diffs.len()))
+                .unwrap_or((None, 0));
+            if let Some(file_idx) = selected_file_idx
+                .filter(|idx| *idx < file_count)
+                .or_else(|| (file_count > 0).then_some(0))
+            {
+                self.diff_panel.select_file(file_idx);
+            }
+        }
 
         if let Some(ref commit_id) = snap.selected_commit_id {
             if let Some(idx) = self.graph_panel.find_commit_idx(commit_id) {

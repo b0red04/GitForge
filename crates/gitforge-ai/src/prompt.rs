@@ -206,8 +206,14 @@ mod tests {
         let prompt = build_pull_request_prompt(diff);
         let close_count = prompt.matches("</git_diff>").count();
         let open_count = prompt.matches("<git_diff>").count();
-        assert_eq!(close_count, 1, "only the framing close sentinel should remain");
-        assert_eq!(open_count, 1, "only the framing open sentinel should remain");
+        assert_eq!(
+            close_count, 1,
+            "only the framing close sentinel should remain"
+        );
+        assert_eq!(
+            open_count, 1,
+            "only the framing open sentinel should remain"
+        );
         assert!(prompt.contains("</git-diff>"));
         assert!(prompt.contains("<git-diff>"));
     }

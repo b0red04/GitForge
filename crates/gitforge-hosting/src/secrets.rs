@@ -51,7 +51,8 @@ fn save_file_tokens(tokens: &HashMap<String, String>) -> Result<()> {
     let dir = config_dir();
     fs::create_dir_all(&dir).context("failed to create config directory")?;
     let path = tokens_file();
-    fs::write(&path, serde_json::to_string(tokens)?).context("failed to write hosting token file")?;
+    fs::write(&path, serde_json::to_string(tokens)?)
+        .context("failed to write hosting token file")?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

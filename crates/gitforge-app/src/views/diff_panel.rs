@@ -8,7 +8,9 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use super::diff_view::SharedHighlightState;
-use super::diff_viewer::{DiffViewer, DiffViewerHeader, file_diff_path_label, render_diff_viewer};
+use super::diff_viewer::{
+    DiffViewer, DiffViewerHeader, file_diff_path_label, is_lfs_pointer, render_diff_viewer,
+};
 use super::layout::RIGHT_MIN_WIDTH;
 use super::path_display::{format_parent_path, split_path_display};
 
@@ -197,9 +199,16 @@ impl DiffPanel {
 
     pub fn set_diff(&mut self, state: CommitDiffState) {
         self.viewer.clear_highlight_cache();
+        let selected_diff = state
+            .selected_file_idx
+            .and_then(|idx| state.file_diffs.get(idx))
+            .cloned();
         self.diff_state = Some(state);
-        self.viewer.set_diff_mode();
-        self.viewer.clear_selection();
+        if let Some(diff) = selected_diff {
+            self.viewer.set_diff(diff);
+        } else {
+            self.viewer.set_diff_mode();
+        }
     }
 
     pub fn clear(&mut self) {
@@ -208,10 +217,25 @@ impl DiffPanel {
     }
 
     pub fn select_file(&mut self, file_idx: usize) {
-        if let Some(ds) = self.diff_state.as_mut() {
-            ds.selected_file_idx = Some(file_idx);
+        let selected_diff = if let Some(ds) = self.diff_state.as_mut() {
+            let resolved_idx = if ds.file_diffs.get(file_idx).is_some() {
+                Some(file_idx)
+            } else if ds.file_diffs.is_empty() {
+                None
+            } else {
+                Some(0)
+            };
+            ds.selected_file_idx = resolved_idx;
+            resolved_idx.and_then(|idx| ds.file_diffs.get(idx)).cloned()
+        } else {
+            None
+        };
+
+        if let Some(diff) = selected_diff {
+            self.viewer.set_diff(diff);
+        } else {
+            self.viewer.set_diff_mode();
         }
-        self.viewer.set_diff_mode();
     }
 
     pub fn selected_file_path(&self) -> Option<String> {
@@ -352,13 +376,21 @@ impl DiffPanel {
         entity: WeakEntity<super::app::GitForgeApp>,
     ) -> Option<Div> {
         let ds = self.diff_state.as_ref()?;
-        let file_idx = ds.selected_file_idx?;
+        let file_idx = ds
+            .selected_file_idx
+            .filter(|idx| *idx < ds.file_diffs.len())
+            .unwrap_or(0);
         let diff = ds.file_diffs.get(file_idx)?;
+        if diff.lines.is_empty() && !diff.is_binary && !is_lfs_pointer(diff) {
+            return Some(empty_state(
+                "No line-level diff for this file",
+                WidgetColors::from_app(colors),
+            ));
+        }
         let ctx = self.viewer.render_ctx();
         // Line selection is intentionally a no-op in the commit-history overlay
         // for now (no stage/unstage-line actions apply to committed files).
-        let on_select_line =
-            Rc::new(|_line_i: usize, _extend: bool, _cx: &mut gpui::App| ());
+        let on_select_line = Rc::new(|_line_i: usize, _extend: bool, _cx: &mut gpui::App| ());
         Some(render_diff_viewer(
             &ctx,
             Some(diff),
@@ -387,19 +419,15 @@ fn render_diff_panel(snap: &DiffSnapshot) -> Div {
     {
         match (snap.selected_commit.as_ref(), &snap.diff_state) {
             (Some(commit), Some(diff_state)) => {
-                let commit_detail = render_commit_detail(
-                    commit,
-                    colors,
-                    border,
-                    text_color,
-                    muted,
-                );
+                let commit_detail = render_commit_detail(commit, colors, border, text_color, muted);
 
                 if diff_state.file_diffs.is_empty() {
-                    return diff_panel_root(surface).child(commit_detail).child(empty_state(
-                        "No changes in this commit",
-                        WidgetColors::from_app(&colors),
-                    ));
+                    return diff_panel_root(surface)
+                        .child(commit_detail)
+                        .child(empty_state(
+                            "No changes in this commit",
+                            WidgetColors::from_app(&colors),
+                        ));
                 }
 
                 let selected_file = diff_state.selected_file_idx;
@@ -454,12 +482,7 @@ fn render_diff_panel(snap: &DiffSnapshot) -> Div {
                                 .bg(toggle_bg)
                                 .hover(move |s| s.bg(border))
                                 .cursor_pointer()
-                                .child(
-                                    svg()
-                                        .size(px(13.0))
-                                        .path(toggle_icon)
-                                        .text_color(muted),
-                                )
+                                .child(svg().size(px(13.0)).path(toggle_icon).text_color(muted))
                                 .on_click(move |_ev, _window, cx| {
                                     if let Some(e) = toggle_ent.upgrade() {
                                         e.update(cx, |this, cx| this.toggle_diff_overlay(cx));
@@ -530,11 +553,17 @@ fn render_diff_panel(snap: &DiffSnapshot) -> Div {
                             .py_1p5()
                             .bg(bg)
                             .cursor_pointer()
-                            .on_click(move |_ev, _window, cx| {
+                            .on_click(move |ev, _window, cx| {
                                 if let Some(e) = click_ent.upgrade() {
-                                    e.update(cx, |this, cx| {
-                                        this.select_diff_file(fi, cx);
-                                    });
+                                    if ev.click_count() >= 2 {
+                                        e.update(cx, |this, cx| {
+                                            this.open_diff_overlay_for_file(fi, cx);
+                                        });
+                                    } else {
+                                        e.update(cx, |this, cx| {
+                                            this.select_diff_file(fi, cx);
+                                        });
+                                    }
                                 }
                             })
                             .child(
@@ -683,7 +712,10 @@ fn render_commit_detail(
 
     let parents = match commit.parent_ids.len() {
         0 => String::new(),
-        1 => format!(" · parent: {}", &commit.parent_ids[0][..6.min(commit.parent_ids[0].len())]),
+        1 => format!(
+            " · parent: {}",
+            &commit.parent_ids[0][..6.min(commit.parent_ids[0].len())]
+        ),
         n => format!(" · {n} parents"),
     };
     let initials = author_initials(&commit.author_name);

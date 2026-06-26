@@ -1,9 +1,9 @@
 use gpui::*;
 
 use crate::views::app::{
-    AddRemote, AppDialog, BackToDiff, CheckForUpdates, CloneFromGithub, CloneFromGitlab, CloneRepo, CloseDialog,
-    CloseTab, CreateBranch, CreatePullRequest, CreateWorktree, FetchAll, GitForgeApp, InitRepo,
-    MainViewMode, ManageAccounts, NewTab, OpenAiSettings, OpenInBrowser, OpenInEditor,
+    AddRemote, AppDialog, BackToDiff, CheckForUpdates, CloneFromGithub, CloneFromGitlab, CloneRepo,
+    CloseDialog, CloseTab, CreateBranch, CreatePullRequest, CreateWorktree, FetchAll, GitForgeApp,
+    InitRepo, MainViewMode, ManageAccounts, NewTab, OpenAiSettings, OpenInBrowser, OpenInEditor,
     OpenInFileManager, OpenInTerminal, OpenRepoManagement, OpenRepository, OpenSshKey, Preferences,
     PullCurrent, PushCurrent, QuitApp, RefreshRepository, ReopenClosedTab, SelectNextCommit,
     SelectPrevCommit, ShowCommandPalette, ShowHistory, ShowStatusPanel, SoftReset, StashPop,

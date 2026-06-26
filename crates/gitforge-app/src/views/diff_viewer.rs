@@ -133,6 +133,7 @@ impl DiffViewer {
         self.code_view_content = None;
         self.blame = None;
         self.selection.clear();
+        self.reset_scroll_positions();
     }
 
     pub fn clear_diff(&mut self) {
@@ -143,6 +144,7 @@ impl DiffViewer {
         self.code_view_content = None;
         self.blame = None;
         self.selection.clear();
+        self.reset_scroll_positions();
     }
 
     pub fn clear_highlight_cache(&mut self) {
@@ -154,6 +156,7 @@ impl DiffViewer {
         self.code_view_content = Some(content);
         self.code_view_file = Some(path);
         self.highlight.clear_cache();
+        self.reset_scroll_positions();
     }
 
     pub fn set_diff_mode(&mut self) {
@@ -163,6 +166,7 @@ impl DiffViewer {
         self.blame = None;
         self.highlight.clear_cache();
         self.selection.clear();
+        self.reset_scroll_positions();
     }
 
     pub fn set_blame(&mut self, lines: Vec<BlameLine>, path: String) {
@@ -172,6 +176,7 @@ impl DiffViewer {
             file_path: path,
         });
         self.highlight.clear_cache();
+        self.reset_scroll_positions();
     }
 
     pub fn view_mode(&self) -> DiffViewMode {
@@ -253,6 +258,13 @@ impl DiffViewer {
         self.code_view_file = code_file;
         self.code_view_content = code_content;
         self.selection.clear();
+        self.reset_scroll_positions();
+    }
+
+    fn reset_scroll_positions(&mut self) {
+        self.scroll_handle.scroll_to_item(0, ScrollStrategy::Top);
+        self.code_scroll_handle
+            .scroll_to_item(0, ScrollStrategy::Top);
     }
 }
 
@@ -463,9 +475,7 @@ fn render_diff_mode(
     let path_label = file_diff_path_label(diff);
 
     let file_header = match header {
-        DiffViewerHeader::CommitHistory { .. } => {
-            render_diff_file_header(path_label, colors)
-        }
+        DiffViewerHeader::CommitHistory { .. } => render_diff_file_header(path_label, colors),
         DiffViewerHeader::WorkingTree {
             section_label,
             is_staged,
@@ -479,7 +489,8 @@ fn render_diff_mode(
             has_line_selection,
             entity,
         ),
-    };
+    }
+    .flex_shrink_0();
 
     let body = if let Some(special) = render_binary_or_lfs(diff, path_label, colors) {
         special
@@ -499,12 +510,22 @@ fn render_diff_mode(
 
     div()
         .flex_1()
+        .min_h(px(0.0))
         .h_full()
         .bg(surface)
         .flex()
         .flex_col()
+        .overflow_hidden()
         .child(file_header)
-        .child(body)
+        .child(
+            div()
+                .flex_1()
+                .min_h(px(0.0))
+                .flex()
+                .flex_col()
+                .overflow_hidden()
+                .child(body),
+        )
 }
 
 fn render_code_view(

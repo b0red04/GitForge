@@ -224,14 +224,24 @@ pub fn render_diff_lines(
                     }
                 };
 
-                let old_num = line
-                    .old_line
-                    .map(|n| format!("{:>4}", n))
-                    .unwrap_or_else(|| "    ".to_string());
-                let new_num = line
-                    .new_line
-                    .map(|n| format!("{:>4}", n))
-                    .unwrap_or_else(|| "    ".to_string());
+                let show_line_numbers = !matches!(
+                    line.line_type,
+                    DiffLineType::HunkHeader | DiffLineType::NoNewlineAtEof
+                );
+                let old_num = if show_line_numbers {
+                    line.old_line
+                        .map(|n| format!("{:>4}", n))
+                        .unwrap_or_else(|| "    ".to_string())
+                } else {
+                    "    ".to_string()
+                };
+                let new_num = if show_line_numbers {
+                    line.new_line
+                        .map(|n| format!("{:>4}", n))
+                        .unwrap_or_else(|| "    ".to_string())
+                } else {
+                    "    ".to_string()
+                };
 
                 let display_content: String = line.content.chars().take(200).collect();
 
@@ -336,7 +346,14 @@ pub fn render_diff_lines(
             row_elements
         },
     )
-    .track_scroll(scroll_handle);
+    .track_scroll(scroll_handle)
+    .h_full();
 
-    div().flex_1().child(diff_lines)
+    div()
+        .flex_1()
+        .min_h(px(0.0))
+        .flex()
+        .flex_col()
+        .overflow_hidden()
+        .child(diff_lines)
 }

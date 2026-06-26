@@ -252,7 +252,12 @@ pub fn render_repo_tab_bar(
             .rounded(px(3.0))
             .cursor_pointer()
             .hover(move |s| s.bg(surface_high))
-            .child(svg().size(px(16.0)).path("icons/plus.svg").text_color(muted))
+            .child(
+                svg()
+                    .size(px(16.0))
+                    .path("icons/plus.svg")
+                    .text_color(muted),
+            )
             .on_click(move |_ev, _window, cx| {
                 if let Some(e) = ent_add.upgrade() {
                     e.update(cx, |app, cx| app.open_add_repo_dialog(cx));
