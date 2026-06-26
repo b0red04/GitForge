@@ -76,6 +76,10 @@ pub enum AppDialog {
     DeleteBranch {
         name: String,
     },
+    DeleteRemoteBranch {
+        remote: String,
+        branch: String,
+    },
     CreateTag {
         target: Option<String>,
     },

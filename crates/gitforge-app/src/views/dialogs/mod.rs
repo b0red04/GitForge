@@ -2,6 +2,7 @@ pub mod add_repo;
 pub mod create_pr;
 pub mod credential_add;
 pub mod delete_branch;
+pub mod delete_remote_branch;
 pub mod fork_confirm;
 pub mod hosting_browse;
 pub mod init_repo;
@@ -32,6 +33,9 @@ pub fn confirm(
         AppDialog::CredentialAdd => credential_add::confirm(app, input, input_2, cx),
         AppDialog::DeleteBranch { .. } => {
             delete_branch::confirm_from_dialog(app, dialog, dialog_force, cx)
+        }
+        AppDialog::DeleteRemoteBranch { .. } => {
+            delete_remote_branch::confirm_from_dialog(app, dialog, cx)
         }
         AppDialog::ForkRepo { .. } => fork_confirm::confirm_from_dialog(app, dialog, cx),
         AppDialog::CreateWorktree => worktree::confirm_from_dialog(app, dialog, input, input_2, cx),
@@ -66,6 +70,9 @@ pub fn render(
             entity,
             dialog_input.focus_handle(),
         ),
+        AppDialog::DeleteRemoteBranch { remote, branch } => {
+            delete_remote_branch::render(remote, branch, colors, entity)
+        }
         AppDialog::ForkRepo { owner, repo, .. } => {
             fork_confirm::render(owner, repo, colors, entity)
         }

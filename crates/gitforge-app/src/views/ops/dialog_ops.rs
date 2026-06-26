@@ -48,6 +48,34 @@ impl GitForgeApp {
         cx.notify();
     }
 
+    pub fn open_delete_remote_branch_dialog(
+        &mut self,
+        full_name: String,
+        cx: &mut Context<Self>,
+    ) {
+        let Some((remote, branch)) = full_name.split_once('/') else {
+            self.push_toast(
+                crate::views::toasts::ToastKind::Warning,
+                format!("'{full_name}' is not a valid remote branch."),
+                cx,
+            );
+            return;
+        };
+        let (remote, branch) = (remote.to_string(), branch.to_string());
+        // Cheap synchronous UI-layer guard for the common default branch names.
+        // The git layer performs the authoritative check via main_branch_name().
+        if branch == "main" || branch == "master" {
+            self.push_toast(
+                crate::views::toasts::ToastKind::Warning,
+                format!("Refusing to delete the default branch '{branch}'."),
+                cx,
+            );
+            return;
+        }
+        self.active_dialog = AppDialog::DeleteRemoteBranch { remote, branch };
+        cx.notify();
+    }
+
     pub fn cancel_dialog(&mut self, cx: &mut Context<Self>) {
         self.active_dialog = AppDialog::None;
         self.dialog_input.clear();

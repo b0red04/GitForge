@@ -101,6 +101,25 @@ impl Repository {
         self.run_git_with_combined_error(&args)
     }
 
+    /// Spawns `git push <remote> --delete <branch>`. Refuses to delete the
+    /// repository's default branch (main/master); on success, best-effort
+    /// prunes the now-stale remote-tracking ref so the sidebar updates.
+    pub fn delete_remote_branch(&self, remote: &str, branch: &str) -> GitResult<String> {
+        if let Ok(Some(default)) = self.main_branch_name() {
+            let default_bare = default.rsplit('/').next().unwrap_or(&default);
+            if branch == default_bare {
+                return Err(GitError::OperationFailed(format!(
+                    "Refusing to delete the default branch '{branch}' on {remote}"
+                )));
+            }
+        }
+        let out = self.run_git_with_combined_error(&["push", remote, "--delete", branch])?;
+        if let Err(e) = self.fetch(Some(remote), true) {
+            tracing::warn!("remote branch deleted on {remote}, but prune failed: {e}");
+        }
+        Ok(out)
+    }
+
     /// Spawns a `git` subprocess.
     pub fn clone_repo(
         url: &str,
