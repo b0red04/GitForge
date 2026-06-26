@@ -273,6 +273,9 @@ fn hamburger_button(
     icon_color: Hsla,
     icon_hover: Hsla,
     hover_bg: Hsla,
+    active_bg: Hsla,
+    menus_visible: bool,
+    active_menu: Option<TitlebarMenu>,
     window: &Window,
     entity: WeakEntity<super::app::GitForgeApp>,
 ) -> Stateful<Div> {
@@ -280,6 +283,13 @@ fn hamburger_button(
     let line_height = super::layout::snap_px(1.0, scale);
     let line_gap = super::layout::snap_px(3.0, scale);
     let line_width = super::layout::snap_px(14.0, scale);
+    let is_active = active_menu == Some(TitlebarMenu::App);
+    let bg = if is_active {
+        active_bg
+    } else {
+        gpui::transparent_black()
+    };
+    let hover_entity = entity.clone();
 
     div()
         .id("titlebar-hamburger")
@@ -292,6 +302,7 @@ fn hamburger_button(
         .w(super::layout::snap_px(28.0, scale))
         .h(super::layout::snap_px(24.0, scale))
         .rounded(px(4.0))
+        .bg(bg)
         .cursor_pointer()
         .hover(|s| s.bg(hover_bg))
         .active(|s| s.bg(hover_bg))
@@ -323,7 +334,14 @@ fn hamburger_button(
                 });
             }
         })
-        .on_mouse_move(|_, _, cx| cx.stop_propagation())
+        .on_mouse_move(move |_, _, cx| {
+            cx.stop_propagation();
+            if menus_visible {
+                if let Some(e) = hover_entity.upgrade() {
+                    e.update(cx, |app, cx| app.open_titlebar_menu(TitlebarMenu::App, cx));
+                }
+            }
+        })
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
 }
 
@@ -380,6 +398,7 @@ pub fn render_titlebar_menu_dropdown(
 ) -> Stateful<Div> {
     let surface = rgba_to_hsla(colors.surface);
     let border = rgba_to_hsla(colors.border);
+    let accent = rgba_to_hsla(colors.accent);
     let text_color = rgba_to_hsla(colors.text);
     let muted = rgba_to_hsla(colors.text_muted);
     let hover_bg = rgba_to_hsla(colors.sidebar_hover);
@@ -394,7 +413,7 @@ pub fn render_titlebar_menu_dropdown(
         .overflow_y_scroll()
         .bg(surface)
         .border_1()
-        .border_color(border)
+        .border_color(accent)
         .rounded(px(4.0))
         .py_1()
         .shadow(vec![BoxShadow {
@@ -493,7 +512,6 @@ pub fn render_local_branch_dropdown(
     entity: WeakEntity<super::app::GitForgeApp>,
 ) -> Stateful<Div> {
     let surface = rgba_to_hsla(colors.surface);
-    let border = rgba_to_hsla(colors.border);
     let text_color = rgba_to_hsla(colors.text);
     let muted = rgba_to_hsla(colors.text_muted);
     let hover_bg = rgba_to_hsla(colors.sidebar_hover);
@@ -512,7 +530,7 @@ pub fn render_local_branch_dropdown(
         .overflow_y_scroll()
         .bg(surface)
         .border_1()
-        .border_color(border)
+        .border_color(accent)
         .rounded(px(6.0))
         .py_2()
         .shadow(vec![BoxShadow {
@@ -837,6 +855,9 @@ pub fn render_titlebar(
             icon_color,
             icon_hover,
             hover_bg,
+            rgba_to_hsla(colors.selection_bg),
+            menus_visible,
+            active_menu,
             window,
             entity.clone(),
         ));

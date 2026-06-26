@@ -751,7 +751,7 @@ pub(super) fn render_context_menu_overlay(
     entity: WeakEntity<super::app::GitForgeApp>,
 ) -> Stateful<Div> {
     let surface = rgba_to_hsla(colors.surface);
-    let border = rgba_to_hsla(colors.border);
+    let accent = rgba_to_hsla(colors.accent);
     let text_color = rgba_to_hsla(colors.text);
     let _muted = rgba_to_hsla(colors.text_muted);
     let warning = rgba_to_hsla(colors.warning);
@@ -802,7 +802,7 @@ pub(super) fn render_context_menu_overlay(
         .occlude()
         .bg(surface)
         .border_1()
-        .border_color(border)
+        .border_color(accent)
         .rounded(px(4.0))
         .min_w(px(160.0))
         .shadow(vec![BoxShadow {
