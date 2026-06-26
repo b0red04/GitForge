@@ -133,6 +133,7 @@ impl DiffViewer {
         self.code_view_content = None;
         self.blame = None;
         self.selection.clear();
+        self.reset_scroll_positions();
     }
 
     pub fn clear_diff(&mut self) {
@@ -143,6 +144,7 @@ impl DiffViewer {
         self.code_view_content = None;
         self.blame = None;
         self.selection.clear();
+        self.reset_scroll_positions();
     }
 
     pub fn clear_highlight_cache(&mut self) {
@@ -154,6 +156,7 @@ impl DiffViewer {
         self.code_view_content = Some(content);
         self.code_view_file = Some(path);
         self.highlight.clear_cache();
+        self.reset_scroll_positions();
     }
 
     pub fn set_diff_mode(&mut self) {
@@ -163,6 +166,7 @@ impl DiffViewer {
         self.blame = None;
         self.highlight.clear_cache();
         self.selection.clear();
+        self.reset_scroll_positions();
     }
 
     pub fn set_blame(&mut self, lines: Vec<BlameLine>, path: String) {
@@ -172,6 +176,7 @@ impl DiffViewer {
             file_path: path,
         });
         self.highlight.clear_cache();
+        self.reset_scroll_positions();
     }
 
     pub fn view_mode(&self) -> DiffViewMode {
@@ -253,6 +258,13 @@ impl DiffViewer {
         self.code_view_file = code_file;
         self.code_view_content = code_content;
         self.selection.clear();
+        self.reset_scroll_positions();
+    }
+
+    fn reset_scroll_positions(&mut self) {
+        self.scroll_handle.scroll_to_item(0, ScrollStrategy::Top);
+        self.code_scroll_handle
+            .scroll_to_item(0, ScrollStrategy::Top);
     }
 }
 
@@ -463,21 +475,22 @@ fn render_diff_mode(
     let path_label = file_diff_path_label(diff);
 
     let file_header = match header {
-        DiffViewerHeader::CommitHistory { .. } => {
-            render_diff_file_header(path_label, colors)
-        }
+        DiffViewerHeader::CommitHistory { .. } => None,
         DiffViewerHeader::WorkingTree {
             section_label,
             is_staged,
             has_line_selection,
             entity,
-        } => append_working_tree_header_actions(
-            render_diff_file_header(path_label, colors),
-            colors,
-            section_label,
-            is_staged,
-            has_line_selection,
-            entity,
+        } => Some(
+            append_working_tree_header_actions(
+                render_diff_file_header(path_label, colors),
+                colors,
+                section_label,
+                is_staged,
+                has_line_selection,
+                entity,
+            )
+            .flex_shrink_0(),
         ),
     };
 
@@ -497,14 +510,28 @@ fn render_diff_mode(
         )
     };
 
-    div()
+    let body_container = div()
         .flex_1()
+        .min_h(px(0.0))
+        .flex()
+        .flex_col()
+        .overflow_hidden()
+        .child(body);
+
+    let mut root = div()
+        .flex_1()
+        .min_h(px(0.0))
         .h_full()
         .bg(surface)
         .flex()
         .flex_col()
-        .child(file_header)
-        .child(body)
+        .overflow_hidden();
+
+    if let Some(file_header) = file_header {
+        root = root.child(file_header);
+    }
+
+    root.child(body_container)
 }
 
 fn render_code_view(
@@ -605,23 +632,28 @@ fn render_code_view(
                     .flex()
                     .flex_row()
                     .items_center()
+                    .overflow_hidden()
                     .bg(surface)
                     .child(
                         div()
                             .w(px(DIFF_LINE_NUM_WIDTH))
-                            .h_full()
+                            .h(px(DIFF_LINE_HEIGHT))
+                            .flex_shrink_0()
                             .flex()
                             .items_center()
+                            .overflow_hidden()
                             .bg(surface)
                             .border_r_1()
                             .border_color(border)
                             .child(
                                 div()
                                     .w_full()
+                                    .overflow_hidden()
                                     .text_xs()
                                     .font_family("monospace")
                                     .text_color(muted)
-                                    .pl_2()
+                                    .text_right()
+                                    .pr_1()
                                     .child(line_num),
                             ),
                     )
@@ -719,23 +751,28 @@ fn render_blame_view(
                     .flex()
                     .flex_row()
                     .items_center()
+                    .overflow_hidden()
                     .bg(surface)
                     .child(
                         div()
                             .w(px(DIFF_LINE_NUM_WIDTH))
-                            .h_full()
+                            .h(px(DIFF_LINE_HEIGHT))
+                            .flex_shrink_0()
                             .flex()
                             .items_center()
+                            .overflow_hidden()
                             .bg(surface)
                             .border_r_1()
                             .border_color(border)
                             .child(
                                 div()
                                     .w_full()
+                                    .overflow_hidden()
                                     .text_xs()
                                     .font_family("monospace")
                                     .text_color(muted)
-                                    .pl_2()
+                                    .text_right()
+                                    .pr_1()
                                     .child(line_num),
                             ),
                     )

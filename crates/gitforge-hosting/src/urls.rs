@@ -1,5 +1,5 @@
 use crate::provider::HostingProvider;
-use crate::{GiteaStyleProvider, GitLabProvider};
+use crate::{GitLabProvider, GiteaStyleProvider};
 
 pub fn normalize_remote_url(url: &str) -> String {
     let url = url.trim();

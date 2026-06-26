@@ -386,9 +386,7 @@ impl GitForgeApp {
                 p.list_branches(&account, &owner, &repo).await
             },
             move |this, branches, cx| {
-                if this.create_pr.provider != provider_ok
-                    || this.create_pr.to_repo != to_repo_ok
-                {
+                if this.create_pr.provider != provider_ok || this.create_pr.to_repo != to_repo_ok {
                     return;
                 }
                 this.create_pr.loading_branches = false;
@@ -396,8 +394,7 @@ impl GitForgeApp {
                 cx.notify();
             },
             move |this, _cx| {
-                if this.create_pr.provider != provider_err
-                    || this.create_pr.to_repo != to_repo_err
+                if this.create_pr.provider != provider_err || this.create_pr.to_repo != to_repo_err
                 {
                     return;
                 }

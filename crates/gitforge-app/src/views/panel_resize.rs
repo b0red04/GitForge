@@ -9,7 +9,9 @@
 
 use gpui::*;
 
-use super::layout::{PANEL_RESIZE_HANDLE_WIDTH, SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH, SIDEBAR_WIDTH};
+use super::layout::{
+    PANEL_RESIZE_HANDLE_WIDTH, SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH, SIDEBAR_WIDTH,
+};
 
 /// Which side a resize is acting on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,7 +36,10 @@ pub fn clamp_sidebar_width(w: f32) -> f32 {
 }
 
 pub fn clamp_right_width(w: f32) -> f32 {
-    w.clamp(super::layout::RIGHT_MIN_WIDTH, super::layout::RIGHT_MAX_WIDTH)
+    w.clamp(
+        super::layout::RIGHT_MIN_WIDTH,
+        super::layout::RIGHT_MAX_WIDTH,
+    )
 }
 
 /// Default width for a side (used by double-click-to-reset).

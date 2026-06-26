@@ -64,7 +64,12 @@ pub fn render(
                 .rounded(px(3.0))
                 .cursor_pointer()
                 .hover(move |s| s.bg(surface_high))
-                .child(svg().size(px(14.0)).path("icons/x.svg").text_color(dc.muted))
+                .child(
+                    svg()
+                        .size(px(14.0))
+                        .path("icons/x.svg")
+                        .text_color(dc.muted),
+                )
                 .on_click(move |_ev, _window, cx| {
                     if let Some(e) = ent_close.upgrade() {
                         e.update(cx, |this, cx| this.cancel_dialog(cx));
@@ -178,7 +183,12 @@ fn render_local_tab(
         .gap_2()
         .cursor_pointer()
         .hover(move |s| s.bg(surface_high))
-        .child(svg().size(px(16.0)).path("icons/folder.svg").text_color(dc.accent))
+        .child(
+            svg()
+                .size(px(16.0))
+                .path("icons/folder.svg")
+                .text_color(dc.accent),
+        )
         .child(SharedString::from("Open Folder…"))
         .on_click(move |_ev, _window, cx| {
             if let Some(e) = ent_folder.upgrade() {
@@ -283,10 +293,14 @@ fn render_account_tab(
     repos_loading: bool,
 ) -> Stateful<Div> {
     if repos_loading {
-        return div().id("add-repo-account-loading").child(dialog_label("Loading repositories...", dc));
+        return div()
+            .id("add-repo-account-loading")
+            .child(dialog_label("Loading repositories...", dc));
     }
     if repos.is_empty() {
-        return div().id("add-repo-account-empty").child(dialog_label("No repositories found.", dc));
+        return div()
+            .id("add-repo-account-empty")
+            .child(dialog_label("No repositories found.", dc));
     }
     let mut list = div()
         .id("add-repo-repo-list")

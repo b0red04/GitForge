@@ -33,9 +33,7 @@ pub enum TextInputDisplay {
 pub enum TextInputEvent {
     Typed(String),
     Backspace,
-    Enter {
-        key_char: Option<String>,
-    },
+    Enter { key_char: Option<String> },
     Escape,
     ArrowUp,
     ArrowDown,
@@ -427,12 +425,11 @@ pub fn render_text_input(
         .background
         .unwrap_or_else(|| rgba_to_hsla(colors.background));
 
-    let focused = opts.force_focused.unwrap_or_else(|| input.is_focused(window));
+    let focused = opts
+        .force_focused
+        .unwrap_or_else(|| input.is_focused(window));
     let border_color = if focused { accent } else { border };
-    let placeholder = opts
-        .placeholder
-        .as_deref()
-        .unwrap_or(input.placeholder());
+    let placeholder = opts.placeholder.as_deref().unwrap_or(input.placeholder());
     let (display_text, show_placeholder) =
         input.display_parts_with_placeholder(focused, opts.configured, placeholder);
     let display_color = if show_placeholder { muted } else { text_color };
@@ -537,10 +534,7 @@ pub fn render_static_text_input(
         .unwrap_or_else(|| rgba_to_hsla(colors.background));
 
     let border_color = if show_cursor { accent } else { border };
-    let placeholder_text = opts
-        .placeholder
-        .as_deref()
-        .unwrap_or(placeholder);
+    let placeholder_text = opts.placeholder.as_deref().unwrap_or(placeholder);
     let (display_text, show_placeholder) =
         temp.display_parts_with_placeholder(show_cursor, opts.configured, placeholder_text);
     let display_color = if show_placeholder { muted } else { text_color };
@@ -632,4 +626,3 @@ pub fn parse_key_event(ev: &KeyDownEvent) -> TextInputEvent {
         }
     }
 }
-

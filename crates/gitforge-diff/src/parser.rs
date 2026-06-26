@@ -98,7 +98,14 @@ pub fn parse_unified_diff(raw: &str) -> Vec<FileDiff> {
         if line.starts_with("diff --git") {
             if let Some(mut b) = current.take() {
                 let len = b.lines.len();
-                flush_hunk(&b.lines, &mut b.hunks, hunk_start, len, hunk_old_start, hunk_new_start);
+                flush_hunk(
+                    &b.lines,
+                    &mut b.hunks,
+                    hunk_start,
+                    len,
+                    hunk_old_start,
+                    hunk_new_start,
+                );
                 files.push(b.build());
             }
             current = Some(FileBuilder::new());
@@ -125,7 +132,14 @@ pub fn parse_unified_diff(raw: &str) -> Vec<FileDiff> {
 
         if line.starts_with("@@") {
             let len = file.lines.len();
-            flush_hunk(&file.lines, &mut file.hunks, hunk_start, len, hunk_old_start, hunk_new_start);
+            flush_hunk(
+                &file.lines,
+                &mut file.hunks,
+                hunk_start,
+                len,
+                hunk_old_start,
+                hunk_new_start,
+            );
 
             if let Some((ol, nl)) = parse_hunk_header(line) {
                 old_line = ol;
@@ -136,8 +150,8 @@ pub fn parse_unified_diff(raw: &str) -> Vec<FileDiff> {
             hunk_start = Some(file.lines.len());
             file.lines.push(DiffLine {
                 line_type: DiffLineType::HunkHeader,
-                old_line: Some(old_line),
-                new_line: Some(new_line),
+                old_line: None,
+                new_line: None,
                 content: line.to_string(),
             });
             continue;
@@ -149,6 +163,9 @@ pub fn parse_unified_diff(raw: &str) -> Vec<FileDiff> {
         }
 
         if line.starts_with('+') {
+            if hunk_start.is_none() {
+                continue;
+            }
             let content = line[1..].to_string();
             file.lines.push(DiffLine {
                 line_type: DiffLineType::Added,
@@ -158,6 +175,9 @@ pub fn parse_unified_diff(raw: &str) -> Vec<FileDiff> {
             });
             new_line += 1;
         } else if line.starts_with('-') {
+            if hunk_start.is_none() {
+                continue;
+            }
             let content = line[1..].to_string();
             file.lines.push(DiffLine {
                 line_type: DiffLineType::Removed,
@@ -167,6 +187,9 @@ pub fn parse_unified_diff(raw: &str) -> Vec<FileDiff> {
             });
             old_line += 1;
         } else if line.starts_with('\\') {
+            if hunk_start.is_none() {
+                continue;
+            }
             file.lines.push(DiffLine {
                 line_type: DiffLineType::NoNewlineAtEof,
                 old_line: None,
@@ -174,6 +197,9 @@ pub fn parse_unified_diff(raw: &str) -> Vec<FileDiff> {
                 content: line[1..].to_string(),
             });
         } else {
+            if hunk_start.is_none() {
+                continue;
+            }
             let content = if line.is_empty() {
                 String::new()
             } else {
@@ -192,7 +218,14 @@ pub fn parse_unified_diff(raw: &str) -> Vec<FileDiff> {
 
     if let Some(mut b) = current.take() {
         let len = b.lines.len();
-        flush_hunk(&b.lines, &mut b.hunks, hunk_start, len, hunk_old_start, hunk_new_start);
+        flush_hunk(
+            &b.lines,
+            &mut b.hunks,
+            hunk_start,
+            len,
+            hunk_old_start,
+            hunk_new_start,
+        );
         files.push(b.build());
     }
 
@@ -267,8 +300,8 @@ diff --git a/a.txt b/a.txt
         let files = parse_unified_diff(raw);
         let lines = &files[0].lines;
 
-        assert_eq!(lines[0].old_line, Some(10));
-        assert_eq!(lines[0].new_line, Some(10));
+        assert_eq!(lines[0].old_line, None);
+        assert_eq!(lines[0].new_line, None);
 
         assert_eq!(lines[1].old_line, Some(10));
         assert_eq!(lines[1].new_line, Some(10));
@@ -313,8 +346,8 @@ diff --git a/big.rs b/big.rs
             .collect();
         assert_eq!(hunks.len(), 2);
 
-        assert_eq!(files[0].lines[0].old_line, Some(1));
-        assert_eq!(files[0].lines[5].old_line, Some(50));
+        assert_eq!(files[0].lines[0].old_line, None);
+        assert_eq!(files[0].lines[6].old_line, Some(50));
     }
 
     #[test]
@@ -426,6 +459,27 @@ diff --git a/foo b/foo
         assert_eq!(parse_hunk_header("@@ -50 +50 @@"), Some((50, 50)));
         assert_eq!(parse_hunk_header("@@ -0,0 +1,3 @@"), Some((0, 1)));
         assert_eq!(parse_hunk_header("not a hunk"), None);
+    }
+
+    #[test]
+    fn skips_non_hunk_metadata_lines() {
+        let raw = "\
+diff --git a/readme.md b/readme.md
+index 1234567..89abcde 100644
+--- a/readme.md
++++ b/readme.md
+@@ -2,2 +2,2 @@
+-old
++new
+ context
+";
+        let files = parse_unified_diff(raw);
+        assert_eq!(files.len(), 1);
+        let lines = &files[0].lines;
+        assert_eq!(lines[0].line_type, HunkHeader);
+        assert!(lines.iter().all(|l| !l.content.starts_with("index ")));
+        assert_eq!(lines[1].old_line, Some(2));
+        assert_eq!(lines[1].new_line, None);
     }
 
     #[test]

@@ -9,7 +9,8 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 pub const DIFF_LINE_HEIGHT: f32 = 20.0;
-pub const DIFF_LINE_NUM_WIDTH: f32 = 50.0;
+pub const DIFF_LINE_NUM_WIDTH: f32 = 72.0;
+pub const DIFF_LINE_NUM_COL_WIDTH: f32 = DIFF_LINE_NUM_WIDTH / 2.0;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct HighlightCacheKey {
@@ -224,14 +225,24 @@ pub fn render_diff_lines(
                     }
                 };
 
-                let old_num = line
-                    .old_line
-                    .map(|n| format!("{:>4}", n))
-                    .unwrap_or_else(|| "    ".to_string());
-                let new_num = line
-                    .new_line
-                    .map(|n| format!("{:>4}", n))
-                    .unwrap_or_else(|| "    ".to_string());
+                let show_line_numbers = !matches!(
+                    line.line_type,
+                    DiffLineType::HunkHeader | DiffLineType::NoNewlineAtEof
+                );
+                let old_num = if show_line_numbers {
+                    line.old_line
+                        .map(|n| format!("{:>4}", n))
+                        .unwrap_or_else(|| "    ".to_string())
+                } else {
+                    "    ".to_string()
+                };
+                let new_num = if show_line_numbers {
+                    line.new_line
+                        .map(|n| format!("{:>4}", n))
+                        .unwrap_or_else(|| "    ".to_string())
+                } else {
+                    "    ".to_string()
+                };
 
                 let display_content: String = line.content.chars().take(200).collect();
 
@@ -278,6 +289,7 @@ pub fn render_diff_lines(
                     .flex()
                     .flex_row()
                     .items_center()
+                    .overflow_hidden()
                     .bg(line_bg)
                     .cursor_pointer()
                     .on_mouse_down(
@@ -290,29 +302,35 @@ pub fn render_diff_lines(
                     .child(
                         div()
                             .w(px(DIFF_LINE_NUM_WIDTH))
-                            .h_full()
+                            .h(px(DIFF_LINE_HEIGHT))
+                            .flex_shrink_0()
                             .flex()
                             .flex_row()
                             .items_center()
+                            .overflow_hidden()
                             .bg(line_num_bg)
                             .border_r_1()
                             .border_color(border)
                             .child(
                                 div()
-                                    .w(px(DIFF_LINE_NUM_WIDTH / 2.0))
+                                    .w(px(DIFF_LINE_NUM_COL_WIDTH))
+                                    .overflow_hidden()
                                     .text_xs()
                                     .font_family("monospace")
                                     .text_color(muted)
-                                    .pl_2()
+                                    .text_right()
+                                    .pr_1()
                                     .child(old_num),
                             )
                             .child(
                                 div()
-                                    .w(px(DIFF_LINE_NUM_WIDTH / 2.0))
+                                    .w(px(DIFF_LINE_NUM_COL_WIDTH))
+                                    .overflow_hidden()
                                     .text_xs()
                                     .font_family("monospace")
                                     .text_color(muted)
-                                    .pl_1()
+                                    .text_right()
+                                    .pr_1()
                                     .child(new_num),
                             ),
                     )
@@ -336,7 +354,14 @@ pub fn render_diff_lines(
             row_elements
         },
     )
-    .track_scroll(scroll_handle);
+    .track_scroll(scroll_handle)
+    .h_full();
 
-    div().flex_1().child(diff_lines)
+    div()
+        .flex_1()
+        .min_h(px(0.0))
+        .flex()
+        .flex_col()
+        .overflow_hidden()
+        .child(diff_lines)
 }

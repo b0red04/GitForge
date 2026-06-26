@@ -10,9 +10,7 @@ pub mod urls;
 pub use avatar::{avatar_cache_path, cached_avatar_path, ensure_avatar_cached};
 pub use gitea_style::GiteaStyleProvider;
 pub use gitlab::GitLabProvider;
-pub use models::{
-    CreatePullRequestRequest, HostingAccount, PullRequest, RemoteRepo,
-};
+pub use models::{CreatePullRequestRequest, HostingAccount, PullRequest, RemoteRepo};
 pub use provider::HostingProvider;
 
 /// Type alias preserving the historical name for GitHub.

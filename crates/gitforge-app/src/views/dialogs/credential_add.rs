@@ -100,9 +100,7 @@ fn store_credential(
     app.run_blocking_op_returning(
         "Store credential",
         cx,
-        move || {
-            gitforge_git::credential::store_credential(&host, &username, &password, None)
-        },
+        move || gitforge_git::credential::store_credential(&host, &username, &password, None),
         |this, _value, cx| {
             this.push_toast(
                 crate::views::toasts::ToastKind::Success,
