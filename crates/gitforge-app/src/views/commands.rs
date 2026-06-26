@@ -1,16 +1,17 @@
 use gpui::Action;
 
 use crate::views::app::{
-    AddRemote, BackToDiff, CheckForUpdates, CloneFromGithub, CloneFromGitlab, CloneRepo, CloseTab,
-    CreateBranch, CreatePullRequest, CreateWorktree, InitRepo, ManageAccounts, NewTab,
-    OpenAiSettings, OpenInBrowser, OpenInEditor, OpenInFileManager, OpenInTerminal,
+    AboutGitForge, AddRemote, BackToDiff, CheckForUpdates, CloneFromGithub, CloneFromGitlab,
+    CloneRepo, CloseTab, CreateBranch, CreatePullRequest, CreateWorktree, InitRepo, ManageAccounts,
+    NewTab, OpenAiSettings, OpenInBrowser, OpenInEditor, OpenInFileManager, OpenInTerminal,
     OpenRepoManagement, OpenRepository, OpenSshKey, Preferences, QuitApp, RefreshRepository,
-    ReopenClosedTab, SelectNextCommit, SelectPrevCommit, ShowCommandPalette, ShowHistory,
-    ShowStatusPanel, SoftReset, StashPop, StashPush, ToggleTheme, ViewFileAtCommit,
+    ReopenClosedTab, SelectNextCommit, SelectPrevCommit, SelectTheme, ShowCommandPalette,
+    ShowHistory, ShowStatusPanel, SoftReset, StashPop, StashPush, ToggleTheme, ViewFileAtCommit,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TitlebarMenu {
+    App,
     File,
     Edit,
     Selection,
@@ -27,6 +28,7 @@ impl TitlebarMenu {
 
     pub fn label(self) -> &'static str {
         match self {
+            TitlebarMenu::App => "GitForge",
             TitlebarMenu::File => "File",
             TitlebarMenu::Edit => "Edit",
             TitlebarMenu::Selection => "Selection",
@@ -36,6 +38,7 @@ impl TitlebarMenu {
 
     pub fn element_id(self) -> &'static str {
         match self {
+            TitlebarMenu::App => "titlebar-menu-app",
             TitlebarMenu::File => "titlebar-menu-file",
             TitlebarMenu::Edit => "titlebar-menu-edit",
             TitlebarMenu::Selection => "titlebar-menu-selection",
@@ -45,6 +48,7 @@ impl TitlebarMenu {
 
     pub fn dropdown_left(self) -> f32 {
         match self {
+            TitlebarMenu::App => 8.0,
             TitlebarMenu::File => 44.0,
             TitlebarMenu::Edit => 84.0,
             TitlebarMenu::Selection => 124.0,
@@ -90,6 +94,8 @@ pub enum CommandAction {
     CommandPalette,
     ToggleTheme,
     CheckForUpdates,
+    About,
+    SelectTheme,
 }
 
 impl CommandAction {
@@ -130,6 +136,8 @@ impl CommandAction {
             Self::CommandPalette => Box::new(ShowCommandPalette),
             Self::ToggleTheme => Box::new(ToggleTheme),
             Self::CheckForUpdates => Box::new(CheckForUpdates),
+            Self::About => Box::new(AboutGitForge),
+            Self::SelectTheme => Box::new(SelectTheme),
         }
     }
 }
@@ -146,6 +154,37 @@ pub enum MenuEntry {
     Item(CommandEntry),
     Separator,
 }
+
+const APP_MENU: &[MenuEntry] = &[
+    MenuEntry::Item(CommandEntry {
+        label: "About GitForge",
+        action: CommandAction::About,
+        keybinding: None,
+    }),
+    MenuEntry::Item(CommandEntry {
+        label: "Check for Updates",
+        action: CommandAction::CheckForUpdates,
+        keybinding: None,
+    }),
+    MenuEntry::Separator,
+    MenuEntry::Item(CommandEntry {
+        label: "Open Settings",
+        action: CommandAction::Preferences,
+        keybinding: Some("Ctrl+,"),
+    }),
+    MenuEntry::Separator,
+    MenuEntry::Item(CommandEntry {
+        label: "Select Theme...",
+        action: CommandAction::SelectTheme,
+        keybinding: None,
+    }),
+    MenuEntry::Separator,
+    MenuEntry::Item(CommandEntry {
+        label: "Quit GitForge",
+        action: CommandAction::Quit,
+        keybinding: Some("Ctrl+Q"),
+    }),
+];
 
 const FILE_MENU: &[MenuEntry] = &[
     MenuEntry::Item(CommandEntry {
@@ -346,6 +385,7 @@ const VIEW_MENU: &[CommandEntry] = &[
 
 pub fn titlebar_menu_entries(menu: TitlebarMenu) -> MenuEntries {
     match menu {
+        TitlebarMenu::App => MenuEntries::WithSeparators(APP_MENU),
         TitlebarMenu::File => MenuEntries::WithSeparators(FILE_MENU),
         TitlebarMenu::Edit => MenuEntries::Flat(EDIT_MENU),
         TitlebarMenu::Selection => MenuEntries::Flat(SELECTION_MENU),
@@ -360,6 +400,11 @@ pub enum MenuEntries {
 
 pub fn command_palette_entries() -> Vec<CommandEntry> {
     let mut entries = Vec::new();
+    for entry in APP_MENU {
+        if let MenuEntry::Item(item) = entry {
+            entries.push(*item);
+        }
+    }
     for entry in FILE_MENU {
         if let MenuEntry::Item(item) = entry {
             entries.push(*item);

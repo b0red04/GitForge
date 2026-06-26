@@ -538,7 +538,7 @@ fn render_open_dropdown(
     }
 
     let surface = rgba_to_hsla(colors.surface);
-    let border = rgba_to_hsla(colors.border);
+    let accent = rgba_to_hsla(colors.accent);
     let text_color = rgba_to_hsla(colors.text);
     let muted = rgba_to_hsla(colors.text_muted);
     let hover_bg = rgba_to_hsla(colors.sidebar_hover);
@@ -553,7 +553,7 @@ fn render_open_dropdown(
         .overflow_y_scroll()
         .bg(surface)
         .border_1()
-        .border_color(border)
+        .border_color(accent)
         .rounded(px(4.0))
         .py_1()
         .shadow(vec![BoxShadow {
@@ -603,7 +603,7 @@ fn render_open_dropdown(
 
 fn loading_dropdown(colors: &AppColors) -> Stateful<Div> {
     let surface = rgba_to_hsla(colors.surface);
-    let border = rgba_to_hsla(colors.border);
+    let accent = rgba_to_hsla(colors.accent);
     let muted = rgba_to_hsla(colors.text_muted);
     div()
         .id("create-pr-dropdown-loading")
@@ -613,7 +613,7 @@ fn loading_dropdown(colors: &AppColors) -> Stateful<Div> {
         .w(px(220.0))
         .bg(surface)
         .border_1()
-        .border_color(border)
+        .border_color(accent)
         .rounded(px(4.0))
         .px_3()
         .py_2()

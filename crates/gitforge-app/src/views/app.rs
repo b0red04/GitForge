@@ -54,6 +54,8 @@ actions!(
         OpenAiSettings,
         CreatePullRequest,
         CheckForUpdates,
+        AboutGitForge,
+        SelectTheme,
     ]
 );
 
@@ -953,6 +955,8 @@ impl Render for GitForgeApp {
             .on_action(cx.listener(Self::handle_open_ai_settings))
             .on_action(cx.listener(Self::handle_create_pull_request))
             .on_action(cx.listener(Self::handle_view_file))
+            .on_action(cx.listener(Self::handle_about_gitforge))
+            .on_action(cx.listener(Self::handle_select_theme))
             .child(super::window_chrome::render_window_chrome(
                 inner,
                 &self.colors,

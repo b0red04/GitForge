@@ -208,7 +208,7 @@ impl CommandPalette {
                         .w(px(480.0))
                         .bg(surface)
                         .border_1()
-                        .border_color(border)
+                        .border_color(accent)
                         .rounded(px(6.0))
                         .shadow(vec![BoxShadow {
                             color: black(),
