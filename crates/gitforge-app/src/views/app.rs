@@ -6,6 +6,7 @@ use std::path::PathBuf;
 
 use super::command_palette::CommandPalette;
 use super::commands::TitlebarMenu;
+use super::dialogs::AddRepoTab;
 use super::dialogs::CreatePrState;
 use super::repo_session::{RepoSession, drop_caret_index};
 use super::settings::AppSettings;
@@ -103,6 +104,11 @@ pub enum AppDialog {
         parent: PathBuf,
     },
     CreatePullRequest,
+    /// Unified "Add Repository" picker opened from the tab bar "+" button.
+    /// Has its own tab state (`add_repo_tab` on `GitForgeApp`) instead of a
+    /// payload. Reuses `hosting_repos` / `hosting_repos_loading` for the
+    /// currently-active account tab.
+    AddRepo,
 }
 
 pub struct GitForgeApp {
@@ -120,6 +126,10 @@ pub struct GitForgeApp {
     pub(crate) hosting_accounts: Vec<gitforge_hosting::HostingAccount>,
     pub(crate) hosting_repos: Vec<gitforge_hosting::RemoteRepo>,
     pub(crate) hosting_repos_loading: bool,
+    /// Active tab in the `AddRepo` dialog. Lives on the app (not in the
+    /// `AppDialog::AddRepo` variant) so the renderer can read it from
+    /// `dialog_render` without plumbing a payload through `active_dialog`.
+    pub(crate) add_repo_tab: AddRepoTab,
     pub(crate) ai_generating: bool,
     pub(crate) focus_handle: FocusHandle,
     pub(crate) local_branch_dropdown_open: bool,
@@ -180,6 +190,7 @@ impl GitForgeApp {
             hosting_accounts: Vec::new(),
             hosting_repos: Vec::new(),
             hosting_repos_loading: false,
+            add_repo_tab: AddRepoTab::Local,
             ai_generating: false,
             focus_handle: cx.focus_handle(),
             local_branch_dropdown_open: false,
@@ -620,37 +631,39 @@ impl Render for GitForgeApp {
             .child(titlebar_divider);
 
         let repo_tab_views = self.repo_session.repo_tab_views();
-        if !repo_tab_views.is_empty() {
-            // GPUI clears its active drag on mouse-up whether or not the drop
-            // hit a target. If our `tab_drag_source` flag survived (e.g. the
-            // drag was cancelled off-target), treat it as inactive here so a
-            // tab isn't left dimmed and a caret isn't left drawn. The stale
-            // stored value is harmless: it's overwritten on the next drag start
-            // (`on_drag`) or drop, and `has_active_drag` gates every read.
-            let drag_source = self
-                .repo_session
-                .tab_drag_source
-                .filter(|_| cx.has_active_drag());
-            // Derive the insertion-caret index from the live drop target. When
-            // the cursor is over the bar's tail (no specific tab target) the
-            // caret sits at the end. Positions immediately adjacent to the
-            // dragged tab represent a no-op move and are collapsed to `None`.
-            let drop_caret = drop_caret_index(
-                &self.repo_session.open_repo_tabs,
-                drag_source,
-                self.repo_session.tab_drop_target,
-            );
+        // GPUI clears its active drag on mouse-up whether or not the drop
+        // hit a target. If our `tab_drag_source` flag survived (e.g. the
+        // drag was cancelled off-target), treat it as inactive here so a
+        // tab isn't left dimmed and a caret isn't left drawn. The stale
+        // stored value is harmless: it's overwritten on the next drag start
+        // (`on_drag`) or drop, and `has_active_drag` gates every read.
+        let drag_source = self
+            .repo_session
+            .tab_drag_source
+            .filter(|_| cx.has_active_drag());
+        // Derive the insertion-caret index from the live drop target. When
+        // the cursor is over the bar's tail (no specific tab target) the
+        // caret sits at the end. Positions immediately adjacent to the
+        // dragged tab represent a no-op move and are collapsed to `None`.
+        let drop_caret = drop_caret_index(
+            &self.repo_session.open_repo_tabs,
+            drag_source,
+            self.repo_session.tab_drop_target,
+        );
 
-            inner = inner.child(super::repo_tabs::render_repo_tab_bar(
-                &repo_tab_views,
-                self.repo_session.active_repo_tab_id,
-                &self.colors,
-                window,
-                entity.clone(),
-                drag_source,
-                drop_caret,
-            ));
-        }
+        // The bar always renders so the "+" add-repo affordance is visible
+        // even with zero open tabs. With no tabs (or no active drag) the
+        // derived values above are `None`, so only the add button + tail
+        // are drawn.
+        inner = inner.child(super::repo_tabs::render_repo_tab_bar(
+            &repo_tab_views,
+            self.repo_session.active_repo_tab_id,
+            &self.colors,
+            window,
+            entity.clone(),
+            drag_source,
+            drop_caret,
+        ));
 
         if let Some(banner) = error_banner {
             inner = inner.child(banner);
@@ -711,8 +724,10 @@ impl Render for GitForgeApp {
                 &self.colors,
                 entity.clone(),
                 window,
+                &self.hosting_accounts,
                 &self.hosting_repos,
                 self.hosting_repos_loading,
+                &self.add_repo_tab,
                 &self.create_pr,
             ));
         }

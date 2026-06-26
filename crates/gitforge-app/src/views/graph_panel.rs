@@ -1284,7 +1284,7 @@ fn render_ref_pills(
 
     // Detached HEAD injects a "HEAD" pill on the commit HEAD points to. When
     // attached, the underlying branch renders as a normal branch pill (the
-    // is_head flag still tints it with ref_head so the "you are here" cue stays).
+    // is_head flag still tints it with accent so the "you are here" cue stays).
     let head_injected = detached_head_commit == Some(commit_id);
     if head_injected {
         row = row.child(render_detached_head_pill(cl));
@@ -1452,9 +1452,9 @@ fn render_ref_pill(
 }
 
 fn render_detached_head_pill(cl: &AppColors) -> Div {
-    // Same visual treatment as an attached HEAD (ref_head color + laptop icon),
+    // Same visual treatment as an attached HEAD (accent color + laptop icon),
     // but with the literal "HEAD" label since there is no branch name to show.
-    let pill_color = cl.ref_head;
+    let pill_color = cl.accent;
     let text_color = contrast_text_for(pill_color);
     div()
         .px_2()
@@ -1481,7 +1481,7 @@ fn render_detached_head_pill(cl: &AppColors) -> Div {
 
 fn ref_pill_color(rf: &RefInfo, cl: &AppColors) -> Rgba {
     if rf.is_head {
-        return cl.ref_head;
+        return cl.accent;
     }
 
     match rf.kind {

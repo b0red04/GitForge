@@ -2,8 +2,10 @@ use std::future::Future;
 
 use gpui::Context;
 
-use crate::views::app::GitForgeApp;
+use crate::views::app::{AppDialog, GitForgeApp};
+use crate::views::dialogs::AddRepoTab;
 use crate::views::ops::dispatch::{AppError, OpEffects, RemoteError};
+use crate::views::settings_window::SettingsSection;
 
 impl GitForgeApp {
     pub(crate) fn find_hosting_account(
@@ -173,6 +175,18 @@ impl GitForgeApp {
         self.active_dialog = super::super::app::AppDialog::CloneFromHosting {
             provider: provider.clone(),
         };
+        self.load_hosting_repos(provider, cx);
+    }
+
+    /// Look up the account for `provider`, set `hosting_repos_loading = true`,
+    /// and fetch its repo list off-thread via `run_hosting_op`. Populates
+    /// `self.hosting_repos` on success and clears the loading flag on any
+    /// outcome. Shared by `open_clone_from_hosting_dialog` and the unified
+    /// `AddRepo` dialog's account-tab switching. The success and error
+    /// callbacks discard stale responses whose requested provider no longer
+    /// matches the active dialog/tab, so a slow in-flight list cannot
+    /// clobber the view after a switch.
+    fn load_hosting_repos(&mut self, provider: String, cx: &mut Context<Self>) {
         self.hosting_repos.clear();
         self.hosting_repos_loading = true;
         cx.notify();
@@ -196,19 +210,120 @@ impl GitForgeApp {
             return;
         };
 
+        let ok_provider = provider.clone();
+        let err_provider = provider;
         self.run_hosting_op(
             "List repos",
             cx,
             move || async move { p.list_repos(&account).await },
             move |this, repos, cx| {
-                this.hosting_repos = repos;
-                this.hosting_repos_loading = false;
-                cx.notify();
+                if this.active_hosting_repo_provider() == Some(ok_provider.as_str()) {
+                    this.hosting_repos = repos;
+                    this.hosting_repos_loading = false;
+                    cx.notify();
+                }
             },
-            |this, _cx| {
-                this.hosting_repos_loading = false;
+            move |this, _cx| {
+                if this.active_hosting_repo_provider() == Some(err_provider.as_str()) {
+                    this.hosting_repos_loading = false;
+                }
             },
         );
+    }
+
+    /// The provider whose repo list the currently-active dialog/tab is
+    /// expecting, or `None` when no hosting-repo view is on screen (the
+    /// AddRepo dialog is on its Local tab, or a different dialog is open).
+    /// Used to discard stale `list_repos` responses after a tab/dialog switch.
+    fn active_hosting_repo_provider(&self) -> Option<&str> {
+        match &self.active_dialog {
+            AppDialog::CloneFromHosting { provider } => Some(provider),
+            AppDialog::AddRepo => match &self.add_repo_tab {
+                AddRepoTab::Account(provider) => Some(provider),
+                AddRepoTab::Local => None,
+            },
+            _ => None,
+        }
+    }
+
+    /// Open the unified "Add Repository" dialog. Defaults the active tab to
+    /// the first connected account (and pre-fetches its repos) so the user
+    /// lands on a populated list when any account is available; falls back to
+    /// the Local tab when zero accounts are connected.
+    pub fn open_add_repo_dialog(&mut self, cx: &mut Context<Self>) {
+        self.active_dialog = super::super::app::AppDialog::AddRepo;
+        self.hosting_repos.clear();
+        self.dialog_input.clear();
+        let default_tab = self
+            .hosting_accounts
+            .first()
+            .map(|a| AddRepoTab::Account(a.provider.clone()))
+            .unwrap_or(AddRepoTab::Local);
+        self.add_repo_tab = default_tab.clone();
+        cx.notify();
+
+        if let AddRepoTab::Account(provider) = default_tab {
+            self.load_hosting_repos(provider, cx);
+        } else {
+            self.hosting_repos_loading = false;
+        }
+    }
+
+    /// Switch the active tab in the `AddRepo` dialog. Refetches the repo
+    /// list only when landing on a *different* `Account` tab; switching to
+    /// `Local` just clears any stale list. No-op if the tab is unchanged.
+    pub fn switch_add_repo_tab(&mut self, tab: AddRepoTab, cx: &mut Context<Self>) {
+        if self.add_repo_tab == tab {
+            return;
+        }
+        let needs_fetch = matches!(tab, AddRepoTab::Account(_));
+        self.add_repo_tab = tab;
+        self.dialog_input.clear();
+        self.hosting_repos.clear();
+        if needs_fetch {
+            if let AddRepoTab::Account(provider) = &self.add_repo_tab {
+                self.load_hosting_repos(provider.clone(), cx);
+            }
+        } else {
+            self.hosting_repos_loading = false;
+            cx.notify();
+        }
+    }
+
+    /// "Open Folder…" affordance from the AddRepo dialog's Local tab. Closes
+    /// the dialog first so the modal isn't obscuring the native picker, then
+    /// spawns the existing folder-picker flow.
+    pub fn add_repo_open_local_folder(&mut self, cx: &mut Context<Self>) {
+        self.cancel_dialog(cx);
+        self.spawn_open_dialog(cx);
+    }
+
+    /// "Clone" affordance from the AddRepo dialog's Local tab URL input. The
+    /// shared `dialog_input` carries `"URL destination-path"` (same shape as
+    /// the standalone CloneRepo dialog). A missing or empty destination path
+    /// surfaces a warning toast rather than no-op'ing silently.
+    pub fn add_repo_clone_from_url(&mut self, cx: &mut Context<Self>) {
+        let input = self.dialog_input.text().trim().to_string();
+        let parts: Vec<&str> = input.splitn(2, ' ').collect();
+        let Some(path) = parts.get(1).map(|s| s.trim()).filter(|s| !s.is_empty()) else {
+            self.push_toast(
+                crate::views::toasts::ToastKind::Warning,
+                "Enter a URL and a destination path, e.g. https://example.com/repo /path/to/dir"
+                    .to_string(),
+                cx,
+            );
+            return;
+        };
+        let url = parts[0].to_string();
+        self.cancel_dialog(cx);
+        self.clone_repository(url, path.to_string(), cx);
+    }
+
+    /// "Open Settings" affordance shown in the AddRepo dialog's zero-account
+    /// state. Closes the dialog and opens Settings → Accounts.
+    pub fn add_repo_open_settings(&mut self, cx: &mut Context<Self>) {
+        self.cancel_dialog(cx);
+        self.open_settings_window(Some(SettingsSection::Accounts), cx);
     }
 
     pub fn clone_hosting_repo(
@@ -218,21 +333,53 @@ impl GitForgeApp {
         cx: &mut Context<Self>,
     ) {
         self.active_dialog = super::super::app::AppDialog::None;
+        cx.notify();
 
-        let path = dirs::home_dir()
-            .unwrap_or_default()
-            .join("Projects")
-            .join(&repo_name);
-        let open_path = path.clone();
-        self.run_blocking_op_returning(
-            "Clone",
-            cx,
-            move || gitforge_git::Repository::clone_repo(&clone_url, &path, false, None),
-            move |this, _output, cx| {
-                this.open_repo_from_path(open_path, cx);
-            },
-            |_, _| {},
-        );
+        // Spawn a native folder picker so the user chooses the parent dir;
+        // the clone lands in `{picked_parent}/{repo_name}`. Defaults the
+        // picker to `~/Projects` (the previous hardcoded destination) when
+        // it exists, else the home dir.
+        cx.spawn(async move |this, cx| {
+            let default_parent = dirs::home_dir()
+                .map(|h| h.join("Projects"))
+                .filter(|p| p.exists())
+                .or_else(dirs::home_dir);
+            let title = format!("Choose parent folder for \"{repo_name}\"");
+            let picker = cx.update(|_cx| {
+                let mut dialog = rfd::AsyncFileDialog::new().set_title(title);
+                if let Some(dir) = default_parent {
+                    dialog = dialog.set_directory(dir);
+                }
+                dialog
+            });
+            let folder = match picker {
+                Ok(dialog) => dialog.pick_folder().await,
+                Err(_) => None,
+            };
+
+            let Some(folder) = folder else {
+                // User cancelled the picker — abandon the clone.
+                return;
+            };
+
+            let dest = std::path::PathBuf::from(folder.path()).join(&repo_name);
+            let open_path = dest.clone();
+            let url = clone_url.clone();
+
+            this.update(cx, |this, cx| {
+                this.run_blocking_op_returning(
+                    "Clone",
+                    cx,
+                    move || gitforge_git::Repository::clone_repo(&url, &dest, false, None),
+                    move |this, _output, cx| {
+                        this.open_repo_from_path(open_path, cx);
+                    },
+                    |_, _| {},
+                );
+            })
+            .ok();
+        })
+        .detach();
     }
 
     pub fn search_hosting_repos(
