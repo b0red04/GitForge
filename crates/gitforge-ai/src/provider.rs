@@ -3,8 +3,8 @@ use async_trait::async_trait;
 
 use crate::config::CommitMessageConfig;
 use crate::prompt::{
-    build_commit_message_prompt, build_multi_commit_message_prompt, build_pull_request_prompt,
-    truncate_diff,
+    build_branch_name_prompt, build_commit_message_prompt, build_multi_commit_message_prompt,
+    build_pull_request_prompt, sanitize_branch_name, truncate_diff,
 };
 
 #[async_trait]
@@ -44,6 +44,21 @@ pub trait AiProvider: Send + Sync {
         } else {
             Ok(messages)
         }
+    }
+
+    async fn generate_branch_name(
+        &self,
+        diff: &str,
+        current_branch: &str,
+        max_diff_chars: usize,
+    ) -> Result<String> {
+        let diff = truncate_diff(diff, max_diff_chars);
+        let prompt = build_branch_name_prompt(&diff, current_branch);
+        let system = Some(
+            "You are an expert at naming git branches. Output only the branch name, nothing else.",
+        );
+        let raw = self.generate(&prompt, system).await?;
+        Ok(sanitize_branch_name(&raw))
     }
 
     async fn generate_pull_request_content(

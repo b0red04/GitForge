@@ -11,7 +11,7 @@ pub use config::{
     default_model_for_provider, default_temperature, default_variation_mode, normalize_tone,
     pick_default_message,
 };
-pub use prompt::truncate_diff;
+pub use prompt::{sanitize_branch_name, truncate_diff};
 pub use provider::AiProvider;
 pub use providers::{
     AnthropicProvider, OllamaProvider, OpenAiCompatibleProvider, list_ollama_models,

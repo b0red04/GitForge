@@ -1,7 +1,7 @@
 use gpui::*;
 
 use super::super::settings_window::SettingsSection;
-use crate::views::app::{AppDialog, GitForgeApp};
+use crate::views::app::{AppDialog, CommitPushMode, GitForgeApp};
 use crate::views::dialogs::{self, init_repo};
 
 impl GitForgeApp {
@@ -81,6 +81,8 @@ impl GitForgeApp {
         self.dialog_input.clear();
         self.dialog_input_2.clear();
         self.dialog_force = false;
+        self.commit_push_mode = CommitPushMode::default();
+        self.commit_push_generating_branch = false;
         self.hosting_repos.clear();
         self.hosting_repos_loading = false;
         self.add_repo_tab = crate::views::dialogs::AddRepoTab::Local;

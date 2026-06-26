@@ -1,4 +1,5 @@
 pub mod add_repo;
+pub mod commit_and_push;
 pub mod create_pr;
 pub mod credential_add;
 pub mod delete_branch;
@@ -13,7 +14,7 @@ pub mod worktree;
 use gitforge_ui::TextInput;
 use gpui::*;
 
-use crate::views::app::{AppDialog, GitForgeApp};
+use crate::views::app::{AppDialog, CommitPushMode, GitForgeApp};
 
 pub use add_repo::AddRepoTab;
 pub use create_pr::{CreatePrDropdown, CreatePrState};
@@ -43,6 +44,9 @@ pub fn confirm(
         AppDialog::SearchHosting { provider } => {
             hosting_browse::confirm_search(app, input, provider.clone(), cx);
         }
+        AppDialog::CommitAndPush { .. } => {
+            commit_and_push::confirm_from_dialog(app, dialog, input, cx);
+        }
         _ => {}
     }
 }
@@ -52,6 +56,8 @@ pub fn render(
     dialog_input: &TextInput,
     dialog_input_2: &TextInput,
     dialog_force: bool,
+    commit_push_mode: CommitPushMode,
+    commit_push_generating_branch: bool,
     colors: &gitforge_ui::AppColors,
     entity: WeakEntity<GitForgeApp>,
     window: &mut Window,
@@ -62,6 +68,18 @@ pub fn render(
     create_pr: &CreatePrState,
 ) -> Stateful<Div> {
     match dialog {
+        AppDialog::CommitAndPush { current_branch, detached } => {
+            commit_and_push::render(
+                current_branch,
+                *detached,
+                commit_push_mode,
+                commit_push_generating_branch,
+                dialog_input,
+                colors,
+                entity,
+                window,
+            )
+        }
         AppDialog::CreatePullRequest => create_pr::render(create_pr, colors, entity, window),
         AppDialog::DeleteBranch { name } => delete_branch::render(
             name,

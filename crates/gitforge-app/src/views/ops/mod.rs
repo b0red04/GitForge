@@ -2,6 +2,7 @@ pub mod action_handlers;
 pub mod ai_ops;
 pub mod bg;
 pub mod browser_ops;
+pub mod commit_push_ops;
 pub mod dialog_ops;
 pub mod dialog_render;
 pub mod dispatch;
