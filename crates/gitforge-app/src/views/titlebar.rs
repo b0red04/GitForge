@@ -903,13 +903,13 @@ pub fn render_titlebar(
 
     bar = bar.pl(px(8.0)).child(left_cluster.flex_1().min_w(px(0.0)));
 
+    bar = bar.child(update_indicator);
+
     bar = bar.child(render_titlebar_accounts(
         hosting_accounts,
         colors,
         entity.clone(),
     ));
-
-    bar = bar.child(update_indicator);
 
     if !window.is_fullscreen() {
         if let Some(controls) = render_window_controls(window, icon_color, icon_hover, hover_bg) {
