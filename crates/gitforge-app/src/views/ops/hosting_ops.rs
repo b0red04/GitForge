@@ -2,7 +2,7 @@ use std::future::Future;
 
 use gpui::Context;
 
-use crate::views::app::GitForgeApp;
+use crate::views::app::{AppDialog, GitForgeApp};
 use crate::views::dialogs::AddRepoTab;
 use crate::views::ops::dispatch::{AppError, OpEffects, RemoteError};
 use crate::views::settings_window::SettingsSection;
@@ -182,7 +182,10 @@ impl GitForgeApp {
     /// and fetch its repo list off-thread via `run_hosting_op`. Populates
     /// `self.hosting_repos` on success and clears the loading flag on any
     /// outcome. Shared by `open_clone_from_hosting_dialog` and the unified
-    /// `AddRepo` dialog's account-tab switching.
+    /// `AddRepo` dialog's account-tab switching. The success and error
+    /// callbacks discard stale responses whose requested provider no longer
+    /// matches the active dialog/tab, so a slow in-flight list cannot
+    /// clobber the view after a switch.
     fn load_hosting_repos(&mut self, provider: String, cx: &mut Context<Self>) {
         self.hosting_repos.clear();
         self.hosting_repos_loading = true;
@@ -207,19 +210,40 @@ impl GitForgeApp {
             return;
         };
 
+        let ok_provider = provider.clone();
+        let err_provider = provider;
         self.run_hosting_op(
             "List repos",
             cx,
             move || async move { p.list_repos(&account).await },
             move |this, repos, cx| {
-                this.hosting_repos = repos;
-                this.hosting_repos_loading = false;
-                cx.notify();
+                if this.active_hosting_repo_provider() == Some(ok_provider.as_str()) {
+                    this.hosting_repos = repos;
+                    this.hosting_repos_loading = false;
+                    cx.notify();
+                }
             },
-            |this, _cx| {
-                this.hosting_repos_loading = false;
+            move |this, _cx| {
+                if this.active_hosting_repo_provider() == Some(err_provider.as_str()) {
+                    this.hosting_repos_loading = false;
+                }
             },
         );
+    }
+
+    /// The provider whose repo list the currently-active dialog/tab is
+    /// expecting, or `None` when no hosting-repo view is on screen (the
+    /// AddRepo dialog is on its Local tab, or a different dialog is open).
+    /// Used to discard stale `list_repos` responses after a tab/dialog switch.
+    fn active_hosting_repo_provider(&self) -> Option<&str> {
+        match &self.active_dialog {
+            AppDialog::CloneFromHosting { provider } => Some(provider),
+            AppDialog::AddRepo => match &self.add_repo_tab {
+                AddRepoTab::Account(provider) => Some(provider),
+                AddRepoTab::Local => None,
+            },
+            _ => None,
+        }
     }
 
     /// Open the unified "Add Repository" dialog. Defaults the active tab to
