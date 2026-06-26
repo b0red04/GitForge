@@ -1,6 +1,18 @@
 use crate::types::{DiffHunk, DiffLine, DiffLineType, FileDiff};
 use std::sync::Arc;
 
+fn normalize_diff_path(raw: &str) -> Option<String> {
+    let s = raw.trim();
+    if s == "/dev/null" {
+        return None;
+    }
+    let s = s
+        .strip_prefix("a/")
+        .or_else(|| s.strip_prefix("b/"))
+        .unwrap_or(s);
+    Some(s.to_string())
+}
+
 fn flush_hunk(
     lines: &[DiffLine],
     hunks: &mut Vec<DiffHunk>,
@@ -102,12 +114,12 @@ pub fn parse_unified_diff(raw: &str) -> Vec<FileDiff> {
         };
 
         if line.starts_with("--- ") {
-            file.old_path = Some(line[4..].trim().to_string());
+            file.old_path = normalize_diff_path(&line[4..]);
             continue;
         }
 
         if line.starts_with("+++ ") {
-            file.new_path = Some(line[4..].trim().to_string());
+            file.new_path = normalize_diff_path(&line[4..]);
             continue;
         }
 
@@ -229,8 +241,8 @@ diff --git a/foo.rs b/foo.rs
         let files = parse_unified_diff(raw);
         assert_eq!(files.len(), 1);
         let f = &files[0];
-        assert_eq!(f.old_path.as_deref(), Some("a/foo.rs"));
-        assert_eq!(f.new_path.as_deref(), Some("b/foo.rs"));
+        assert_eq!(f.old_path.as_deref(), Some("foo.rs"));
+        assert_eq!(f.new_path.as_deref(), Some("foo.rs"));
         assert!(!f.is_binary);
 
         let types: Vec<_> = f.lines.iter().map(|l| l.line_type).collect();
@@ -325,8 +337,8 @@ diff --git a/b.rs b/b.rs
 ";
         let files = parse_unified_diff(raw);
         assert_eq!(files.len(), 2);
-        assert_eq!(files[0].old_path.as_deref(), Some("a/a.rs"));
-        assert_eq!(files[1].old_path.as_deref(), Some("a/b.rs"));
+        assert_eq!(files[0].old_path.as_deref(), Some("a.rs"));
+        assert_eq!(files[1].old_path.as_deref(), Some("b.rs"));
     }
 
     #[test]

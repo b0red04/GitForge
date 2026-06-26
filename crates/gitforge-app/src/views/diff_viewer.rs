@@ -360,42 +360,6 @@ fn render_diff_file_header(path_label: &str, colors: &AppColors) -> Div {
         .child(div().flex_1())
 }
 
-fn append_commit_history_header_actions(
-    mut header: Div,
-    path_label: &str,
-    colors: &AppColors,
-    entity: WeakEntity<super::app::GitForgeApp>,
-) -> Div {
-    let wc = WidgetColors::from_app(colors);
-    let view_path = path_label.to_string();
-    let blame_path = path_label.to_string();
-    let view_ent = entity.clone();
-    let blame_ent = entity;
-
-    header = header.child(action_button(
-        "view-file-btn",
-        "View File",
-        ButtonKind::Accent,
-        ButtonSize::Small,
-        false,
-        entity_on_click(view_ent, move |this, cx| {
-            this.view_file_at_commit(view_path.clone(), cx);
-        }),
-        wc,
-    ));
-    header.child(action_button(
-        "blame-file-btn",
-        "Blame",
-        ButtonKind::Accent,
-        ButtonSize::Small,
-        false,
-        entity_on_click(blame_ent, move |this, cx| {
-            this.view_blame(blame_path.clone(), cx);
-        }),
-        wc,
-    ))
-}
-
 fn append_working_tree_header_actions(
     mut header: Div,
     colors: &AppColors,
@@ -499,12 +463,9 @@ fn render_diff_mode(
     let path_label = file_diff_path_label(diff);
 
     let file_header = match header {
-        DiffViewerHeader::CommitHistory { entity } => append_commit_history_header_actions(
-            render_diff_file_header(path_label, colors),
-            path_label,
-            colors,
-            entity,
-        ),
+        DiffViewerHeader::CommitHistory { .. } => {
+            render_diff_file_header(path_label, colors)
+        }
         DiffViewerHeader::WorkingTree {
             section_label,
             is_staged,

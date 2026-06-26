@@ -1,21 +1,15 @@
 use gitforge_diff::{DiffLineType, FileDiff};
 use gitforge_git::BlameLine;
 use gitforge_git::CommitInfo;
-use gitforge_ui::{
-    AppColors, ButtonKind, ButtonSize, HeaderBorder, HeaderPadding, ShellWidth, WidgetColors,
-    action_button, empty_state, entity_on_click, panel_shell, rgba_to_hsla, section_header,
-};
+use gitforge_ui::{AppColors, ShellWidth, WidgetColors, empty_state, panel_shell, rgba_to_hsla};
 use gpui::*;
 use std::ops::Range;
-use std::rc::Rc;
 use std::sync::Arc;
 
 use super::diff_view::SharedHighlightState;
-use super::diff_view::render_diff_empty_state;
-use super::diff_viewer::{
-    DiffViewer, DiffViewerHeader, DiffViewerRenderCtx, file_diff_path_label, render_diff_viewer,
-};
-use super::layout::{FILE_LIST_WIDTH, RIGHT_MIN_WIDTH};
+use super::diff_viewer::{DiffViewer, file_diff_path_label};
+use super::layout::RIGHT_MIN_WIDTH;
+use super::path_display::{format_parent_path, split_path_display};
 
 pub use super::diff_viewer::{DiffBlameSnapshot, DiffViewMode};
 
@@ -349,8 +343,13 @@ fn render_diff_panel(snap: &DiffSnapshot) -> Div {
     {
         match (snap.selected_commit.as_ref(), &snap.diff_state) {
             (Some(commit), Some(diff_state)) => {
-                let commit_detail =
-                    render_commit_detail(commit, colors, border, text_color, muted, entity.clone());
+                let commit_detail = render_commit_detail(
+                    commit,
+                    colors,
+                    border,
+                    text_color,
+                    muted,
+                );
 
                 if diff_state.file_diffs.is_empty() {
                     return diff_panel_root(surface).child(commit_detail).child(empty_state(
@@ -365,52 +364,87 @@ fn render_diff_panel(snap: &DiffSnapshot) -> Div {
                 let colors = colors.clone();
                 let file_click_entity = entity.clone();
 
+                let summary = format_change_summary(&file_diffs);
                 let mut file_list = div()
-                    .w(px(FILE_LIST_WIDTH))
-                    .h_full()
-                    .border_r_1()
-                    .border_color(border)
+                    .id(ElementId::Name("commit-file-list".into()))
+                    .flex_1()
+                    .min_h(px(0.0))
+                    .overflow_y_scroll()
                     .flex()
                     .flex_col();
 
-                file_list = file_list.child(section_header(
-                    "diff-files-header",
-                    "FILES",
-                    HeaderPadding::Compact,
-                    HeaderBorder::Bottom,
-                    Some(file_diffs.len()),
-                    WidgetColors::from_app(&colors),
-                ));
+                file_list = file_list.child(
+                    div()
+                        .flex_shrink_0()
+                        .px_3()
+                        .py_2()
+                        .border_b_1()
+                        .border_color(border)
+                        .text_xs()
+                        .text_color(muted)
+                        .child(summary),
+                );
 
                 for (fi, fd) in file_diffs.iter().enumerate() {
                     let path = file_diff_path_label(fd);
-
                     let is_sel = selected_file == Some(fi);
                     let bg = if is_sel {
                         rgba_to_hsla(colors.sidebar_selected)
                     } else {
                         rgba_to_hsla(colors.surface)
                     };
-                    let name_color = if is_sel {
-                        rgba_to_hsla(colors.text)
+                    let path_muted = rgba_to_hsla(colors.text_muted);
+                    let is_deleted = fd.new_path.is_none();
+                    let name_color = if is_deleted {
+                        path_muted
+                    } else if is_sel {
+                        text_color
                     } else {
-                        rgba_to_hsla(colors.text_muted)
+                        rgba_to_hsla(colors.text)
                     };
 
                     let stats = file_stats.get(fi).copied().unwrap_or_default();
                     let added_count = stats.added;
                     let removed_count = stats.removed;
-
                     let stats_color_added = rgba_to_hsla(colors.diff_added);
                     let stats_color_removed = rgba_to_hsla(colors.diff_removed);
 
+                    let (file_name, parent_path) = split_path_display(path);
+                    let mut path_label = div()
+                        .flex_1()
+                        .min_w(px(0.0))
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .overflow_hidden();
+                    if let Some(parent) = parent_path {
+                        let prefix = format_parent_path(&parent);
+                        path_label = path_label.child(
+                            div()
+                                .min_w(px(0.0))
+                                .flex_shrink()
+                                .overflow_hidden()
+                                .text_ellipsis()
+                                .text_xs()
+                                .text_color(path_muted)
+                                .child(format!("{prefix}/")),
+                        );
+                    }
+                    path_label = path_label.child(
+                        div()
+                            .flex_shrink_0()
+                            .text_xs()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(name_color)
+                            .child(file_name),
+                    );
+
                     let click_ent = file_click_entity.clone();
-                    let path_owned = path.to_string();
                     file_list = file_list.child(
                         div()
                             .id(ElementId::Name(format!("diff-file-{fi}").into()))
-                            .px_2()
-                            .py_1()
+                            .px_3()
+                            .py_1p5()
                             .bg(bg)
                             .cursor_pointer()
                             .on_click(move |_ev, _window, cx| {
@@ -424,15 +458,9 @@ fn render_diff_panel(snap: &DiffSnapshot) -> Div {
                                 div()
                                     .flex()
                                     .items_center()
-                                    .gap_1()
-                                    .child(
-                                        div()
-                                            .text_xs()
-                                            .text_color(name_color)
-                                            .overflow_hidden()
-                                            .text_ellipsis()
-                                            .child(path_owned.clone()),
-                                    )
+                                    .gap_2()
+                                    .child(render_diff_file_status_icon(fd, &colors))
+                                    .child(path_label)
                                     .child(div().flex_1())
                                     .child(if added_count > 0 {
                                         div()
@@ -454,62 +482,9 @@ fn render_diff_panel(snap: &DiffSnapshot) -> Div {
                     );
                 }
 
-                // Resolve the file to show without deep-cloning: the selected
-                // index if valid, otherwise the first file.
-                let resolved_idx = selected_file
-                    .filter(|&idx| idx < file_diffs.len())
-                    .or_else(|| (!file_diffs.is_empty()).then_some(0));
-
-                let resolved_diff = resolved_idx.map(|idx| &file_diffs[idx]);
-                let render_ctx = DiffViewerRenderCtx {
-                    view_mode: snap.view_mode.clone(),
-                    scroll_handle: snap.scroll_handle.clone(),
-                    code_scroll_handle: snap.code_scroll_handle.clone(),
-                    highlight: snap.highlight.clone(),
-                    code_view_file: snap.code_view_file.clone(),
-                    code_view_content: snap.code_view_content.clone(),
-                    blame: snap.blame.clone(),
-                    selection: snap.selection.clone(),
-                };
-
-                let on_click = {
-                    let ent = entity.clone();
-                    Rc::new(move |line_i: usize, extend: bool, cx: &mut App| {
-                        if let Some(e) = ent.upgrade() {
-                            e.update(cx, |this, cx| {
-                                this.select_diff_line(line_i, extend, cx);
-                            });
-                        }
-                    })
-                };
-
-                let diff_content =
-                    if resolved_diff.is_none() && snap.view_mode == DiffViewMode::Diff {
-                        render_diff_empty_state(&colors)
-                    } else {
-                        render_diff_viewer(
-                            &render_ctx,
-                            resolved_diff,
-                            &colors,
-                            DiffViewerHeader::CommitHistory {
-                                entity: entity.clone(),
-                            },
-                            entity.clone(),
-                            on_click,
-                            "diff-lines",
-                            "diff-line",
-                        )
-                    };
-
-                diff_panel_root(surface).child(commit_detail).child(
-                    div()
-                        .flex_1()
-                        .flex()
-                        .flex_row()
-                        .overflow_hidden()
-                        .child(file_list)
-                        .child(diff_content),
-                )
+                diff_panel_root(surface)
+                    .child(commit_detail)
+                    .child(file_list)
             }
             _ => diff_panel_root(surface).child(
                 div()
@@ -568,28 +543,66 @@ fn author_initials(name: &str) -> String {
         .to_uppercase()
 }
 
+fn format_change_summary(file_diffs: &[FileDiff]) -> String {
+    let mut added = 0usize;
+    let mut deleted = 0usize;
+    let mut modified = 0usize;
+    for fd in file_diffs {
+        match (fd.old_path.is_some(), fd.new_path.is_some()) {
+            (false, true) => added += 1,
+            (true, false) => deleted += 1,
+            _ => modified += 1,
+        }
+    }
+    let mut parts = Vec::new();
+    if modified > 0 {
+        parts.push(format!("{modified} modified"));
+    }
+    if added > 0 {
+        parts.push(format!("{added} added"));
+    }
+    if deleted > 0 {
+        parts.push(format!("{deleted} deleted"));
+    }
+    parts.join(", ")
+}
+
+fn render_diff_file_status_icon(diff: &FileDiff, colors: &AppColors) -> Div {
+    let (label, bg) = match (diff.old_path.is_some(), diff.new_path.is_some()) {
+        (false, true) => ("+", rgba_to_hsla(colors.diff_added)),
+        (true, false) => ("−", rgba_to_hsla(colors.diff_removed)),
+        _ => ("M", rgba_to_hsla(colors.warning)),
+    };
+
+    div()
+        .w(px(16.0))
+        .h(px(16.0))
+        .flex_shrink_0()
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(px(2.0))
+        .bg(bg)
+        .text_xs()
+        .font_weight(FontWeight::BOLD)
+        .text_color(rgba_to_hsla(colors.background))
+        .child(label.to_string())
+}
+
 fn render_commit_detail(
     commit: &gitforge_git::CommitInfo,
     colors: &AppColors,
     border: Hsla,
     text_color: Hsla,
     muted: Hsla,
-    entity: WeakEntity<super::app::GitForgeApp>,
 ) -> Div {
     let accent = rgba_to_hsla(colors.accent);
-    let wc = WidgetColors::from_app(colors);
 
     let parents = match commit.parent_ids.len() {
         0 => String::new(),
-        1 => " · 1 parent".into(),
+        1 => format!(" · parent: {}", &commit.parent_ids[0][..6.min(commit.parent_ids[0].len())]),
         n => format!(" · {n} parents"),
     };
-
-    let ent_cp = entity.clone();
-    let ent_rv = entity.clone();
-    let sha_cp = commit.id.clone();
-    let sha_rv = commit.id.clone();
-
     let initials = author_initials(&commit.author_name);
     let body = if commit.message != commit.summary && !commit.message.is_empty() {
         Some(commit.message.clone())
@@ -672,33 +685,5 @@ fn render_commit_detail(
         );
     }
 
-    detail.child(
-        div()
-            .flex()
-            .gap_1()
-            .child(action_button(
-                "diff-cherry-pick",
-                "Cherry-pick",
-                ButtonKind::Muted,
-                ButtonSize::Compact,
-                false,
-                entity_on_click(ent_cp.clone(), move |this, cx| {
-                    let sha = sha_cp.clone();
-                    this.cherry_pick(sha, cx);
-                }),
-                wc,
-            ))
-            .child(action_button(
-                "diff-revert",
-                "Revert",
-                ButtonKind::Muted,
-                ButtonSize::Compact,
-                false,
-                entity_on_click(ent_rv.clone(), move |this, cx| {
-                    let sha = sha_rv.clone();
-                    this.revert_commit(sha, cx);
-                }),
-                wc,
-            )),
-    )
+    detail
 }
