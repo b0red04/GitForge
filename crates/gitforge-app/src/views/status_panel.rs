@@ -7,12 +7,12 @@ use gitforge_ui::{
 };
 use gpui::*;
 use std::ops::Range;
-use std::path::Path;
 use std::rc::Rc;
 
 use super::commit_editor::CommitEditor;
 use super::diff_viewer::{DiffViewer, DiffViewerHeader, render_diff_viewer};
 use super::layout::{FILE_LIST_WIDTH, RIGHT_MIN_WIDTH};
+use super::path_display::{format_parent_path, split_path_display};
 
 const STATUS_FILE_WIDTH: f32 = FILE_LIST_WIDTH;
 
@@ -828,27 +828,6 @@ fn render_status_file_entry(
     }
 
     entry_row
-}
-
-fn split_path_display(path: &str) -> (String, Option<String>) {
-    let path = Path::new(path);
-    let file_name = path
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_else(|| path.to_string_lossy().into_owned());
-    let parent = path
-        .parent()
-        .filter(|p| !p.as_os_str().is_empty())
-        .map(|p| p.to_string_lossy().replace('\\', "/"));
-    (file_name, parent)
-}
-
-fn format_parent_path(parent: &str) -> String {
-    const MAX: usize = 36;
-    if parent.len() <= MAX {
-        return format!("...{parent}");
-    }
-    format!("...{}", &parent[parent.len() - (MAX - 3)..])
 }
 
 /// Zed-style status glyph: modified = amber M, new/untracked = green +, etc.
