@@ -42,6 +42,7 @@ pub(crate) struct TabSnapshot {
     pub commit_message: String,
     pub ai_alternatives: Vec<String>,
     pub view_mode: MainViewMode,
+    pub diff_overlay_open: bool,
     pub sidebar_expansion: super::sidebar::SidebarExpansion,
 }
 
@@ -59,6 +60,11 @@ pub(crate) struct RepoSession {
     pub commit_editor: CommitEditor,
     pub sidebar_state: SidebarState,
     pub view_mode: MainViewMode,
+    /// When true, the selected file's line-level diff is rendered as a large
+    /// overlay covering the sidebar + commit graph, leaving the right-hand file
+    /// list visible to drive file selection. Per-tab (persisted in
+    /// [`TabSnapshot`]).
+    pub(crate) diff_overlay_open: bool,
     pub(crate) loading: bool,
     pub(crate) last_error: Option<String>,
     /// Transient label (e.g. "Fetching…") shown while a remote op runs; set by
@@ -91,6 +97,7 @@ impl RepoSession {
             commit_editor: CommitEditor::new(cx),
             sidebar_state: SidebarState::new(cx),
             view_mode: MainViewMode::CommitHistory,
+            diff_overlay_open: false,
             loading: false,
             last_error: None,
             remote_status: String::new(),
@@ -335,6 +342,7 @@ impl RepoSession {
         let status_view_mode = self.status_panel.view_mode();
         let (commit_message, ai_alternatives) = self.commit_editor.snapshot_data();
         let view_mode = self.view_mode.clone();
+        let diff_overlay_open = self.diff_overlay_open;
         let sidebar_expansion = self.sidebar_state.expansion();
 
         let active_id = match self.active_repo_tab_id {
@@ -356,6 +364,7 @@ impl RepoSession {
             commit_message,
             ai_alternatives,
             view_mode,
+            diff_overlay_open,
             sidebar_expansion,
         });
     }
@@ -366,6 +375,7 @@ impl RepoSession {
         let Some(snap) = snapshot else { return };
 
         self.view_mode = snap.view_mode;
+        self.diff_overlay_open = snap.diff_overlay_open;
         self.sidebar_state.apply_expansion(&snap.sidebar_expansion);
 
         self.commit_editor
