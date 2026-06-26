@@ -729,6 +729,18 @@ impl GitForgeApp {
         self.run_git_op("Remove remote", cx, move |repo| repo.remote_remove(&name));
     }
 
+    pub fn delete_remote_branch(
+        &mut self,
+        remote: String,
+        branch: String,
+        cx: &mut Context<Self>,
+    ) {
+        let status = format!("Deleting {remote}/{branch}…");
+        self.run_git_op_with_status("Delete remote branch", &status, cx, move |repo| {
+            repo.delete_remote_branch(&remote, &branch)
+        });
+    }
+
     pub fn resolve_conflict_ours(&mut self, path: String, cx: &mut Context<Self>) {
         self.run_git_op("Resolve conflict (ours)", cx, move |repo| {
             repo.resolve_conflict_use_ours(std::path::Path::new(&path))

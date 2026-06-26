@@ -20,6 +20,7 @@ pub enum ContextMenuAction {
     CreateBranchFrom(String),
     DeleteTag(String),
     CheckoutRemote(String),
+    DeleteRemoteBranch(String),
     FilterToBranch(String),
     RemoteHeader(String),
     FetchRemote(String),
@@ -770,9 +771,15 @@ pub(super) fn render_context_menu_overlay(
                 ContextMenuAction::FilterToBranch(name.clone()),
             ),
         ],
-        ContextMenuAction::CheckoutRemote(name) => {
-            vec![("Checkout", ContextMenuAction::CheckoutRemote(name.clone()))]
-        }
+    ContextMenuAction::CheckoutRemote(name) => {
+        vec![
+            ("Checkout", ContextMenuAction::CheckoutRemote(name.clone())),
+            (
+                "Delete Remote Branch…",
+                ContextMenuAction::DeleteRemoteBranch(name.clone()),
+            ),
+        ]
+    }
         ContextMenuAction::DeleteTag(name) => {
             vec![("Delete Tag", ContextMenuAction::DeleteTag(name.clone()))]
         }
@@ -825,7 +832,8 @@ pub(super) fn render_context_menu_overlay(
         let item_color = match &menu_action {
             ContextMenuAction::DeleteBranch(_)
             | ContextMenuAction::DeleteTag(_)
-            | ContextMenuAction::RemoveRemote(_) => warning,
+            | ContextMenuAction::RemoveRemote(_)
+            | ContextMenuAction::DeleteRemoteBranch(_) => warning,
             _ => text_color,
         };
         let item_ent = entity.clone();
@@ -864,6 +872,9 @@ pub(super) fn render_context_menu_overlay(
                                 ContextMenuAction::DeleteTag(n) => this.delete_tag(n.clone(), cx),
                                 ContextMenuAction::CheckoutRemote(n) => {
                                     this.checkout_remote_branch(n.clone(), cx)
+                                }
+                                ContextMenuAction::DeleteRemoteBranch(n) => {
+                                    this.open_delete_remote_branch_dialog(n.clone(), cx)
                                 }
                                 ContextMenuAction::FilterToBranch(n) => {
                                     this.set_branch_filter(Some(n.clone()), cx)
