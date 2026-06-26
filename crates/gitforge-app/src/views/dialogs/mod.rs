@@ -70,9 +70,13 @@ pub fn render(
             entity,
             dialog_input.focus_handle(),
         ),
-        AppDialog::DeleteRemoteBranch { remote, branch } => {
-            delete_remote_branch::render(remote, branch, colors, entity)
-        }
+        AppDialog::DeleteRemoteBranch { remote, branch } => delete_remote_branch::render(
+            remote,
+            branch,
+            colors,
+            entity,
+            dialog_input.focus_handle(),
+        ),
         AppDialog::ForkRepo { owner, repo, .. } => {
             fork_confirm::render(owner, repo, colors, entity)
         }

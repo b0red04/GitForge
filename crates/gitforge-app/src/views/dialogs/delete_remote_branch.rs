@@ -18,14 +18,20 @@ pub fn render(
     branch: &str,
     colors: &AppColors,
     entity: WeakEntity<GitForgeApp>,
+    input_focus: &FocusHandle,
 ) -> Stateful<Div> {
     let dc = DialogColors::from_app(colors);
     let ent_key_cancel = entity.clone();
     let ent_key_confirm = entity.clone();
     let remote_key = remote.to_string();
     let branch_key = branch.to_string();
+    let fh = input_focus.clone();
 
     let dialog_box = dialog_surface(px(380.0), dc)
+        .track_focus(&fh)
+        .on_click(move |_ev, window, _cx| {
+            window.focus(&fh);
+        })
         .on_key_down(move |ev: &KeyDownEvent, _window, cx| match ev.keystroke.key.as_str() {
             "escape" => {
                 if let Some(e) = ent_key_cancel.upgrade() {
