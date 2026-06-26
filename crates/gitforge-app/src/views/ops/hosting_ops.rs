@@ -276,17 +276,23 @@ impl GitForgeApp {
 
     /// "Clone" affordance from the AddRepo dialog's Local tab URL input. The
     /// shared `dialog_input` carries `"URL destination-path"` (same shape as
-    /// the standalone CloneRepo dialog).
+    /// the standalone CloneRepo dialog). A missing or empty destination path
+    /// surfaces a warning toast rather than no-op'ing silently.
     pub fn add_repo_clone_from_url(&mut self, cx: &mut Context<Self>) {
         let input = self.dialog_input.text().trim().to_string();
         let parts: Vec<&str> = input.splitn(2, ' ').collect();
-        if parts.len() < 2 {
+        let Some(path) = parts.get(1).map(|s| s.trim()).filter(|s| !s.is_empty()) else {
+            self.push_toast(
+                crate::views::toasts::ToastKind::Warning,
+                "Enter a URL and a destination path, e.g. https://example.com/repo /path/to/dir"
+                    .to_string(),
+                cx,
+            );
             return;
-        }
+        };
         let url = parts[0].to_string();
-        let path = parts[1].to_string();
         self.cancel_dialog(cx);
-        self.clone_repository(url, path, cx);
+        self.clone_repository(url, path.to_string(), cx);
     }
 
     /// "Open Settings" affordance shown in the AddRepo dialog's zero-account

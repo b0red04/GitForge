@@ -2,14 +2,31 @@ use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 
 const KEYRING_SERVICE: &str = "gitforge-hosting";
 
+/// Process-global override for [`config_dir`]. Tests install this once per
+/// process to redirect token storage at a temp dir. Unlike mutating the
+/// process environment (`std::env::set_var`, which is `unsafe` on edition
+/// 2024 and races with concurrent env readers spawned by the test harness),
+/// a `OnceLock` read is lock-free and data-race-free. Setting is idempotent:
+/// the first call wins, later calls are ignored.
+static CONFIG_DIR_OVERRIDE: OnceLock<PathBuf> = OnceLock::new();
+
+/// Install a process-global config-dir override. Intended for tests; safe to
+/// call in production (e.g. to relocate token storage), but the first call
+/// wins and subsequent calls are silently ignored. Idempotent.
+pub fn set_config_dir_override(path: PathBuf) {
+    let _ = CONFIG_DIR_OVERRIDE.set(path);
+}
+
 fn config_dir() -> PathBuf {
-    // Tests override this via `GITFORGE_CONFIG_DIR` to keep their token writes
-    // out of the user's real `~/.config/gitforge/hosting_tokens.json` (which
-    // parallel test binaries used to clobber, losing the user's real tokens).
-    // Production leaves it unset and falls back to the platform config dir.
+    // In-process override takes precedence (used by tests).
+    if let Some(dir) = CONFIG_DIR_OVERRIDE.get() {
+        return dir.clone();
+    }
+    // Fallback for external callers that still steer via the env var.
     if let Ok(dir) = std::env::var("GITFORGE_CONFIG_DIR") {
         return PathBuf::from(dir);
     }
