@@ -1,5 +1,4 @@
 # GitForge 
-![Release](https://www.shieldcn.dev/github/release/b0red04/GitForge.svg?size=sm)
 
 A Linux-first Git GUI client built with [GPUI](https://github.com/zed-industries/zed) (Zed's GPU-accelerated UI framework) and [gix](https://github.com/GitoxideLabs/gitoxide) (pure Rust Git backend).
 

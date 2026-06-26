@@ -123,10 +123,36 @@ impl Repository {
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
     }
 
-    /// Spawns a `git` subprocess.
+    /// Spawns a `git` subprocess. Diffs against the first parent so merge
+    /// commits show what the merge brought in (matching GitHub's default) and
+    /// root commits show their full tree as additions.
     pub fn unified_diff_for_commit(&self, commit_id: &str) -> GitResult<String> {
+        let id = self.parse_object_id(commit_id, "commit ID")?;
+        let commit = self
+            .repo
+            .find_commit(id)
+            .map_err(|e| GitError::OperationFailed(e.to_string()))?;
+        let parent_ids: Vec<gix::ObjectId> = commit.parent_ids().map(|p| p.detach()).collect();
+
+        let args: Vec<String> = match parent_ids.first() {
+            Some(p) => vec![
+                "diff-tree".into(),
+                "-p".into(),
+                "--no-color".into(),
+                p.to_hex().to_string(),
+                commit_id.into(),
+            ],
+            None => vec![
+                "diff-tree".into(),
+                "-p".into(),
+                "--no-color".into(),
+                "--root".into(),
+                commit_id.into(),
+            ],
+        };
+
         let output = Command::new("git")
-            .args(["diff-tree", "-p", "--no-color", commit_id])
+            .args(&args)
             .current_dir(&self.path)
             .output()
             .map_err(|e| {
