@@ -1249,7 +1249,7 @@ fn render_ref_pills(
     // just mirror the remote's default branch and add noise.
     let visible: Vec<&RefInfo> = refs
         .iter()
-        .filter(|rf| !(rf.kind == RefKind::RemoteBranch && is_remote_head(rf)))
+        .filter(|rf| !(rf.kind == RefKind::RemoteBranch && rf.is_remote_head()))
         .collect();
 
     // Track remote refs by bare branch name (origin/main => main), which lets
@@ -1257,7 +1257,7 @@ fn render_ref_pills(
     let mut remote_by_bare: HashMap<&str, Vec<&RefInfo>> = HashMap::new();
     for rf in visible.iter() {
         if rf.kind == RefKind::RemoteBranch
-            && let Some(bare) = bare_remote_name(rf)
+            && let Some(bare) = rf.bare_remote_name()
         {
             remote_by_bare.entry(bare).or_default().push(*rf);
         }
@@ -1270,7 +1270,7 @@ fn render_ref_pills(
     let mut remotes_by_bare: HashMap<&str, HashSet<&str>> = HashMap::new();
     for rf in visible.iter() {
         if rf.kind == RefKind::RemoteBranch
-            && let Some(bare) = bare_remote_name(rf)
+            && let Some(bare) = rf.bare_remote_name()
         {
             let remote = rf.remote_name.as_deref().unwrap_or("");
             remotes_by_bare.entry(bare).or_default().insert(remote);
@@ -1504,24 +1504,12 @@ fn ref_pill_icon(rf: &RefInfo) -> Option<&'static str> {
     }
 }
 
-fn is_remote_head(rf: &RefInfo) -> bool {
-    // Matches origin/HEAD, upstream/HEAD, etc. — symbolic refs that just point
-    // at the remote's default branch.
-    bare_remote_name(rf) == Some("HEAD")
-}
-
-fn bare_remote_name(rf: &RefInfo) -> Option<&str> {
-    let remote = rf.remote_name.as_deref()?;
-    let prefix = format!("{remote}/");
-    rf.name.strip_prefix(&prefix)
-}
-
 fn ref_pill_label(rf: &RefInfo, ambiguous: &HashSet<&str>) -> String {
     // The is_head flag is intentionally ignored here: an attached HEAD on a
     // branch renders with that branch's name. Detached HEAD is rendered via
     // render_detached_head_pill, not through this path.
     if rf.kind == RefKind::RemoteBranch
-        && let Some(bare) = bare_remote_name(rf)
+        && let Some(bare) = rf.bare_remote_name()
         && !ambiguous.contains(bare)
     {
         return truncate_chars(bare, 20);
