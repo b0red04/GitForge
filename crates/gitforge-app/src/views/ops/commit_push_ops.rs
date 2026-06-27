@@ -137,14 +137,6 @@ impl GitForgeApp {
             cx,
             fx,
             move || async move {
-                if use_feature_branch {
-                    let create_name = branch_name.clone();
-                    with_repo_blocking(handle.clone(), move |repo| {
-                        repo.create_and_checkout_branch(&create_name, None)
-                    })
-                    .await?;
-                }
-
                 let diff =
                     with_repo_blocking(handle.clone(), |repo| repo.diff_head_to_index(None))
                         .await?;
@@ -152,6 +144,14 @@ impl GitForgeApp {
                     return Err(AppError::Remote(RemoteError::info(
                         "No staged changes to commit",
                     )));
+                }
+
+                if use_feature_branch {
+                    let create_name = branch_name.clone();
+                    with_repo_blocking(handle.clone(), move |repo| {
+                        repo.create_and_checkout_branch(&create_name, None)
+                    })
+                    .await?;
                 }
 
                 let message = if !existing_message.is_empty() {
