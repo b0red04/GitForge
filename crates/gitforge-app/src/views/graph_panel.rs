@@ -7,7 +7,6 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use super::layout::{self, AUTHOR_COL, HASH_COL, ROW_HEIGHT, TIME_COL};
-use super::refs::{bare_remote_name, is_remote_head};
 
 const LEFT_PADDING: f32 = 12.0;
 const LANE_WIDTH: f32 = 16.0;
@@ -1250,7 +1249,7 @@ fn render_ref_pills(
     // just mirror the remote's default branch and add noise.
     let visible: Vec<&RefInfo> = refs
         .iter()
-        .filter(|rf| !(rf.kind == RefKind::RemoteBranch && is_remote_head(rf)))
+        .filter(|rf| !(rf.kind == RefKind::RemoteBranch && rf.is_remote_head()))
         .collect();
 
     // Track remote refs by bare branch name (origin/main => main), which lets
@@ -1258,7 +1257,7 @@ fn render_ref_pills(
     let mut remote_by_bare: HashMap<&str, Vec<&RefInfo>> = HashMap::new();
     for rf in visible.iter() {
         if rf.kind == RefKind::RemoteBranch
-            && let Some(bare) = bare_remote_name(rf)
+            && let Some(bare) = rf.bare_remote_name()
         {
             remote_by_bare.entry(bare).or_default().push(*rf);
         }
@@ -1271,7 +1270,7 @@ fn render_ref_pills(
     let mut remotes_by_bare: HashMap<&str, HashSet<&str>> = HashMap::new();
     for rf in visible.iter() {
         if rf.kind == RefKind::RemoteBranch
-            && let Some(bare) = bare_remote_name(rf)
+            && let Some(bare) = rf.bare_remote_name()
         {
             let remote = rf.remote_name.as_deref().unwrap_or("");
             remotes_by_bare.entry(bare).or_default().insert(remote);
@@ -1510,7 +1509,7 @@ fn ref_pill_label(rf: &RefInfo, ambiguous: &HashSet<&str>) -> String {
     // branch renders with that branch's name. Detached HEAD is rendered via
     // render_detached_head_pill, not through this path.
     if rf.kind == RefKind::RemoteBranch
-        && let Some(bare) = bare_remote_name(rf)
+        && let Some(bare) = rf.bare_remote_name()
         && !ambiguous.contains(bare)
     {
         return truncate_chars(bare, 20);

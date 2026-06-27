@@ -13,7 +13,6 @@ pub mod layout;
 pub mod ops;
 pub mod panel_resize;
 pub mod path_display;
-pub mod refs;
 pub mod repo_session;
 pub mod repo_tabs;
 pub mod settings;

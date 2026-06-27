@@ -7,7 +7,6 @@ use gitforge_ui::{
 use gpui::*;
 use std::collections::{HashMap, HashSet};
 
-use super::refs::is_remote_head;
 use super::settings::AppSettings;
 const ROW_HEIGHT: f32 = 24.0;
 const TAG_VISIBLE_LIMIT: usize = 6;
@@ -232,7 +231,7 @@ pub(crate) fn render_sidebar(
                 .references
                 .iter()
                 .filter(|r| r.kind == RefKind::RemoteBranch)
-                .filter(|r| !is_remote_head(r))
+                .filter(|r| !r.is_remote_head())
                 .filter(|r| filter.is_empty() || r.name.to_lowercase().contains(&filter))
                 .collect();
             let mut tags: Vec<&RefInfo> = repo
