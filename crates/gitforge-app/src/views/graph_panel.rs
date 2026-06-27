@@ -7,6 +7,7 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use super::layout::{self, AUTHOR_COL, HASH_COL, ROW_HEIGHT, TIME_COL};
+use super::refs::{bare_remote_name, is_remote_head};
 
 const LEFT_PADDING: f32 = 12.0;
 const LANE_WIDTH: f32 = 16.0;
@@ -1502,18 +1503,6 @@ fn ref_pill_icon(rf: &RefInfo) -> Option<&'static str> {
         RefKind::Tag => Some("icons/tag.svg"),
         _ => None,
     }
-}
-
-fn is_remote_head(rf: &RefInfo) -> bool {
-    // Matches origin/HEAD, upstream/HEAD, etc. — symbolic refs that just point
-    // at the remote's default branch.
-    bare_remote_name(rf) == Some("HEAD")
-}
-
-fn bare_remote_name(rf: &RefInfo) -> Option<&str> {
-    let remote = rf.remote_name.as_deref()?;
-    let prefix = format!("{remote}/");
-    rf.name.strip_prefix(&prefix)
 }
 
 fn ref_pill_label(rf: &RefInfo, ambiguous: &HashSet<&str>) -> String {

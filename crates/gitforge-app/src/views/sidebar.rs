@@ -7,6 +7,7 @@ use gitforge_ui::{
 use gpui::*;
 use std::collections::{HashMap, HashSet};
 
+use super::refs::is_remote_head;
 use super::settings::AppSettings;
 const ROW_HEIGHT: f32 = 24.0;
 const TAG_VISIBLE_LIMIT: usize = 6;
@@ -231,6 +232,7 @@ pub(crate) fn render_sidebar(
                 .references
                 .iter()
                 .filter(|r| r.kind == RefKind::RemoteBranch)
+                .filter(|r| !is_remote_head(r))
                 .filter(|r| filter.is_empty() || r.name.to_lowercase().contains(&filter))
                 .collect();
             let mut tags: Vec<&RefInfo> = repo
@@ -316,8 +318,6 @@ pub(crate) fn render_sidebar(
                     }
                 }
             }
-
-            sidebar = sidebar.child(render_add_remote_button(colors, entity.clone()));
 
             let filtered_prs: Vec<&gitforge_hosting::PullRequest> = pull_requests
                 .iter()
@@ -1105,34 +1105,6 @@ fn render_pr_item(
     }
 
     row
-}
-
-fn render_add_remote_button(
-    colors: &AppColors,
-    entity: WeakEntity<super::app::GitForgeApp>,
-) -> Stateful<Div> {
-    let accent = rgba_to_hsla(colors.accent);
-    let muted = rgba_to_hsla(colors.text_muted);
-    let ent = entity.clone();
-
-    div()
-        .id("sidebar-add-remote")
-        .w_full()
-        .h(px(ROW_HEIGHT))
-        .px_2()
-        .flex()
-        .items_center()
-        .cursor_pointer()
-        .hover(|s| s.bg(rgba_to_hsla(colors.sidebar_hover)))
-        .on_click(move |_ev, _window, cx| {
-            if let Some(e) = ent.upgrade() {
-                e.update(cx, |this, cx| {
-                    this.open_add_remote_dialog(cx);
-                });
-            }
-        })
-        .child(div().text_xs().text_color(accent).child("+ "))
-        .child(div().text_xs().text_color(muted).child("Add Remote"))
 }
 
 fn render_worktree_item(
