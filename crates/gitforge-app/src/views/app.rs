@@ -115,6 +115,18 @@ pub enum AppDialog {
     /// payload. Reuses `hosting_repos` / `hosting_repos_loading` for the
     /// currently-active account tab.
     AddRepo,
+    /// Branch choice for the Commit & Push quick action.
+    CommitAndPush {
+        current_branch: String,
+        detached: bool,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CommitPushMode {
+    #[default]
+    CurrentBranch,
+    FeatureBranch,
 }
 
 pub struct GitForgeApp {
@@ -137,6 +149,8 @@ pub struct GitForgeApp {
     /// `dialog_render` without plumbing a payload through `active_dialog`.
     pub(crate) add_repo_tab: AddRepoTab,
     pub(crate) ai_generating: bool,
+    pub(crate) commit_push_mode: CommitPushMode,
+    pub(crate) commit_push_generating_branch: bool,
     pub(crate) focus_handle: FocusHandle,
     pub(crate) local_branch_dropdown_open: bool,
     pub(crate) titlebar_menus_visible: bool,
@@ -198,6 +212,8 @@ impl GitForgeApp {
             hosting_repos_loading: false,
             add_repo_tab: AddRepoTab::Local,
             ai_generating: false,
+            commit_push_mode: CommitPushMode::default(),
+            commit_push_generating_branch: false,
             focus_handle: cx.focus_handle(),
             local_branch_dropdown_open: false,
             titlebar_menus_visible: false,
@@ -853,6 +869,8 @@ impl Render for GitForgeApp {
                 &self.dialog_input,
                 &self.dialog_input_2,
                 self.dialog_force,
+                self.commit_push_mode,
+                self.commit_push_generating_branch,
                 &self.colors,
                 entity.clone(),
                 window,

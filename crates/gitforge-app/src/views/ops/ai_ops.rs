@@ -76,4 +76,64 @@ impl GitForgeApp {
         self.repo_session.commit_editor.accept_ai_suggestion(idx);
         cx.notify();
     }
+
+    pub fn generate_feature_branch_name(&mut self, cx: &mut Context<Self>) {
+        let provider_name = self.settings.ai.provider.clone();
+        if provider_name == "disabled" {
+            return;
+        }
+        let mut provider_config = self.settings.ai.provider_config();
+        let model = provider_config.model_or_default(&provider_name);
+        if model.is_empty() {
+            self.repo_session.last_error = Some(format!(
+                "No model configured for provider \"{provider_name}\""
+            ));
+            cx.notify();
+            return;
+        }
+        provider_config.model = model;
+        let max_diff_chars = self.settings.ai.commit_message_config().max_diff_chars;
+        let current_branch = self
+            .repo_session
+            .active_repo_state()
+            .and_then(|state| state.head_branch.clone())
+            .unwrap_or_else(|| "HEAD".to_string());
+        let Some(handle) = self.repo_session.require_active_repo_handle() else {
+            cx.notify();
+            return;
+        };
+
+        self.commit_push_generating_branch = true;
+        cx.notify();
+
+        self.run_op_full(
+            "Generate branch name",
+            cx,
+            OpEffects::QUIET,
+            move || async move {
+                let diff =
+                    with_repo_blocking(handle, |repo| repo.diff_head_to_index(None)).await?;
+                if diff.trim().is_empty() {
+                    return Err(AppError::Remote(RemoteError::info(
+                        "No staged changes to generate a branch name from",
+                    )));
+                }
+                let provider = spawn_blocking_ok(move || {
+                    gitforge_ai::create_provider(&provider_name, &provider_config)
+                })
+                .await?;
+                let name = provider
+                    .generate_branch_name(&diff, &current_branch, max_diff_chars)
+                    .await?;
+                Ok(name)
+            },
+            move |this, name, cx| {
+                this.set_dialog_input_text(&name, cx);
+            },
+            None,
+            Some(Box::new(|this, _cx| {
+                this.commit_push_generating_branch = false;
+            })),
+        );
+    }
 }

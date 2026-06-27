@@ -1,7 +1,7 @@
 use gitforge_ui::{
-    AppColors, ButtonKind, ButtonSize, HeaderBorder, HeaderPadding, TextInput, TextInputEvent,
-    TextInputMode, TextInputRenderOpts, WidgetColors, action_button, entity_on_click,
-    parse_key_event, primary_button, render_text_input, rgba_to_hsla, section_header,
+    AppColors, HeaderBorder, HeaderPadding, TextInput, TextInputEvent, TextInputMode,
+    TextInputRenderOpts, WidgetColors, parse_key_event, render_text_input, rgba_to_hsla,
+    section_header,
 };
 use gpui::*;
 
@@ -87,10 +87,8 @@ impl CommitEditor {
         let bg = rgba_to_hsla(colors.background);
 
         let ent1 = entity.clone();
-        let ent2 = entity.clone();
-        let ent3 = entity.clone();
         let ent4 = entity.clone();
-        let has_message = !self.message_input.text().trim().is_empty();
+        let ent_commit_push = entity.clone();
 
         let generate_label = if ai_generating {
             "Generating..."
@@ -239,27 +237,25 @@ impl CommitEditor {
                         })
                 })
                 .child({
-                    let ent_commit = ent2.clone();
-                    primary_button(
-                        "commit-btn",
-                        "Commit",
-                        ButtonSize::Medium,
-                        !has_message,
-                        entity_on_click(ent_commit, |this, cx| this.perform_commit(false, cx)),
-                        WidgetColors::from_app(colors),
-                    )
-                })
-                .child({
-                    let ent_cancel = ent3.clone();
-                    action_button(
-                        "cancel-commit-btn",
-                        "Cancel",
-                        ButtonKind::Muted,
-                        ButtonSize::Medium,
-                        false,
-                        entity_on_click(ent_cancel, |this, cx| this.cancel_commit_dialog(cx)),
-                        WidgetColors::from_app(colors),
-                    )
+                    let ent_cp = ent_commit_push.clone();
+                    div()
+                        .id("commit-push-btn")
+                        .px_3()
+                        .py_1()
+                        .rounded(px(4.0))
+                        .border_1()
+                        .border_color(accent)
+                        .cursor_pointer()
+                        .text_xs()
+                        .text_color(accent)
+                        .child("Commit & Push")
+                        .on_click(move |_ev, _window, cx| {
+                            if let Some(e) = ent_cp.upgrade() {
+                                e.update(cx, |this, cx| {
+                                    this.start_commit_and_push(cx);
+                                });
+                            }
+                        })
                 }),
         );
         editor

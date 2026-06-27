@@ -124,6 +124,43 @@ fn wrap_instruction(body_wrap_at: u32) -> String {
     }
 }
 
+pub fn build_branch_name_prompt(diff: &str, current_branch: &str) -> String {
+    let safe_diff = diff
+        .replace("<git_diff>", "<git-diff>")
+        .replace("</git_diff>", "</git-diff>");
+    format!(
+        "Analyze the following staged diff and generate a short git branch name.\n\n\
+         Current branch: {current_branch}\n\n\
+         Rules:\n\
+         - Use kebab-case (lowercase, hyphens between words)\n\
+         - Start with a type prefix: feat/, fix/, docs/, refactor/, chore/, or test/\n\
+         - Choose the prefix based on the nature of the changes\n\
+         - Keep the name under 50 characters total\n\
+         - No spaces, quotes, or special characters other than / and -\n\
+         - Do not include the current branch name\n\
+         - Output only the branch name, nothing else\n\n\
+         Diff:\n<git_diff>\n{safe_diff}\n</git_diff>"
+    )
+}
+
+/// Normalize an AI-generated or user-entered branch name into a valid git ref.
+pub fn sanitize_branch_name(raw: &str) -> String {
+    let mut name = raw.trim().trim_matches('"').trim_matches('\'').to_lowercase();
+    name = name.replace(' ', "-").replace('_', "-");
+    name = name
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '/')
+        .collect();
+    while name.contains("//") {
+        name = name.replace("//", "/");
+    }
+    name = name.trim_matches('-').trim_matches('/').to_string();
+    if name.is_empty() {
+        return "feat/changes".to_string();
+    }
+    name
+}
+
 pub fn build_pull_request_prompt(diff: &str) -> String {
     let safe_diff = diff
         .replace("<git_diff>", "<git-diff>")
@@ -198,6 +235,40 @@ mod tests {
         };
         let prompt = build_multi_commit_message_prompt("diff", &config, 2);
         assert!(prompt.contains("multi-paragraph body"));
+    }
+
+    #[test]
+    fn branch_name_prompt_includes_current_branch() {
+        let prompt = build_branch_name_prompt("diff content", "main");
+        assert!(prompt.contains("Current branch: main"));
+        assert!(prompt.contains("feat/"));
+        assert!(prompt.contains("kebab-case"));
+    }
+
+    #[test]
+    fn sanitize_branch_name_slugifies() {
+        assert_eq!(
+            sanitize_branch_name("  Feat/Add User Auth  "),
+            "feat/add-user-auth"
+        );
+    }
+
+    #[test]
+    fn sanitize_branch_name_strips_invalid_chars() {
+        assert_eq!(
+            sanitize_branch_name("feat/add@feature#1"),
+            "feat/addfeature1"
+        );
+    }
+
+    #[test]
+    fn sanitize_branch_name_empty_fallback() {
+        assert_eq!(sanitize_branch_name("  @#$  "), "feat/changes");
+    }
+
+    #[test]
+    fn sanitize_branch_name_collapses_slashes() {
+        assert_eq!(sanitize_branch_name("feat//foo"), "feat/foo");
     }
 
     #[test]
