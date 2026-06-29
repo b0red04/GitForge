@@ -9,26 +9,23 @@ use crate::views::toasts::ToastKind;
 impl GitForgeApp {
     pub fn start_commit_and_push(&mut self, cx: &mut Context<Self>) {
         let Some(state) = self.repo_session.active_repo_state() else {
-            self.push_toast(
-                ToastKind::Warning,
-                "No repository open".to_string(),
-                cx,
-            );
+            self.push_toast(ToastKind::Warning, "No repository open".to_string(), cx);
             return;
         };
         if !state.status.has_changes() {
-            self.push_toast(
-                ToastKind::Info,
-                "No changes to commit".to_string(),
-                cx,
-            );
+            self.push_toast(ToastKind::Info, "No changes to commit".to_string(), cx);
             return;
         }
 
-        self.run_git_op_returning("Stage all", cx, |repo| repo.stage_all(), |this, _, cx| {
-            this.refresh_repository(cx);
-            this.open_commit_and_push_dialog(cx);
-        });
+        self.run_git_op_returning(
+            "Stage all",
+            cx,
+            |repo| repo.stage_all(),
+            |this, _, cx| {
+                this.refresh_repository(cx);
+                this.open_commit_and_push_dialog(cx);
+            },
+        );
     }
 
     pub fn open_commit_and_push_dialog(&mut self, cx: &mut Context<Self>) {
@@ -137,9 +134,8 @@ impl GitForgeApp {
             cx,
             fx,
             move || async move {
-                let diff =
-                    with_repo_blocking(handle.clone(), |repo| repo.diff_head_to_index(None))
-                        .await?;
+                let diff = with_repo_blocking(handle.clone(), |repo| repo.diff_head_to_index(None))
+                    .await?;
                 if diff.trim().is_empty() {
                     return Err(AppError::Remote(RemoteError::info(
                         "No staged changes to commit",
@@ -168,12 +164,9 @@ impl GitForgeApp {
                         &messages,
                         &commit_config.default_alternative,
                     );
-                    messages
-                        .get(default_idx)
-                        .cloned()
-                        .ok_or_else(|| {
-                            AppError::Remote(RemoteError::error("AI returned no commit message"))
-                        })?
+                    messages.get(default_idx).cloned().ok_or_else(|| {
+                        AppError::Remote(RemoteError::error("AI returned no commit message"))
+                    })?
                 };
 
                 with_repo_blocking(handle, move |repo| {

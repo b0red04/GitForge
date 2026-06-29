@@ -111,8 +111,7 @@ impl GitForgeApp {
             cx,
             OpEffects::QUIET,
             move || async move {
-                let diff =
-                    with_repo_blocking(handle, |repo| repo.diff_head_to_index(None)).await?;
+                let diff = with_repo_blocking(handle, |repo| repo.diff_head_to_index(None)).await?;
                 if diff.trim().is_empty() {
                     return Err(AppError::Remote(RemoteError::info(
                         "No staged changes to generate a branch name from",

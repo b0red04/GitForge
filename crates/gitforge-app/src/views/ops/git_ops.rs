@@ -1,45 +1,36 @@
 use gitforge_git::RepoState;
 use gpui::*;
 
-use crate::views::app::{GitForgeApp, MainViewMode};
+use crate::views::app::GitForgeApp;
 use crate::views::diff_panel::CommitDiffState;
 use crate::views::diff_viewer::file_diff_path_or_empty;
+use crate::views::graph_panel::GraphSelection;
+use crate::views::repo_session::SelectionEffect;
 use crate::views::status_panel::StatusFileSection;
 
 impl GitForgeApp {
     pub fn select_uncommitted(&mut self, cx: &mut Context<Self>) {
-        self.repo_session.view_mode = MainViewMode::CommitHistory;
-        self.repo_session.graph_panel.select_uncommitted();
-        self.repo_session.diff_panel.clear();
-        self.repo_session.status_panel.enter_graph_staging();
-        cx.notify();
+        let effect = self.repo_session.set_selection(GraphSelection::Uncommitted);
+        self.apply_selection_effect(effect, cx);
     }
 
     pub fn select_commit(&mut self, idx: usize, cx: &mut Context<Self>) {
-        self.repo_session.view_mode = MainViewMode::CommitHistory;
-        self.repo_session.graph_panel.select_commit(idx);
-        self.repo_session.status_panel.exit_graph_staging();
-        self.load_diff_for_selected(cx);
+        let effect = self.repo_session.set_selection(GraphSelection::Commit(idx));
+        self.apply_selection_effect(effect, cx);
     }
 
     pub(crate) fn on_graph_selection_changed(&mut self, cx: &mut Context<Self>) {
-        use crate::views::graph_panel::GraphSelection;
+        let effect = self.repo_session.cascade_current();
+        self.apply_selection_effect(effect, cx);
+    }
 
-        match self.repo_session.graph_panel.selection() {
-            GraphSelection::Uncommitted => {
-                self.repo_session.view_mode = MainViewMode::CommitHistory;
-                self.repo_session.diff_panel.clear();
-                self.repo_session.status_panel.enter_graph_staging();
-                cx.notify();
-            }
-            GraphSelection::Commit(_) => {
-                self.repo_session.status_panel.exit_graph_staging();
-                self.load_diff_for_selected(cx);
-            }
-            GraphSelection::None => {
-                self.repo_session.diff_panel.clear();
-                cx.notify();
-            }
+    /// Interpret the [`SelectionEffect`] returned by the Selection Cascade
+    /// (ADR-0003). `RepoSession` is GPUI-free and cannot spawn, so it
+    /// describes the async work needed and this helper performs it.
+    fn apply_selection_effect(&mut self, effect: SelectionEffect, cx: &mut Context<Self>) {
+        match effect {
+            SelectionEffect::ClearDiff => cx.notify(),
+            SelectionEffect::LoadDiffForSelected => self.load_diff_for_selected(cx),
         }
     }
 

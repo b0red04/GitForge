@@ -71,70 +71,62 @@ pub fn render(
         .on_click(move |_ev, window, _cx| {
             window.focus(&fh);
         })
-        .on_key_down(move |ev: &KeyDownEvent, _window, cx| match ev.keystroke.key.as_str() {
-            "escape" => {
-                if let Some(e) = ent_key_cancel.upgrade() {
-                    e.update(cx, |this, cx| {
-                        this.cancel_dialog(cx);
-                    });
+        .on_key_down(
+            move |ev: &KeyDownEvent, _window, cx| match ev.keystroke.key.as_str() {
+                "escape" => {
+                    if let Some(e) = ent_key_cancel.upgrade() {
+                        e.update(cx, |this, cx| {
+                            this.cancel_dialog(cx);
+                        });
+                    }
                 }
-            }
-            "enter" if can_confirm => {
-                if let Some(e) = ent_key_confirm.upgrade() {
-                    let current_branch = current_branch_key.clone();
-                    e.update(cx, |this, cx| {
-                        this.active_dialog = AppDialog::None;
-                        confirm(
-                            this,
-                            current_branch,
-                            mode_key,
-                            &branch_input_key,
-                            cx,
-                        );
-                    });
+                "enter" if can_confirm => {
+                    if let Some(e) = ent_key_confirm.upgrade() {
+                        let current_branch = current_branch_key.clone();
+                        e.update(cx, |this, cx| {
+                            this.active_dialog = AppDialog::None;
+                            confirm(this, current_branch, mode_key, &branch_input_key, cx);
+                        });
+                    }
                 }
-            }
-            _ => {}
-        })
+                _ => {}
+            },
+        )
         .child(dialog_title("Commit & Push", dc))
         .child(dialog_body(
             "All changes have been staged. Choose where to commit and push.",
             dc,
         ));
 
-    dialog_box = dialog_box.child(
-        radio_row(
-            "commit-push-current",
-            "Current branch",
-            &branch_label,
-            current_selected,
-            detached,
-            accent,
-            border,
-            muted,
-            text_color,
-            surface,
-            entity.clone(),
-            CommitPushMode::CurrentBranch,
-        ),
-    );
+    dialog_box = dialog_box.child(radio_row(
+        "commit-push-current",
+        "Current branch",
+        &branch_label,
+        current_selected,
+        detached,
+        accent,
+        border,
+        muted,
+        text_color,
+        surface,
+        entity.clone(),
+        CommitPushMode::CurrentBranch,
+    ));
 
-    dialog_box = dialog_box.child(
-        radio_row(
-            "commit-push-feature",
-            "Create feature branch",
-            "Branch from current HEAD",
-            feature_selected,
-            false,
-            accent,
-            border,
-            muted,
-            text_color,
-            surface,
-            entity.clone(),
-            CommitPushMode::FeatureBranch,
-        ),
-    );
+    dialog_box = dialog_box.child(radio_row(
+        "commit-push-feature",
+        "Create feature branch",
+        "Branch from current HEAD",
+        feature_selected,
+        false,
+        accent,
+        border,
+        muted,
+        text_color,
+        surface,
+        entity.clone(),
+        CommitPushMode::FeatureBranch,
+    ));
 
     if feature_selected {
         let placeholder = if generating_branch {
@@ -278,45 +270,50 @@ fn radio_row(
         row = row.cursor_pointer();
     }
     row.on_click(move |_ev, _window, cx| {
-            if disabled {
-                return;
-            }
-            if let Some(e) = entity.upgrade() {
-                e.update(cx, |this, cx| {
-                    this.set_commit_push_mode(mode, cx);
-                });
-            }
-        })
-        .child(
-            div()
-                .w(px(14.0))
-                .h(px(14.0))
-                .mt(px(1.0))
-                .flex_shrink_0()
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded(px(7.0))
-                .border_1()
-                .border_color(radio_border)
-                .bg(radio_bg)
-                .text_color(gpui::hsla(0.0, 0.0, 1.0, 1.0))
-                .text_xs()
-                .child(if selected { "\u{2713}" } else { "" }),
-        )
-        .child(
-            div().flex().flex_col().gap_0p5().child(
+        if disabled {
+            return;
+        }
+        if let Some(e) = entity.upgrade() {
+            e.update(cx, |this, cx| {
+                this.set_commit_push_mode(mode, cx);
+            });
+        }
+    })
+    .child(
+        div()
+            .w(px(14.0))
+            .h(px(14.0))
+            .mt(px(1.0))
+            .flex_shrink_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(px(7.0))
+            .border_1()
+            .border_color(radio_border)
+            .bg(radio_bg)
+            .text_color(gpui::hsla(0.0, 0.0, 1.0, 1.0))
+            .text_xs()
+            .child(if selected { "\u{2713}" } else { "" }),
+    )
+    .child(
+        div()
+            .flex()
+            .flex_col()
+            .gap_0p5()
+            .child(
                 div()
                     .text_sm()
                     .text_color(title_color)
                     .child(title.to_string()),
-            ).child(
+            )
+            .child(
                 div()
                     .text_xs()
                     .text_color(muted)
                     .child(subtitle.to_string()),
             ),
-        )
+    )
 }
 
 pub fn confirm_from_dialog(

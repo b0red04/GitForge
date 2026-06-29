@@ -68,18 +68,19 @@ pub fn render(
     create_pr: &CreatePrState,
 ) -> Stateful<Div> {
     match dialog {
-        AppDialog::CommitAndPush { current_branch, detached } => {
-            commit_and_push::render(
-                current_branch,
-                *detached,
-                commit_push_mode,
-                commit_push_generating_branch,
-                dialog_input,
-                colors,
-                entity,
-                window,
-            )
-        }
+        AppDialog::CommitAndPush {
+            current_branch,
+            detached,
+        } => commit_and_push::render(
+            current_branch,
+            *detached,
+            commit_push_mode,
+            commit_push_generating_branch,
+            dialog_input,
+            colors,
+            entity,
+            window,
+        ),
         AppDialog::CreatePullRequest => create_pr::render(create_pr, colors, entity, window),
         AppDialog::DeleteBranch { name } => delete_branch::render(
             name,

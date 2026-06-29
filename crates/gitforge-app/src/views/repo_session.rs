@@ -183,6 +183,63 @@ impl RepoSession {
         self.loading = false;
     }
 
+    /// THE Selection Cascade invariant enforcer (ADR-0003). Given a graph
+    /// selection, makes `status_panel` (enter/exit graph-staging, gated on
+    /// `view_mode`) and `diff_panel` (clear) consistent with it.
+    ///
+    /// Does **not** write `graph_panel` — the selection is the cascade's
+    /// input, not its output. The caller must have set `graph_panel.selection`
+    /// before calling this (or in the same atomic update via
+    /// [`Self::set_selection`]).
+    ///
+    /// Returns the async work the caller must spawn (none / just notify /
+    /// load the diff). See [`SelectionEffect`].
+    fn cascade(&mut self, sel: GraphSelection) -> SelectionEffect {
+        match sel {
+            GraphSelection::Commit(_) => {
+                if self.view_mode == MainViewMode::CommitHistory {
+                    self.status_panel.exit_graph_staging();
+                }
+                self.diff_panel.clear();
+                SelectionEffect::LoadDiffForSelected
+            }
+            GraphSelection::Uncommitted => {
+                if self.view_mode == MainViewMode::CommitHistory {
+                    self.status_panel.enter_graph_staging();
+                }
+                self.diff_panel.clear();
+                SelectionEffect::ClearDiff
+            }
+            GraphSelection::None => {
+                self.diff_panel.clear();
+                SelectionEffect::ClearDiff
+            }
+        }
+    }
+
+    /// Selection entry for clicks and programmatic selection. Writes
+    /// `graph_panel` to the given selection, forces `view_mode =
+    /// CommitHistory` (explicit navigation), then runs the cascade.
+    pub fn set_selection(&mut self, sel: GraphSelection) -> SelectionEffect {
+        self.view_mode = MainViewMode::CommitHistory;
+        match sel {
+            GraphSelection::Commit(idx) => self.graph_panel.select_commit(idx),
+            GraphSelection::Uncommitted => self.graph_panel.select_uncommitted(),
+            GraphSelection::None => self.graph_panel.clear_selection(),
+        }
+        self.cascade(sel)
+    }
+
+    /// Selection entry for keyboard navigation. The graph panel has already
+    /// moved its own selection via `select_prev`/`select_next`, so this reads
+    /// `graph_panel.selection()` and runs the cascade without re-writing the
+    /// graph. Does not touch `view_mode` (the user is already in history view
+    /// when navigating the graph by keyboard).
+    pub fn cascade_current(&mut self) -> SelectionEffect {
+        let sel = self.graph_panel.selection();
+        self.cascade(sel)
+    }
+
     pub(crate) fn apply_repo_state_to_panels(&mut self, repo_state_data: &RepoState) {
         use gitforge_graph::CommitEntry;
 
@@ -238,11 +295,24 @@ impl RepoSession {
         self.status_panel
             .set_status(repo_state_data.status.clone(), preserve_staging);
 
-        // Decide what to do with selection after the rebuild. The cached
-        // `CommitDiffState` for a preserved real commit stays valid: commits
-        // are immutable, so a fetch can add new ones but never change the
-        // diff of an existing one. We only clear the diff panel when the
-        // prior selection cannot be preserved.
+        // Decide what to do with selection after the rebuild, then route
+        // through the Selection Cascade (`Self::cascade`) so the
+        // status/diff panels stay consistent with the new graph selection.
+        // See ADR-0003.
+        //
+        // `PreservedCommit` bypasses the cascade entirely: the user's prior
+        // commit is still present (possibly at a shifted index), commits are
+        // immutable so its cached diff is still valid, and skipping the
+        // cascade lets `sync_diff_view` hit its cache key (ADR-0001). The
+        // other arms clear the diff (via the cascade) because the selection
+        // genuinely changed.
+        //
+        // This method returns `()` (not `SelectionEffect`): the cascade's
+        // outcome here is always `ClearDiff` (a "notify"), and the callers
+        // (`apply_repo_state` → `refresh_repository`, and
+        // `apply_active_repo_tab_to_view` → `tab_ops`) already call
+        // `cx.notify()`. The snapshot path never reaches
+        // `LoadDiffForSelected`.
         let new_commit_ids: Vec<&str> = repo_state_data
             .commits
             .iter()
@@ -251,26 +321,18 @@ impl RepoSession {
         match reselect_after_refresh(prev_selection, has_uncommitted, &new_commit_ids) {
             RefreshSelection::PreservedCommit(idx) => {
                 self.graph_panel.select_commit(idx);
-                // Intentionally skip `diff_panel.clear()`: the cached diff for
-                // this immutable commit is still valid, and skipping the clear
-                // lets `sync_diff_view` hit its cache key and avoid a rebuild.
             }
             RefreshSelection::PreservedUncommitted => {
                 self.graph_panel.select_uncommitted();
-                if in_history {
-                    self.status_panel.enter_graph_staging();
-                }
-                self.diff_panel.clear();
+                self.cascade(GraphSelection::Uncommitted);
             }
             RefreshSelection::Fallback => {
-                self.diff_panel.clear();
                 if has_uncommitted {
                     self.graph_panel.select_uncommitted();
-                    if in_history {
-                        self.status_panel.enter_graph_staging();
-                    }
+                    self.cascade(GraphSelection::Uncommitted);
                 } else {
                     self.graph_panel.clear_selection();
+                    self.cascade(GraphSelection::None);
                 }
             }
         }
@@ -488,6 +550,27 @@ pub(crate) fn drop_caret_index(
     } else {
         Some(caret)
     }
+}
+
+/// What the caller (`GitForgeApp`) must do asynchronously after a
+/// selection-driven cascade. Returned by [`RepoSession::cascade`],
+/// [`RepoSession::set_selection`], and [`RepoSession::cascade_current`].
+///
+/// `RepoSession` stays GPUI-free, so it cannot spawn the diff load itself;
+/// instead it tells the caller what async work (if any) is needed, and the
+/// caller interprets the effect. See ADR-0003.
+///
+/// The snapshot path (`apply_repo_state_to_panels`) returns `()`, not this
+/// type: it only ever reaches `ClearDiff` outcomes (or bypasses the cascade
+/// entirely for `PreservedCommit`), and its callers already call
+/// `cx.notify()`, which is all `ClearDiff` asks for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SelectionEffect {
+    /// The cascade already cleared `diff_panel`. The caller just notifies.
+    ClearDiff,
+    /// The caller should call `load_diff_for_selected(cx)` to fetch and
+    /// install the diff for the newly-selected commit.
+    LoadDiffForSelected,
 }
 
 /// The user's graph selection captured *before* a refresh rebuilds the commit
@@ -907,6 +990,137 @@ mod active_repo_ready_tests {
         cx.update(|app| {
             let session = session_with_tab(app, fake_tab(1, false, true));
             assert!(session.active_repo_ready());
+        });
+    }
+}
+
+#[cfg(test)]
+mod cascade_tests {
+    use super::*;
+    use gitforge_git::CommitInfo;
+    use gpui::TestAppContext;
+
+    fn one_commit_session(cx: &mut gpui::App) -> RepoSession {
+        let mut session = RepoSession::new(cx);
+        let commit = CommitInfo {
+            id: "abcdef000000000000000000000000000000001".into(),
+            short_id: "abcdef0".into(),
+            message: "initial".into(),
+            summary: "initial".into(),
+            author_name: "n".into(),
+            author_email: "e".into(),
+            author_date: chrono::Utc::now(),
+            committer_name: "n".into(),
+            committer_email: "e".into(),
+            committer_date: chrono::Utc::now(),
+            parent_ids: vec![],
+        };
+        let entries = vec![gitforge_graph::CommitEntry::new(commit.id.clone(), vec![])];
+        let graph = Graph::build(&entries);
+        session
+            .graph_panel
+            .set_data(vec![commit], vec![], graph, true, None);
+        session
+    }
+
+    #[gpui::test]
+    fn commit_in_history_exits_staging_clears_diff_loads(cx: &mut TestAppContext) {
+        cx.update(|app| {
+            let mut s = one_commit_session(app);
+            s.view_mode = MainViewMode::CommitHistory;
+            s.status_panel.enter_graph_staging();
+            assert!(s.status_panel.is_graph_staging());
+
+            let effect = s.cascade(GraphSelection::Commit(0));
+
+            assert_eq!(effect, SelectionEffect::LoadDiffForSelected);
+            assert!(!s.status_panel.is_graph_staging());
+            assert!(s.diff_panel.diff_state().is_none());
+        });
+    }
+
+    #[gpui::test]
+    fn uncommitted_in_history_enters_staging_clears_diff(cx: &mut TestAppContext) {
+        cx.update(|app| {
+            let mut s = one_commit_session(app);
+            s.view_mode = MainViewMode::CommitHistory;
+            assert!(!s.status_panel.is_graph_staging());
+
+            let effect = s.cascade(GraphSelection::Uncommitted);
+
+            assert_eq!(effect, SelectionEffect::ClearDiff);
+            assert!(s.status_panel.is_graph_staging());
+            assert!(s.diff_panel.diff_state().is_none());
+        });
+    }
+
+    #[gpui::test]
+    fn uncommitted_in_status_view_skips_staging(cx: &mut TestAppContext) {
+        cx.update(|app| {
+            let mut s = one_commit_session(app);
+            s.view_mode = MainViewMode::Status;
+            assert!(!s.status_panel.is_graph_staging());
+
+            let effect = s.cascade(GraphSelection::Uncommitted);
+
+            // Gating: view_mode != CommitHistory means the cascade must NOT
+            // enter graph staging. The diff is still cleared and the effect
+            // still reports ClearDiff.
+            assert_eq!(effect, SelectionEffect::ClearDiff);
+            assert!(!s.status_panel.is_graph_staging());
+            assert!(s.diff_panel.diff_state().is_none());
+        });
+    }
+
+    #[gpui::test]
+    fn none_clears_diff_no_status_change(cx: &mut TestAppContext) {
+        cx.update(|app| {
+            let mut s = one_commit_session(app);
+            s.view_mode = MainViewMode::CommitHistory;
+            s.status_panel.enter_graph_staging();
+            assert!(s.status_panel.is_graph_staging());
+
+            let effect = s.cascade(GraphSelection::None);
+
+            // The None branch clears the diff but does not touch the status
+            // panel (matches pre-ADR-0003 behaviour; see ADR's "Behaviour
+            // changes" section).
+            assert_eq!(effect, SelectionEffect::ClearDiff);
+            assert!(s.status_panel.is_graph_staging());
+            assert!(s.diff_panel.diff_state().is_none());
+        });
+    }
+
+    #[gpui::test]
+    fn set_selection_forces_history_view(cx: &mut TestAppContext) {
+        cx.update(|app| {
+            let mut s = one_commit_session(app);
+            s.view_mode = MainViewMode::Status;
+
+            let effect = s.set_selection(GraphSelection::Commit(0));
+
+            assert_eq!(effect, SelectionEffect::LoadDiffForSelected);
+            assert_eq!(s.view_mode, MainViewMode::CommitHistory);
+            assert_eq!(s.graph_panel.selection(), GraphSelection::Commit(0));
+        });
+    }
+
+    #[gpui::test]
+    fn cascade_current_uses_existing_graph_selection(cx: &mut TestAppContext) {
+        cx.update(|app| {
+            let mut s = one_commit_session(app);
+            s.view_mode = MainViewMode::CommitHistory;
+            // Simulate keyboard navigation: the graph panel moved its own
+            // selection, the session has not been told yet.
+            s.graph_panel.select_commit(0);
+
+            let effect = s.cascade_current();
+
+            // cascade_current reads graph_panel.selection() (Commit) and
+            // cascades accordingly, without re-writing the graph.
+            assert_eq!(effect, SelectionEffect::LoadDiffForSelected);
+            assert_eq!(s.graph_panel.selection(), GraphSelection::Commit(0));
+            assert!(!s.status_panel.is_graph_staging());
         });
     }
 }
