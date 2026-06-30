@@ -1,0 +1,9 @@
+{
+  "networkPolicy": {
+    "default": "deny",
+    "allow": [
+      "api.github.com",
+      "github.com"
+    ]
+  }
+}
