@@ -8,7 +8,7 @@ GitForge is a Linux-first Git GUI client built with GPUI (Zed's GPU-accelerated 
 
 **Repository** — a Git working tree opened by the user. The `gitforge-git` crate wraps `gix::Repository` and exposes a `Repository` struct with read operations (log, status, references, diff, worktree list). One `Repository` per open tab, stored as `RepoSession.open_repo_tabs[i].repo` behind `Arc<Mutex<Option<Repository>>>`, persists for the tab's lifetime and is not re-opened per operation.
 
-**RepoState** — a snapshot of repository data (commits, references, status, worktrees). Created from a `Repository` via `RepoState::from_repository(&repo)`. Owned per-tab by `RepoSession.open_repo_tabs[i].repo_state`; the active tab's state is reached via `RepoSession::active_repo_state`. `RepoSession::apply_repo_state` is the single seam for installing a fresh snapshot — it writes the graph/status/diff panels and updates the active tab in one call.
+**RepoState** — a snapshot of repository data (commits, references, remotes, status, worktrees). Created from a `Repository` via `RepoState::from_repository(&repo)`. Owned per-tab by `RepoSession.open_repo_tabs[i].repo_state`; the active tab's state is reached via `RepoSession::active_repo_state`. `RepoSession::apply_repo_state` is the single seam for installing a fresh snapshot — it writes the graph/status/diff panels and updates the active tab in one call. Render-path callers read derived data (e.g. origin's remote URL via `RepoState::remote_url`) from the snapshot rather than acquiring the live `Repository` lock, so scrolling never blocks on git I/O.
 
 **Commit** — a point in repository history. Represented as `CommitInfo` (id, short_id, summary, author, dates, parent_ids). Commits are rendered as rows in the Commit Graph.
 

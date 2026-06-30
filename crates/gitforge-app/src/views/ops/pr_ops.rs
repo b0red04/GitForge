@@ -32,8 +32,8 @@ pub(crate) fn pull_request_for_branch<'a>(
 
 impl GitForgeApp {
     pub(crate) fn resolve_origin_hosting(&self) -> Option<OriginHostingContext> {
-        self.repo_session.active_repo_state()?;
-        let url = self.get_origin_remote_url()?;
+        let rs = self.repo_session.active_repo_state()?;
+        let url = rs.remote_url("origin")?.to_string();
         let clean_url = urls::normalize_remote_url(&url);
         let provider_id = urls::detect_provider_id(&clean_url)?;
         let account = self.find_hosting_account(provider_id)?;
@@ -48,13 +48,11 @@ impl GitForgeApp {
     }
 
     pub(crate) fn pull_request_sidebar_hint(&self) -> Option<PullRequestSidebarHint> {
-        if self.repo_session.active_repo_state().is_none() {
-            return None;
-        }
-        let Some(origin_url) = self.get_origin_remote_url() else {
+        let rs = self.repo_session.active_repo_state()?;
+        let Some(origin_url) = rs.remote_url("origin") else {
             return Some(PullRequestSidebarHint::NoOrigin);
         };
-        let clean_url = urls::normalize_remote_url(&origin_url);
+        let clean_url = urls::normalize_remote_url(origin_url);
         let Some(provider_id) = urls::detect_provider_id(&clean_url) else {
             return Some(PullRequestSidebarHint::UnsupportedProvider);
         };
@@ -148,33 +146,43 @@ impl GitForgeApp {
         };
 
         let Some(ctx) = self.resolve_origin_hosting() else {
-            if self.get_origin_remote_url().is_none() {
+            // Mirror pull_request_sidebar_hint's split: distinguish no
+            // origin, an unsupported/unparseable origin URL, and a
+            // supported provider with no matching account.
+            let Some(origin_url) = rs.remote_url("origin") else {
                 self.push_toast(
                     crate::views::toasts::ToastKind::Warning,
                     "No origin remote configured",
                     cx,
                 );
-            } else {
-                let clean_url = self
-                    .get_origin_remote_url()
-                    .map(|u| urls::normalize_remote_url(&u))
-                    .unwrap_or_default();
-                if urls::detect_provider_id(&clean_url).is_none() {
-                    self.push_toast(
-                        crate::views::toasts::ToastKind::Warning,
-                        "Origin remote is not a supported hosting provider (GitHub, GitLab, Codeberg)",
-                        cx,
-                    );
-                } else {
-                    let provider_id = urls::detect_provider_id(&clean_url).unwrap_or("github");
-                    let label = urls::provider_label(provider_id);
-                    self.push_toast(
-                        crate::views::toasts::ToastKind::Warning,
-                        format!("Add a {label} account in Settings → Accounts"),
-                        cx,
-                    );
-                }
+                return;
+            };
+            let clean_url = urls::normalize_remote_url(origin_url);
+            let Some(provider_id) = urls::detect_provider_id(&clean_url) else {
+                self.push_toast(
+                    crate::views::toasts::ToastKind::Warning,
+                    "Origin remote is not a supported hosting provider (GitHub, GitLab, Codeberg)",
+                    cx,
+                );
+                return;
+            };
+            if self.find_hosting_account(provider_id).is_none() {
+                let label = urls::provider_label(provider_id);
+                self.push_toast(
+                    crate::views::toasts::ToastKind::Warning,
+                    format!("Add a {label} account in Settings → Accounts"),
+                    cx,
+                );
+                return;
             }
+            // Provider detected and an account exists, yet
+            // resolve_origin_hosting still failed — the origin URL could
+            // not be parsed into an owner/repo.
+            self.push_toast(
+                crate::views::toasts::ToastKind::Warning,
+                "Origin remote URL could not be parsed into an owner/repo",
+                cx,
+            );
             return;
         };
 
@@ -325,30 +333,30 @@ impl GitForgeApp {
     }
 
     fn refresh_create_pr_to_branches(&mut self, cx: &mut Context<Self>) {
-        let origin_url = self.get_origin_remote_url();
-        let origin_repo = origin_url
-            .as_ref()
+        let Some(rs) = self.repo_session.active_repo_state() else {
+            return;
+        };
+        let origin_repo = rs
+            .remote_url("origin")
             .map(|u| urls::extract_repo_full_name(&urls::normalize_remote_url(u)));
 
         if origin_repo.as_deref() == Some(self.create_pr.to_repo.as_str()) {
-            if let Some(rs) = self.repo_session.active_repo_state() {
-                let mut branches: Vec<String> = rs
-                    .references
-                    .iter()
-                    .filter(|r| r.kind == RefKind::RemoteBranch && r.name.starts_with("origin/"))
-                    .map(|r| {
-                        r.name
-                            .strip_prefix("origin/")
-                            .unwrap_or(&r.name)
-                            .to_string()
-                    })
-                    .collect();
-                branches.sort();
-                if !branches.is_empty() {
-                    self.create_pr.to_branches = branches;
-                    cx.notify();
-                    return;
-                }
+            let mut branches: Vec<String> = rs
+                .references
+                .iter()
+                .filter(|r| r.kind == RefKind::RemoteBranch && r.name.starts_with("origin/"))
+                .map(|r| {
+                    r.name
+                        .strip_prefix("origin/")
+                        .unwrap_or(&r.name)
+                        .to_string()
+                })
+                .collect();
+            branches.sort();
+            if !branches.is_empty() {
+                self.create_pr.to_branches = branches;
+                cx.notify();
+                return;
             }
         }
 
@@ -566,17 +574,6 @@ impl GitForgeApp {
                 this.create_pr.submitting = false;
             },
         );
-    }
-
-    fn get_origin_remote_url(&self) -> Option<String> {
-        let open_repo = self.repo_session.active_repo_handle()?;
-        let repo_lock = open_repo.lock();
-        let repo = repo_lock.as_ref()?;
-        let remotes = repo.remote_list().ok()?;
-        remotes
-            .iter()
-            .find(|(name, _)| name == "origin")
-            .map(|(_, url)| url.clone())
     }
 
     fn is_branch_pushed_to_origin(&self, branch: &str) -> bool {

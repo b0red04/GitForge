@@ -15,6 +15,7 @@ pub struct RepoState {
     pub head_commit: Option<String>,
     pub commits: Vec<CommitInfo>,
     pub references: Vec<RefInfo>,
+    pub remotes: Vec<(String, String)>,
     pub conflicting_local_branches: HashSet<String>,
     pub status: RepoStatus,
     pub worktrees: Vec<WorktreeInfo>,
@@ -75,6 +76,10 @@ impl RepoState {
             });
         let status = repo.status()?;
         let worktrees = repo.worktree_list().unwrap_or_default();
+        let remotes = repo.remote_list().unwrap_or_else(|e| {
+            tracing::warn!("Failed to read remotes: {}", e);
+            Vec::new()
+        });
 
         let elapsed = start.elapsed();
         tracing::info!(
@@ -90,10 +95,23 @@ impl RepoState {
             head_commit,
             commits,
             references,
+            remotes,
             conflicting_local_branches,
             status,
             worktrees,
         })
+    }
+
+    /// Look up a remote URL by name from the snapshot taken at
+    /// [`RepoState::from_repository`] time. Render-path callers must use this
+    /// instead of acquiring the live `Repository` lock — remote URLs are
+    /// immutable between refreshes, and `add_remote`/`remove_remote` already
+    /// rebuild the snapshot via `OpEffects::GIT`.
+    pub fn remote_url(&self, name: &str) -> Option<&str> {
+        self.remotes
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, url)| url.as_str())
     }
 
     pub fn discover(path: &Path) -> GitResult<Self> {

@@ -768,6 +768,11 @@ impl GitForgeApp {
         self.run_git_op("Remove remote", cx, move |repo| repo.remote_remove(&name));
     }
 
+    // When wiring `remote_rename`/`remote_set_url`: route through `run_git_op`
+    // (which sets `OpEffects::GIT` → repo refresh) so `RepoState`'s `remotes`
+    // snapshot stays current — else the PR sidebar / "open in browser" read a
+    // stale URL until the next manual refresh.
+
     pub fn delete_remote_branch(&mut self, remote: String, branch: String, cx: &mut Context<Self>) {
         let status = format!("Deleting {remote}/{branch}…");
         self.run_git_op_with_status("Delete remote branch", &status, cx, move |repo| {

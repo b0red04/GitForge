@@ -937,6 +937,7 @@ mod active_repo_ready_tests {
             conflicting_local_branches: HashSet::new(),
             status: RepoStatus::default(),
             worktrees: vec![],
+            remotes: vec![],
         }
     }
 
@@ -1041,6 +1042,7 @@ mod cascade_tests {
             conflicting_local_branches: HashSet::new(),
             status: gitforge_git::RepoStatus::default(),
             worktrees: vec![],
+            remotes: vec![],
         }
     }
 
