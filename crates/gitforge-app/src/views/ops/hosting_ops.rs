@@ -77,16 +77,17 @@ impl GitForgeApp {
     /// handle). Adapter over `run_op_full` with `OpEffects::QUIET`: hosts the
     /// `cx.spawn` + await, maps `anyhow` errors to `AppError::Remote`
     /// (credential-redacted), surfaces an error toast on failure, and runs
-    /// `on_error` first so callers can clear transient state. The `op` closure
-    /// builds the future so the hosting provider can be captured by value (its
-    /// future borrows the provider, so it must be constructed inside the spawn).
+    /// `on_error(detail)` first so callers can clear transient state. The `op`
+    /// closure builds the future so the hosting provider can be captured by
+    /// value (its future borrows the provider, so it must be constructed inside
+    /// the spawn).
     pub(crate) fn run_hosting_op<T, Fut>(
         &mut self,
         label: &str,
         cx: &mut Context<Self>,
         op: impl FnOnce() -> Fut + Send + 'static,
         on_success: impl FnOnce(&mut Self, T, &mut Context<Self>) + Send + 'static,
-        on_error: impl FnOnce(&mut Self, &mut Context<Self>) + Send + 'static,
+        on_error: impl FnOnce(&mut Self, String, &mut Context<Self>) + Send + 'static,
     ) where
         Fut: Future<Output = anyhow::Result<T>> + Send + 'static,
         T: Send + 'static,
@@ -100,7 +101,7 @@ impl GitForgeApp {
                     .map_err(|e| AppError::Remote(RemoteError::from_anyhow(e)))
             },
             on_success,
-            Some(Box::new(move |this, _detail, cx| on_error(this, cx))),
+            Some(Box::new(on_error)),
             None,
         );
     }
@@ -147,7 +148,7 @@ impl GitForgeApp {
                 this.notify_settings_window(cx);
                 cx.notify();
             },
-            |_, _| {},
+            |_, _, _| {},
         );
     }
 
@@ -223,7 +224,7 @@ impl GitForgeApp {
                     cx.notify();
                 }
             },
-            move |this, _cx| {
+            move |this, _detail, _cx| {
                 if this.active_hosting_repo_provider() == Some(err_provider.as_str()) {
                     this.hosting_repos_loading = false;
                 }
@@ -367,14 +368,15 @@ impl GitForgeApp {
             let url = clone_url.clone();
 
             this.update(cx, |this, cx| {
-                this.run_blocking_op_returning(
+                this.run_blocking(
                     "Clone",
                     cx,
+                    super::dispatch::OpEffects::QUIET,
                     move || gitforge_git::Repository::clone_repo(&url, &dest, false, None),
                     move |this, _output, cx| {
                         this.open_repo_from_path(open_path, cx);
                     },
-                    |_, _| {},
+                    |_, _, _| {},
                 );
             })
             .ok();
@@ -422,7 +424,7 @@ impl GitForgeApp {
                 this.hosting_repos_loading = false;
                 cx.notify();
             },
-            |this, _cx| {
+            |this, _detail, _cx| {
                 this.hosting_repos_loading = false;
             },
         );
@@ -466,7 +468,7 @@ impl GitForgeApp {
                 );
                 cx.notify();
             },
-            |_, _| {},
+            |_, _, _| {},
         );
     }
 }

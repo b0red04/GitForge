@@ -108,9 +108,10 @@ impl GitForgeApp {
 
         let load_options = self.load_options();
 
-        self.run_blocking_op_silent(
+        self.run_blocking(
             "Load repository",
             cx,
+            super::dispatch::OpEffects::SILENT,
             move || RepoState::discover_with_repo(&path, load_options),
             move |this, (repo, repo_state_data), cx| {
                 *repo_handle.lock() = Some(repo);

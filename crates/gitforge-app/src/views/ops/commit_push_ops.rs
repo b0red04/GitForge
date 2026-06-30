@@ -17,9 +17,10 @@ impl GitForgeApp {
             return;
         }
 
-        self.run_git_op_returning(
+        self.run_git_blocking(
             "Stage all",
             cx,
+            super::dispatch::OpEffects::QUIET,
             |repo| repo.stage_all(),
             |this, _, cx| {
                 this.refresh_repository(cx);

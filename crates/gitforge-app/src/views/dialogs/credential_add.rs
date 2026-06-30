@@ -97,9 +97,10 @@ fn store_credential(
     password: String,
     cx: &mut Context<GitForgeApp>,
 ) {
-    app.run_blocking_op_returning(
+    app.run_blocking(
         "Store credential",
         cx,
+        crate::views::ops::dispatch::OpEffects::QUIET,
         move || gitforge_git::credential::store_credential(&host, &username, &password, None),
         |this, _value, cx| {
             this.push_toast(
@@ -108,6 +109,6 @@ fn store_credential(
                 cx,
             );
         },
-        |_, _| {},
+        |_, _, _| {},
     );
 }
