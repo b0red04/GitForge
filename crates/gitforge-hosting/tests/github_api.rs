@@ -8,7 +8,7 @@ mod common;
 
 use common::{ensure_test_tokens, test_account};
 use gitforge_hosting::CreatePullRequestRequest;
-use gitforge_hosting::gitea_style::GiteaStyleProvider;
+use gitforge_hosting::ConfigDrivenProvider;
 use gitforge_hosting::provider::HostingProvider;
 use httpmock::Method::{GET, POST};
 use httpmock::prelude::*;
@@ -40,8 +40,8 @@ fn gh_pr_json(number: u64, title: &str) -> serde_json::Value {
     })
 }
 
-fn provider(server: &MockServer) -> GiteaStyleProvider {
-    GiteaStyleProvider::with_url_github(server.base_url())
+fn provider(server: &MockServer) -> ConfigDrivenProvider {
+    ConfigDrivenProvider::with_url_github(server.base_url())
 }
 
 #[tokio::test]
@@ -269,6 +269,6 @@ async fn error_on_non_2xx_response() {
 
 #[test]
 fn repo_url_uses_web_url() {
-    let gh = GiteaStyleProvider::new_github();
+    let gh = ConfigDrivenProvider::new_github();
     assert_eq!(gh.repo_url("foo/bar"), "https://github.com/foo/bar");
 }

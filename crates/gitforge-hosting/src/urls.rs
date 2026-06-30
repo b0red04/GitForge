@@ -1,5 +1,5 @@
 use crate::provider::HostingProvider;
-use crate::{GitLabProvider, GiteaStyleProvider};
+use crate::ConfigDrivenProvider;
 
 pub fn normalize_remote_url(url: &str) -> String {
     let url = url.trim();
@@ -22,11 +22,8 @@ pub fn normalize_remote_url(url: &str) -> String {
 }
 
 pub fn detect_provider(url: &str) -> Option<Box<dyn HostingProvider>> {
-    detect_provider_id(url).map(|id| match id {
-        "github" => Box::new(GiteaStyleProvider::new_github()) as Box<dyn HostingProvider>,
-        "gitlab" => Box::new(GitLabProvider::new()),
-        "codeberg" => Box::new(GiteaStyleProvider::new_codeberg()),
-        _ => unreachable!(),
+    detect_provider_id(url).and_then(|id| {
+        ConfigDrivenProvider::from_id(id).map(|p| Box::new(p) as Box<dyn HostingProvider>)
     })
 }
 
