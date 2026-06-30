@@ -127,6 +127,7 @@ impl GitForgeApp {
             refresh_prs: false,
             remote_status: Some("Committing and pushing...".to_string()),
             error_channel: super::dispatch::ErrorChannel::Toast,
+            busy: None,
         };
 
         let pushed_branch = branch_name.clone();

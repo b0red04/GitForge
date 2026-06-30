@@ -4,7 +4,7 @@ use gpui::Context;
 
 use crate::views::app::{AppDialog, GitForgeApp};
 use crate::views::dialogs::AddRepoTab;
-use crate::views::ops::dispatch::{AppError, OpEffects, RemoteError};
+use crate::views::ops::dispatch::{AppError, BusyFlag, ErrorHandler, OpEffects, RemoteError};
 use crate::views::settings_window::SettingsSection;
 
 impl GitForgeApp {
@@ -74,34 +74,35 @@ impl GitForgeApp {
     }
 
     /// General async seam for hosting-API operations (pure async, no repo
-    /// handle). Adapter over `run_op_full` with `OpEffects::QUIET`: hosts the
-    /// `cx.spawn` + await, maps `anyhow` errors to `AppError::Remote`
-    /// (credential-redacted), surfaces an error toast on failure, and runs
-    /// `on_error(detail)` first so callers can clear transient state. The `op`
-    /// closure builds the future so the hosting provider can be captured by
-    /// value (its future borrows the provider, so it must be constructed inside
-    /// the spawn).
-    pub(crate) fn run_hosting_op<T, Fut>(
+    /// handle). Adapter over `run_op_full`: hosts the `cx.spawn` + await,
+    /// maps `anyhow` errors to `AppError::Remote` (credential-redacted),
+    /// surfaces an error toast on failure, and runs `on_error(detail)` first when
+    /// provided so callers can clear transient state. The `op` closure builds the
+    /// future so the hosting provider can be captured by value (its future borrows
+    /// the provider, so it must be constructed inside the spawn).
+    pub(crate) fn run_hosting_op<T, Fut, FOk>(
         &mut self,
         label: &str,
         cx: &mut Context<Self>,
+        fx: OpEffects,
         op: impl FnOnce() -> Fut + Send + 'static,
-        on_success: impl FnOnce(&mut Self, T, &mut Context<Self>) + Send + 'static,
-        on_error: impl FnOnce(&mut Self, String, &mut Context<Self>) + Send + 'static,
+        on_success: FOk,
+        on_error: Option<ErrorHandler>,
     ) where
         Fut: Future<Output = anyhow::Result<T>> + Send + 'static,
         T: Send + 'static,
+        FOk: FnOnce(&mut Self, T, &mut Context<Self>) + Send + 'static,
     {
         self.run_op_full(
             label,
             cx,
-            OpEffects::QUIET,
+            fx,
             move || async move {
                 op().await
                     .map_err(|e| AppError::Remote(RemoteError::from_anyhow(e)))
             },
             on_success,
-            Some(Box::new(on_error)),
+            on_error,
             None,
         );
     }
@@ -119,6 +120,7 @@ impl GitForgeApp {
         self.run_hosting_op(
             "Authentication",
             cx,
+            OpEffects::QUIET,
             move || async move { p.authenticate(&token).await },
             move |this, account, cx| {
                 let display_name = account.display_name.clone();
@@ -148,7 +150,7 @@ impl GitForgeApp {
                 this.notify_settings_window(cx);
                 cx.notify();
             },
-            |_, _, _| {},
+            None,
         );
     }
 
@@ -189,7 +191,6 @@ impl GitForgeApp {
     /// clobber the view after a switch.
     fn load_hosting_repos(&mut self, provider: String, cx: &mut Context<Self>) {
         self.hosting_repos.clear();
-        self.hosting_repos_loading = true;
         cx.notify();
 
         let Some(account) = self.find_hosting_account(&provider) else {
@@ -211,24 +212,25 @@ impl GitForgeApp {
             return;
         };
 
-        let ok_provider = provider.clone();
-        let err_provider = provider;
+        let guard = BusyFlag::HostingRepos {
+            expect_provider: Some(provider.clone()),
+        };
+        let fx = OpEffects {
+            busy: Some(guard.clone()),
+            ..OpEffects::QUIET
+        };
         self.run_hosting_op(
             "List repos",
             cx,
+            fx,
             move || async move { p.list_repos(&account).await },
             move |this, repos, cx| {
-                if this.active_hosting_repo_provider() == Some(ok_provider.as_str()) {
+                if guard.still_relevant(this) {
                     this.hosting_repos = repos;
-                    this.hosting_repos_loading = false;
                     cx.notify();
                 }
             },
-            move |this, _detail, _cx| {
-                if this.active_hosting_repo_provider() == Some(err_provider.as_str()) {
-                    this.hosting_repos_loading = false;
-                }
-            },
+            None,
         );
     }
 
@@ -236,7 +238,7 @@ impl GitForgeApp {
     /// expecting, or `None` when no hosting-repo view is on screen (the
     /// AddRepo dialog is on its Local tab, or a different dialog is open).
     /// Used to discard stale `list_repos` responses after a tab/dialog switch.
-    fn active_hosting_repo_provider(&self) -> Option<&str> {
+    pub(crate) fn active_hosting_repo_provider(&self) -> Option<&str> {
         match &self.active_dialog {
             AppDialog::CloneFromHosting { provider } => Some(provider),
             AppDialog::AddRepo => match &self.add_repo_tab {
@@ -393,7 +395,6 @@ impl GitForgeApp {
         let account = self.find_hosting_account(&provider);
 
         self.hosting_repos.clear();
-        self.hosting_repos_loading = true;
         cx.notify();
 
         let Some(account) = account else {
@@ -415,18 +416,22 @@ impl GitForgeApp {
             return;
         };
 
+        let fx = OpEffects {
+            busy: Some(BusyFlag::HostingRepos {
+                expect_provider: None,
+            }),
+            ..OpEffects::QUIET
+        };
         self.run_hosting_op(
             "Search repos",
             cx,
+            fx,
             move || async move { p.search_repos(&account, &query).await },
             move |this, repos, cx| {
                 this.hosting_repos = repos;
-                this.hosting_repos_loading = false;
                 cx.notify();
             },
-            |this, _detail, _cx| {
-                this.hosting_repos_loading = false;
-            },
+            None,
         );
     }
 
@@ -459,6 +464,7 @@ impl GitForgeApp {
         self.run_hosting_op(
             "Fork",
             cx,
+            OpEffects::QUIET,
             move || async move { p.create_fork(&account, &owner, &repo).await },
             move |this, forked, cx| {
                 this.push_toast(
@@ -468,7 +474,7 @@ impl GitForgeApp {
                 );
                 cx.notify();
             },
-            |_, _, _| {},
+            None,
         );
     }
 }
