@@ -122,12 +122,14 @@ CommitHistory."
 1. **`GraphSelection::None` does not `exit_graph_staging`** — this matches
    the pre-ADR behaviour. If `None` should also exit staging, `cascade` is
    the single place to add it.
-2. **Click path now respects `view_mode` gating** — pre-ADR,
-   `select_commit`/`select_uncommitted` unconditionally entered/exited
-   staging. Post-ADR, if `view_mode` were somehow not `CommitHistory` when a
-   click landed, `cascade` would skip the status write. In practice clicks
-   only happen in history view (the graph is only visible there), so there is
-   no observable change; the new behaviour is the more defensive of the two.
+2. **Click path is unchanged** — `set_selection` writes
+   `view_mode = CommitHistory` *before* it calls `cascade`, so the cascade
+   always runs with history view active on the click / programmatic path and
+   always enters/exits staging exactly as `select_commit` /
+   `select_uncommitted` did pre-ADR. The cascade's `view_mode` gating is
+   therefore never exercised here; it only matters on the keyboard path
+   (`cascade_current`) and the snapshot path (`apply_repo_state_to_panels`),
+   where `view_mode` is not forced.
 
 ## Consequences
 

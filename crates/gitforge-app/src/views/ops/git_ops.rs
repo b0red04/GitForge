@@ -30,7 +30,10 @@ impl GitForgeApp {
     fn apply_selection_effect(&mut self, effect: SelectionEffect, cx: &mut Context<Self>) {
         match effect {
             SelectionEffect::ClearDiff => cx.notify(),
-            SelectionEffect::LoadDiffForSelected => self.load_diff_for_selected(cx),
+            SelectionEffect::LoadDiffForSelected => {
+                cx.notify();
+                self.load_diff_for_selected(cx);
+            }
         }
     }
 

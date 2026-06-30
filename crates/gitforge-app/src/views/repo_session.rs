@@ -324,15 +324,15 @@ impl RepoSession {
             }
             RefreshSelection::PreservedUncommitted => {
                 self.graph_panel.select_uncommitted();
-                self.cascade(GraphSelection::Uncommitted);
+                let _ = self.cascade(GraphSelection::Uncommitted);
             }
             RefreshSelection::Fallback => {
                 if has_uncommitted {
                     self.graph_panel.select_uncommitted();
-                    self.cascade(GraphSelection::Uncommitted);
+                    let _ = self.cascade(GraphSelection::Uncommitted);
                 } else {
                     self.graph_panel.clear_selection();
-                    self.cascade(GraphSelection::None);
+                    let _ = self.cascade(GraphSelection::None);
                 }
             }
         }
@@ -565,6 +565,7 @@ pub(crate) fn drop_caret_index(
 /// entirely for `PreservedCommit`), and its callers already call
 /// `cx.notify()`, which is all `ClearDiff` asks for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[must_use]
 pub(crate) enum SelectionEffect {
     /// The cascade already cleared `diff_panel`. The caller just notifies.
     ClearDiff,
@@ -1000,11 +1001,12 @@ mod cascade_tests {
     use gitforge_git::CommitInfo;
     use gpui::TestAppContext;
 
-    fn one_commit_session(cx: &mut gpui::App) -> RepoSession {
-        let mut session = RepoSession::new(cx);
-        let commit = CommitInfo {
-            id: "abcdef000000000000000000000000000000001".into(),
-            short_id: "abcdef0".into(),
+    const SAMPLE_COMMIT_ID: &str = "abcdef000000000000000000000000000000001";
+
+    fn sample_commit(id: &str) -> CommitInfo {
+        CommitInfo {
+            id: id.into(),
+            short_id: id.get(..7).unwrap_or(id).into(),
             message: "initial".into(),
             summary: "initial".into(),
             author_name: "n".into(),
@@ -1014,13 +1016,32 @@ mod cascade_tests {
             committer_email: "e".into(),
             committer_date: chrono::Utc::now(),
             parent_ids: vec![],
-        };
+        }
+    }
+
+    fn one_commit_session(cx: &mut gpui::App) -> RepoSession {
+        let mut session = RepoSession::new(cx);
+        let commit = sample_commit(SAMPLE_COMMIT_ID);
         let entries = vec![gitforge_graph::CommitEntry::new(commit.id.clone(), vec![])];
         let graph = Graph::build(&entries);
         session
             .graph_panel
             .set_data(vec![commit], vec![], graph, true, None);
         session
+    }
+
+    fn repo_state_with_commits(commits: Vec<CommitInfo>) -> gitforge_git::RepoState {
+        use std::collections::HashSet;
+        gitforge_git::RepoState {
+            path: PathBuf::from("/tmp/test-repo"),
+            head_branch: None,
+            head_commit: None,
+            commits,
+            references: vec![],
+            conflicting_local_branches: HashSet::new(),
+            status: gitforge_git::RepoStatus::default(),
+            worktrees: vec![],
+        }
     }
 
     #[gpui::test]
@@ -1119,6 +1140,30 @@ mod cascade_tests {
             // cascade_current reads graph_panel.selection() (Commit) and
             // cascades accordingly, without re-writing the graph.
             assert_eq!(effect, SelectionEffect::LoadDiffForSelected);
+            assert_eq!(s.graph_panel.selection(), GraphSelection::Commit(0));
+            assert!(!s.status_panel.is_graph_staging());
+        });
+    }
+
+    #[gpui::test]
+    fn preserved_commit_refresh_keeps_cached_diff(cx: &mut TestAppContext) {
+        cx.update(|app| {
+            let mut s = one_commit_session(app);
+            s.view_mode = MainViewMode::CommitHistory;
+
+            s.graph_panel.select_commit(0);
+            s.diff_panel
+                .set_diff(CommitDiffState::new(SAMPLE_COMMIT_ID.into(), vec![], None));
+            assert!(s.diff_panel.diff_state().is_some());
+
+            let repo_state = repo_state_with_commits(vec![sample_commit(SAMPLE_COMMIT_ID)]);
+            s.apply_repo_state_to_panels(&repo_state);
+
+            let diff = s
+                .diff_panel
+                .diff_state()
+                .expect("PreservedCommit must keep the cached diff intact");
+            assert_eq!(diff.commit_id, SAMPLE_COMMIT_ID);
             assert_eq!(s.graph_panel.selection(), GraphSelection::Commit(0));
             assert!(!s.status_panel.is_graph_staging());
         });
