@@ -1,6 +1,5 @@
 pub mod avatar;
-pub mod gitea_style;
-pub mod gitlab;
+pub mod config_driven;
 pub mod http;
 pub mod models;
 pub mod provider;
@@ -8,21 +7,28 @@ pub mod secrets;
 pub mod urls;
 
 pub use avatar::{avatar_cache_path, cached_avatar_path, ensure_avatar_cached};
-pub use gitea_style::GiteaStyleProvider;
-pub use gitlab::GitLabProvider;
+pub use config_driven::ConfigDrivenProvider;
 pub use models::{CreatePullRequestRequest, HostingAccount, PullRequest, RemoteRepo};
 pub use provider::HostingProvider;
 
+/// Deprecated re-export path for existing callers.
+#[deprecated(note = "use config_driven module")]
+pub mod gitea_style {
+    pub use super::config_driven::ConfigDrivenProvider;
+    #[deprecated(note = "use ConfigDrivenProvider")]
+    pub type GiteaStyleProvider = super::ConfigDrivenProvider;
+}
+
 /// Type alias preserving the historical name for GitHub.
-pub type GitHubProvider = GiteaStyleProvider;
+#[deprecated(note = "use ConfigDrivenProvider")]
+pub type GitHubProvider = ConfigDrivenProvider;
 /// Type alias preserving the historical name for Codeberg.
-pub type CodebergProvider = GiteaStyleProvider;
+#[deprecated(note = "use ConfigDrivenProvider")]
+pub type CodebergProvider = ConfigDrivenProvider;
+/// Type alias preserving the historical name for GitLab.
+#[deprecated(note = "use ConfigDrivenProvider")]
+pub type GitLabProvider = ConfigDrivenProvider;
 
 pub fn get_provider(name: &str) -> Option<Box<dyn HostingProvider>> {
-    match name {
-        "github" => Some(Box::new(GiteaStyleProvider::new_github())),
-        "gitlab" => Some(Box::new(GitLabProvider::new())),
-        "codeberg" => Some(Box::new(GiteaStyleProvider::new_codeberg())),
-        _ => None,
-    }
+    ConfigDrivenProvider::from_id(name).map(|p| Box::new(p) as Box<dyn HostingProvider>)
 }

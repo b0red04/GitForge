@@ -13,7 +13,7 @@ mod common;
 
 use common::{ensure_test_tokens, test_account};
 use gitforge_hosting::CreatePullRequestRequest;
-use gitforge_hosting::gitlab::GitLabProvider;
+use gitforge_hosting::ConfigDrivenProvider;
 use gitforge_hosting::provider::HostingProvider;
 use httpmock::Method::{GET, POST};
 use httpmock::prelude::*;
@@ -44,8 +44,8 @@ fn gl_mr_json(iid: u64, title: &str) -> serde_json::Value {
     })
 }
 
-fn provider(server: &MockServer) -> GitLabProvider {
-    GitLabProvider::with_url(server.base_url())
+fn provider(server: &MockServer) -> ConfigDrivenProvider {
+    ConfigDrivenProvider::with_url_gitlab(server.base_url())
 }
 
 #[tokio::test]
@@ -290,7 +290,7 @@ async fn error_on_non_2xx() {
 
 #[test]
 fn repo_url_url_encodes_slashes_in_full_name() {
-    let gl = GitLabProvider::new();
+    let gl = ConfigDrivenProvider::new_gitlab();
     assert_eq!(
         gl.repo_url("group/sub/project"),
         "https://gitlab.com/group%2Fsub%2Fproject"
