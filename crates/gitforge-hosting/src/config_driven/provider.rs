@@ -25,7 +25,10 @@ impl ConfigDrivenProvider {
     }
 
     pub fn with_url_from_id(id: &str, base_url: String) -> Option<Self> {
-        config_for_id(id).map(|cfg| Self::with_url(cfg, base_url))
+        config_for_id(id).map(|cfg| {
+            let web_url = Self::derive_web_url(cfg, &base_url);
+            Self::with_url(cfg, base_url, web_url)
+        })
     }
 
     pub fn new_github() -> Self {
@@ -60,8 +63,7 @@ impl ConfigDrivenProvider {
         }
     }
 
-    fn with_url(config: &'static ProviderConfig, base_url: String) -> Self {
-        let web_url = base_url.trim_end_matches(config.api_suffix).to_string();
+    fn with_url(config: &'static ProviderConfig, base_url: String, web_url: String) -> Self {
         Self {
             base_url,
             web_url,
@@ -69,26 +71,54 @@ impl ConfigDrivenProvider {
         }
     }
 
-    fn make_client(&self, token: &str) -> reqwest::Client {
+    /// Derive the browser host from the API base URL.
+    ///
+    /// Gitea-style and GitLab APIs hang off the web host under a versioned path
+    /// (`/api/v1`, `/api/v4`); stripping that suffix recovers the web URL.
+    /// GitHub's API lives on a separate host (`api.github.com`) with no
+    /// versioned suffix, so fall back to the configured default web URL rather
+    /// than leaving the browser pointed at the API host.
+    fn derive_web_url(config: &ProviderConfig, base_url: &str) -> String {
+        let suffix = config.api_suffix;
+        if !suffix.is_empty() && base_url.ends_with(suffix) {
+            base_url.trim_end_matches(suffix).to_string()
+        } else {
+            config.default_web_url.to_string()
+        }
+    }
+
+    fn make_client(&self, token: &str) -> Result<reqwest::Client> {
         let mut headers = reqwest::header::HeaderMap::new();
         if let Some(accept) = self.config.accept {
-            headers.insert(reqwest::header::ACCEPT, accept.parse().unwrap());
+            headers.insert(
+                reqwest::header::ACCEPT,
+                accept.parse().map_err(|e| {
+                    anyhow::anyhow!("invalid accept header for {}: {e}", self.config.display_name)
+                })?,
+            );
         }
         match self.config.auth {
             AuthStyle::Authorization { scheme } => {
-                headers.insert(
-                    reqwest::header::AUTHORIZATION,
-                    format!("{scheme} {token}").parse().unwrap(),
-                );
+                let value = format!("{scheme} {token}").parse().map_err(|e| {
+                    anyhow::anyhow!("invalid {} auth token: {e}", self.config.display_name)
+                })?;
+                headers.insert(reqwest::header::AUTHORIZATION, value);
             }
             AuthStyle::HeaderToken { name } => {
-                headers.insert(
-                    reqwest::header::HeaderName::from_bytes(name.as_bytes()).unwrap(),
-                    token.parse().unwrap(),
-                );
+                let header_name =
+                    reqwest::header::HeaderName::from_bytes(name.as_bytes()).map_err(|e| {
+                        anyhow::anyhow!(
+                            "invalid auth header name for {}: {e}",
+                            self.config.display_name
+                        )
+                    })?;
+                let value = token.parse().map_err(|e| {
+                    anyhow::anyhow!("invalid {} auth token: {e}", self.config.display_name)
+                })?;
+                headers.insert(header_name, value);
             }
         }
-        http::make_client(headers)
+        Ok(http::make_client(headers))
     }
 }
 
@@ -109,7 +139,7 @@ impl HostingProvider for ConfigDrivenProvider {
     }
 
     async fn authenticate(&self, token: &str) -> Result<HostingAccount> {
-        let client = self.make_client(token);
+        let client = self.make_client(token)?;
         let response = client.get(format!("{}/user", self.base_url)).send().await?;
         let response = http::ensure_success(
             response,
@@ -143,7 +173,7 @@ impl HostingProvider for ConfigDrivenProvider {
 
     async fn list_repos(&self, account: &HostingAccount) -> Result<Vec<RemoteRepo>> {
         let token = account.token()?;
-        let client = self.make_client(&token);
+        let client = self.make_client(&token)?;
         let cfg = self.config;
         let base_url = self.base_url.clone();
         let extra = cfg.list_repos_query_extra;
@@ -175,7 +205,7 @@ impl HostingProvider for ConfigDrivenProvider {
 
     async fn search_repos(&self, account: &HostingAccount, query: &str) -> Result<Vec<RemoteRepo>> {
         let token = account.token()?;
-        let client = self.make_client(&token);
+        let client = self.make_client(&token)?;
         let encoded = http::url_encode_query(query);
         let repo_keys = &self.config.family.repo_keys;
 
@@ -234,7 +264,7 @@ impl HostingProvider for ConfigDrivenProvider {
         repo: &str,
     ) -> Result<RemoteRepo> {
         let token = account.token()?;
-        let client = self.make_client(&token);
+        let client = self.make_client(&token)?;
         let url = config::collection_url(&self.base_url, self.config, owner, repo, EndpointAction::Fork);
         let response = client.post(url).send().await?;
         let response =
@@ -275,7 +305,7 @@ impl HostingProvider for ConfigDrivenProvider {
         repo: &str,
     ) -> Result<Vec<PullRequest>> {
         let token = account.token()?;
-        let client = self.make_client(&token);
+        let client = self.make_client(&token)?;
         let base_url = self.base_url.clone();
         let cfg = self.config;
         let pr_keys = &cfg.family.pr_keys;
@@ -309,7 +339,7 @@ impl HostingProvider for ConfigDrivenProvider {
         repo: &str,
     ) -> Result<Vec<String>> {
         let token = account.token()?;
-        let client = self.make_client(&token);
+        let client = self.make_client(&token)?;
         let base_url = self.base_url.clone();
         let cfg = self.config;
         let owner = owner.to_string();
@@ -340,7 +370,7 @@ async fn create_pr_head_colon_on_target(
     req: &CreatePullRequestRequest,
 ) -> Result<PullRequest> {
     let token = account.token()?;
-    let client = provider.make_client(&token);
+        let client = provider.make_client(&token)?;
     let keys = &provider.config.family.pr_keys;
 
     let head = if req.head_owner == req.owner {
@@ -377,7 +407,7 @@ async fn create_pr_target_project_id_on_source(
     req: &CreatePullRequestRequest,
 ) -> Result<PullRequest> {
     let token = account.token()?;
-    let client = provider.make_client(&token);
+        let client = provider.make_client(&token)?;
     let keys = &provider.config.family.pr_keys;
 
     let mut body = serde_json::json!({

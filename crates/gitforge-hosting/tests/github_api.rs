@@ -272,3 +272,11 @@ fn repo_url_uses_web_url() {
     let gh = ConfigDrivenProvider::new_github();
     assert_eq!(gh.repo_url("foo/bar"), "https://github.com/foo/bar");
 }
+
+#[test]
+fn repo_url_with_url_keeps_github_web_host() {
+    // GitHub's API host (api.github.com) differs from its web host; pointing the
+    // API base URL at it must not drag the browser URL along.
+    let gh = ConfigDrivenProvider::with_url_github("https://api.github.com".to_string());
+    assert_eq!(gh.repo_url("foo/bar"), "https://github.com/foo/bar");
+}
