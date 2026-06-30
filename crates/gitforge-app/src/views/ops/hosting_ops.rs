@@ -4,8 +4,9 @@ use gpui::Context;
 
 use crate::views::app::{AppDialog, GitForgeApp};
 use crate::views::dialogs::AddRepoTab;
-use crate::views::ops::dispatch::{AppError, OpEffects, RemoteError};
+use crate::views::ops::dispatch::{AppError, OpEffects};
 use crate::views::settings_window::SettingsSection;
+use gitforge_hosting::HostingResult;
 
 impl GitForgeApp {
     pub(crate) fn find_hosting_account(
@@ -89,17 +90,14 @@ impl GitForgeApp {
         on_success: impl FnOnce(&mut Self, T, &mut Context<Self>) + Send + 'static,
         on_error: impl FnOnce(&mut Self, String, &mut Context<Self>) + Send + 'static,
     ) where
-        Fut: Future<Output = anyhow::Result<T>> + Send + 'static,
+        Fut: Future<Output = HostingResult<T>> + Send + 'static,
         T: Send + 'static,
     {
         self.run_op_full(
             label,
             cx,
             OpEffects::QUIET,
-            move || async move {
-                op().await
-                    .map_err(|e| AppError::Remote(RemoteError::from_anyhow(e)))
-            },
+            move || async move { op().await.map_err(AppError::from) },
             on_success,
             Some(Box::new(on_error)),
             None,

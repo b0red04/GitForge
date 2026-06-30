@@ -1,8 +1,9 @@
-use anyhow::{Result, bail};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
+use crate::error::{AiError, AiNet, AiResult};
 use crate::provider::AiProvider;
+use crate::providers::http;
 
 pub struct AnthropicProvider {
     api_key: String,
@@ -51,7 +52,7 @@ impl AiProvider for AnthropicProvider {
         "anthropic"
     }
 
-    async fn generate(&self, prompt: &str, system: Option<&str>) -> Result<String> {
+    async fn generate(&self, prompt: &str, system: Option<&str>) -> AiResult<String> {
         let body = AnthropicRequest {
             model: self.model.clone(),
             max_tokens: 1024,
@@ -63,6 +64,7 @@ impl AiProvider for AnthropicProvider {
             }],
         };
 
+        let context = "Anthropic API request failed";
         let client = reqwest::Client::new();
         let resp = client
             .post("https://api.anthropic.com/v1/messages")
@@ -71,18 +73,14 @@ impl AiProvider for AnthropicProvider {
             .header("content-type", "application/json")
             .json(&body)
             .send()
-            .await?;
+            .await
+            .ai_context(context)?;
+        let resp = http::ensure_success(resp, context).await?;
 
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let text = resp.text().await.unwrap_or_default();
-            bail!("Anthropic API error ({}): {}", status, text);
-        }
-
-        let data: AnthropicResponse = resp.json().await?;
+        let data: AnthropicResponse = resp.json().await.ai_context(context)?;
         match data.content.first() {
             Some(block) => Ok(block.text.trim().to_string()),
-            None => bail!("Anthropic returned no content"),
+            None => Err(AiError::empty_response("anthropic")),
         }
     }
 }

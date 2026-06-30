@@ -1,6 +1,8 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use crate::error::HostingResult;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HostingAccount {
     pub provider: String,
@@ -12,15 +14,15 @@ pub struct HostingAccount {
 }
 
 impl HostingAccount {
-    pub fn token(&self) -> anyhow::Result<String> {
+    pub fn token(&self) -> HostingResult<String> {
         crate::secrets::get_token(&self.token_key)
     }
 
-    pub fn store_token(token_key: &str, token: &str) -> anyhow::Result<()> {
+    pub fn store_token(token_key: &str, token: &str) -> HostingResult<()> {
         crate::secrets::store_token(token_key, token)
     }
 
-    pub fn delete_token(token_key: &str) -> anyhow::Result<()> {
+    pub fn delete_token(token_key: &str) -> HostingResult<()> {
         crate::secrets::delete_token(token_key)
     }
 }

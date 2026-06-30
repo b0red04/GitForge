@@ -1,4 +1,5 @@
 pub mod avatar;
+pub mod error;
 pub mod gitea_style;
 pub mod gitlab;
 pub mod http;
@@ -8,6 +9,7 @@ pub mod secrets;
 pub mod urls;
 
 pub use avatar::{avatar_cache_path, cached_avatar_path, ensure_avatar_cached};
+pub use error::{HostingError, HostingResult};
 pub use gitea_style::GiteaStyleProvider;
 pub use gitlab::GitLabProvider;
 pub use models::{CreatePullRequestRequest, HostingAccount, PullRequest, RemoteRepo};

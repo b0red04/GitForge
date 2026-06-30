@@ -1,9 +1,7 @@
 use gpui::Context;
 
 use crate::views::app::GitForgeApp;
-use crate::views::ops::dispatch::{
-    AppError, OpEffects, RemoteError, spawn_blocking_ok, with_repo_blocking,
-};
+use crate::views::ops::dispatch::{OpEffects, run_ai_generation};
 
 impl GitForgeApp {
     pub fn generate_commit_message(&mut self, cx: &mut Context<Self>) {
@@ -34,25 +32,24 @@ impl GitForgeApp {
             "Generate commit message",
             cx,
             OpEffects::QUIET,
-            move || async move {
-                let diff = with_repo_blocking(handle, |repo| repo.diff_head_to_index(None)).await?;
-                if diff.trim().is_empty() {
-                    return Err(AppError::Remote(RemoteError::info(
-                        "No staged changes to generate a commit message from",
-                    )));
-                }
-                let provider = spawn_blocking_ok(move || {
-                    gitforge_ai::create_provider(&provider_name, &provider_config)
-                })
-                .await?;
-                let messages = provider
-                    .generate_commit_messages(&diff, &commit_config)
-                    .await?;
-                let default_idx = gitforge_ai::pick_default_message(
-                    &messages,
-                    &commit_config.default_alternative,
-                );
-                Ok((messages, default_idx))
+            move || {
+                run_ai_generation(
+                    handle,
+                    |repo| repo.diff_head_to_index(None),
+                    "No staged changes to generate a commit message from".to_string(),
+                    provider_name,
+                    provider_config,
+                    move |provider, diff| async move {
+                        let messages = provider
+                            .generate_commit_messages(&diff, &commit_config)
+                            .await?;
+                        let default_idx = gitforge_ai::pick_default_message(
+                            &messages,
+                            &commit_config.default_alternative,
+                        );
+                        Ok((messages, default_idx))
+                    },
+                )
             },
             move |this, (messages, default_idx), cx| {
                 if !messages.is_empty() {
@@ -110,21 +107,19 @@ impl GitForgeApp {
             "Generate branch name",
             cx,
             OpEffects::QUIET,
-            move || async move {
-                let diff = with_repo_blocking(handle, |repo| repo.diff_head_to_index(None)).await?;
-                if diff.trim().is_empty() {
-                    return Err(AppError::Remote(RemoteError::info(
-                        "No staged changes to generate a branch name from",
-                    )));
-                }
-                let provider = spawn_blocking_ok(move || {
-                    gitforge_ai::create_provider(&provider_name, &provider_config)
-                })
-                .await?;
-                let name = provider
-                    .generate_branch_name(&diff, &current_branch, max_diff_chars)
-                    .await?;
-                Ok(name)
+            move || {
+                run_ai_generation(
+                    handle,
+                    |repo| repo.diff_head_to_index(None),
+                    "No staged changes to generate a branch name from".to_string(),
+                    provider_name,
+                    provider_config,
+                    move |provider, diff| async move {
+                        provider
+                            .generate_branch_name(&diff, &current_branch, max_diff_chars)
+                            .await
+                    },
+                )
             },
             move |this, name, cx| {
                 this.set_dialog_input_text(&name, cx);

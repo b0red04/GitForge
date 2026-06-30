@@ -11,10 +11,10 @@
 //! new `const` config + constructor pair, not ~320 lines of copy-pasted trait
 //! impl.
 
+use crate::error::{HostingNet, HostingResult};
 use crate::http;
 use crate::models::{CreatePullRequestRequest, HostingAccount, PullRequest, RemoteRepo};
 use crate::provider::HostingProvider;
-use anyhow::Result;
 use async_trait::async_trait;
 
 /// Per-provider configuration captured as plain data.
@@ -149,16 +149,17 @@ impl HostingProvider for GiteaStyleProvider {
         &self.base_url
     }
 
-    async fn authenticate(&self, token: &str) -> Result<HostingAccount> {
+    async fn authenticate(&self, token: &str) -> HostingResult<HostingAccount> {
         let client = self.make_client(token);
-        let response = client.get(format!("{}/user", self.base_url)).send().await?;
-        let response = http::ensure_success(
-            response,
-            &format!("{} authentication failed", self.config.display_name),
-        )
-        .await?;
+        let context = format!("{} authentication failed", self.config.display_name);
+        let response = client
+            .get(format!("{}/user", self.base_url))
+            .send()
+            .await
+            .hosting_context(&context)?;
+        let response = http::ensure_success(response, &context).await?;
 
-        let user: serde_json::Value = response.json().await?;
+        let user: serde_json::Value = response.json().await.hosting_context(&context)?;
         let login = user["login"].as_str().unwrap_or("unknown").to_string();
         let name = user[self.config.display_name_key]
             .as_str()
@@ -179,7 +180,7 @@ impl HostingProvider for GiteaStyleProvider {
         })
     }
 
-    async fn list_repos(&self, account: &HostingAccount) -> Result<Vec<RemoteRepo>> {
+    async fn list_repos(&self, account: &HostingAccount) -> HostingResult<Vec<RemoteRepo>> {
         let token = account.token()?;
         let client = self.make_client(&token);
         let cfg = self.config;
@@ -203,9 +204,14 @@ impl HostingProvider for GiteaStyleProvider {
         Ok(repos)
     }
 
-    async fn search_repos(&self, account: &HostingAccount, query: &str) -> Result<Vec<RemoteRepo>> {
+    async fn search_repos(
+        &self,
+        account: &HostingAccount,
+        query: &str,
+    ) -> HostingResult<Vec<RemoteRepo>> {
         let token = account.token()?;
         let client = self.make_client(&token);
+        let context = "Failed to search repos";
         let response = client
             .get(format!(
                 "{}{}?q={}&{}={}&sort=updated",
@@ -216,10 +222,11 @@ impl HostingProvider for GiteaStyleProvider {
                 self.config.page_size
             ))
             .send()
-            .await?;
-        let response = http::ensure_success(response, "Failed to search repos").await?;
+            .await
+            .hosting_context(context)?;
+        let response = http::ensure_success(response, context).await?;
 
-        let result: serde_json::Value = response.json().await?;
+        let result: serde_json::Value = response.json().await.hosting_context(context)?;
         let items = extract_envelope(&result, self.config.search_repos_envelope);
         Ok(items
             .iter()
@@ -232,17 +239,18 @@ impl HostingProvider for GiteaStyleProvider {
         account: &HostingAccount,
         owner: &str,
         repo: &str,
-    ) -> Result<RemoteRepo> {
+    ) -> HostingResult<RemoteRepo> {
         let token = account.token()?;
         let client = self.make_client(&token);
+        let context = format!("Failed to fork {}/{}", owner, repo);
         let response = client
             .post(format!("{}/repos/{}/{}/forks", self.base_url, owner, repo))
             .send()
-            .await?;
-        let response =
-            http::ensure_success(response, &format!("Failed to fork {}/{}", owner, repo)).await?;
+            .await
+            .hosting_context(&context)?;
+        let response = http::ensure_success(response, &context).await?;
 
-        let fork: serde_json::Value = response.json().await?;
+        let fork: serde_json::Value = response.json().await.hosting_context(&context)?;
         Ok(json_to_remote_repo(&fork, self.config.stars_key))
     }
 
@@ -254,7 +262,7 @@ impl HostingProvider for GiteaStyleProvider {
         &self,
         account: &HostingAccount,
         req: &CreatePullRequestRequest,
-    ) -> Result<PullRequest> {
+    ) -> HostingResult<PullRequest> {
         let token = account.token()?;
         let client = self.make_client(&token);
 
@@ -272,6 +280,7 @@ impl HostingProvider for GiteaStyleProvider {
             "draft": req.draft,
         });
 
+        let context = "Failed to create pull request";
         let response = client
             .post(format!(
                 "{}/repos/{}/{}/pulls",
@@ -279,10 +288,11 @@ impl HostingProvider for GiteaStyleProvider {
             ))
             .json(&body)
             .send()
-            .await?;
-        let response = http::ensure_success(response, "Failed to create pull request").await?;
+            .await
+            .hosting_context(context)?;
+        let response = http::ensure_success(response, context).await?;
 
-        let pr: serde_json::Value = response.json().await?;
+        let pr: serde_json::Value = response.json().await.hosting_context(context)?;
         Ok(json_to_pull_request(&pr))
     }
 
@@ -291,7 +301,7 @@ impl HostingProvider for GiteaStyleProvider {
         account: &HostingAccount,
         owner: &str,
         repo: &str,
-    ) -> Result<Vec<PullRequest>> {
+    ) -> HostingResult<Vec<PullRequest>> {
         let token = account.token()?;
         let client = self.make_client(&token);
         http::paginate(
@@ -315,7 +325,7 @@ impl HostingProvider for GiteaStyleProvider {
         account: &HostingAccount,
         owner: &str,
         repo: &str,
-    ) -> Result<Vec<String>> {
+    ) -> HostingResult<Vec<String>> {
         let token = account.token()?;
         let client = self.make_client(&token);
         http::paginate(

@@ -5,7 +5,7 @@
 //! shapes into free functions so each provider struct only supplies the parts
 //! that genuinely differ (auth-header scheme, URL templates, JSON key names).
 
-use anyhow::Result;
+use crate::error::{HostingError, HostingResult, http_response_to_error};
 
 /// Build a `reqwest::Client` with the `gitforge` user-agent and the given
 /// default headers (per-provider auth + content-negotiation headers).
@@ -31,18 +31,19 @@ pub fn url_encode_query(s: &str) -> String {
         .replace(' ', "%20")
 }
 
-/// Returns `Ok(response)` on 2xx, otherwise reads the body and bails with a
-/// `"\<context\>: \<status\> - \<body\>"` message.
+/// Returns `Ok(response)` on 2xx, otherwise reads the body and returns a
+/// structured [`HostingError`] mapped from the HTTP status.
 pub async fn ensure_success(
     response: reqwest::Response,
     context: &str,
-) -> Result<reqwest::Response> {
+) -> HostingResult<reqwest::Response> {
     if response.status().is_success() {
         Ok(response)
     } else {
         let status = response.status();
+        let headers = response.headers().clone();
         let body = response.text().await.unwrap_or_default();
-        anyhow::bail!("{context}: {status} - {body}")
+        Err(http_response_to_error(context, status, &headers, body))
     }
 }
 
@@ -60,13 +61,20 @@ pub async fn paginate<T>(
     context: &str,
     extract_items: impl Fn(&serde_json::Value) -> Vec<serde_json::Value>,
     map_item: impl Fn(&serde_json::Value) -> Option<T>,
-) -> Result<Vec<T>> {
+) -> HostingResult<Vec<T>> {
     let mut all = Vec::new();
     let mut page = 1;
     loop {
-        let response = client.get(url_for_page(page)).send().await?;
+        let response = client
+            .get(url_for_page(page))
+            .send()
+            .await
+            .map_err(|detail| HostingError::network(context, detail))?;
         let response = ensure_success(response, context).await?;
-        let json: serde_json::Value = response.json().await?;
+        let json: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|detail| HostingError::network(context, detail))?;
         let items = extract_items(&json);
         let raw_count = items.len();
         if items.is_empty() {

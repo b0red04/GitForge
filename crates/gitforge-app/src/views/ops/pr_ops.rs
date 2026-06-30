@@ -4,9 +4,7 @@ use gpui::Context;
 
 use crate::views::app::{AppDialog, GitForgeApp};
 use crate::views::dialogs::CreatePrDropdown;
-use crate::views::ops::dispatch::{
-    AppError, ErrorChannel, OpEffects, RemoteError, spawn_blocking_ok, with_repo_blocking,
-};
+use crate::views::ops::dispatch::{ErrorChannel, OpEffects, run_ai_generation};
 
 pub(crate) struct OriginHostingContext {
     pub provider_id: String,
@@ -449,25 +447,22 @@ impl GitForgeApp {
             "Generate PR description",
             cx,
             OpEffects::QUIET,
-            move || async move {
-                let diff = with_repo_blocking(handle, move |repo| {
-                    let base = format!("origin/{}", base_branch);
-                    repo.unified_diff_between_refs(&base, &head_branch)
-                })
-                .await?;
-                if diff.trim().is_empty() {
-                    return Err(AppError::Remote(RemoteError::info(
-                        "No changes between selected branches",
-                    )));
-                }
-                let provider = spawn_blocking_ok(move || {
-                    gitforge_ai::create_provider(&provider_name, &provider_config)
-                })
-                .await?;
-                let (title, body) = provider
-                    .generate_pull_request_content(&diff, max_diff_chars)
-                    .await?;
-                Ok((title, body))
+            move || {
+                run_ai_generation(
+                    handle,
+                    move |repo| {
+                        let base = format!("origin/{}", base_branch);
+                        repo.unified_diff_between_refs(&base, &head_branch)
+                    },
+                    "No changes between selected branches".to_string(),
+                    provider_name,
+                    provider_config,
+                    move |provider, diff| async move {
+                        provider
+                            .generate_pull_request_content(&diff, max_diff_chars)
+                            .await
+                    },
+                )
             },
             |this, (title, body), cx| {
                 this.create_pr.title_input.set_text(title);

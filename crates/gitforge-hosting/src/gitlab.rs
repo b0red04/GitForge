@@ -1,7 +1,7 @@
+use crate::error::{HostingError, HostingNet, HostingResult};
 use crate::http;
 use crate::models::{CreatePullRequestRequest, HostingAccount, PullRequest, RemoteRepo};
 use crate::provider::HostingProvider;
-use anyhow::Result;
 use async_trait::async_trait;
 
 pub struct GitLabProvider {
@@ -45,21 +45,19 @@ async fn fetch_project_id(
     client: &reqwest::Client,
     base_url: &str,
     full_path: &str,
-) -> Result<u64> {
+) -> HostingResult<u64> {
+    let context = format!("Failed to resolve GitLab project id for {}", full_path);
     let response = client
         .get(format!("{}/projects/{}", base_url, url_encode(full_path)))
         .send()
-        .await?;
-    let response = http::ensure_success(
-        response,
-        &format!("Failed to resolve GitLab project id for {}", full_path),
-    )
-    .await?;
+        .await
+        .hosting_context(&context)?;
+    let response = http::ensure_success(response, &context).await?;
 
-    let project: serde_json::Value = response.json().await?;
-    project["id"]
-        .as_u64()
-        .ok_or_else(|| anyhow::anyhow!("Missing numeric id for GitLab project {}", full_path))
+    let project: serde_json::Value = response.json().await.hosting_context(&context)?;
+    project["id"].as_u64().ok_or_else(|| HostingError::MissingProjectId {
+        path: full_path.to_string(),
+    })
 }
 
 #[async_trait]
@@ -72,12 +70,17 @@ impl HostingProvider for GitLabProvider {
         &self.base_url
     }
 
-    async fn authenticate(&self, token: &str) -> Result<HostingAccount> {
+    async fn authenticate(&self, token: &str) -> HostingResult<HostingAccount> {
         let client = make_client(token);
-        let response = client.get(format!("{}/user", self.base_url)).send().await?;
-        let response = http::ensure_success(response, "GitLab authentication failed").await?;
+        let context = "GitLab authentication failed";
+        let response = client
+            .get(format!("{}/user", self.base_url))
+            .send()
+            .await
+            .hosting_context(context)?;
+        let response = http::ensure_success(response, context).await?;
 
-        let user: serde_json::Value = response.json().await?;
+        let user: serde_json::Value = response.json().await.hosting_context(context)?;
         let username = user["username"].as_str().unwrap_or("unknown").to_string();
         let name = user["name"].as_str().unwrap_or(&username).to_string();
         let avatar = user["avatar_url"].as_str().map(|s| s.to_string());
@@ -95,7 +98,7 @@ impl HostingProvider for GitLabProvider {
         })
     }
 
-    async fn list_repos(&self, account: &HostingAccount) -> Result<Vec<RemoteRepo>> {
+    async fn list_repos(&self, account: &HostingAccount) -> HostingResult<Vec<RemoteRepo>> {
         let token = account.token()?;
         let client = make_client(&token);
         http::paginate(
@@ -114,9 +117,14 @@ impl HostingProvider for GitLabProvider {
         .await
     }
 
-    async fn search_repos(&self, account: &HostingAccount, query: &str) -> Result<Vec<RemoteRepo>> {
+    async fn search_repos(
+        &self,
+        account: &HostingAccount,
+        query: &str,
+    ) -> HostingResult<Vec<RemoteRepo>> {
         let token = account.token()?;
         let client = make_client(&token);
+        let context = "Failed to search GitLab projects";
         let response = client
             .get(format!(
                 "{}/projects?search={}&per_page=30&order_by=updated_at",
@@ -124,10 +132,11 @@ impl HostingProvider for GitLabProvider {
                 http::url_encode_query(query)
             ))
             .send()
-            .await?;
-        let response = http::ensure_success(response, "Failed to search GitLab projects").await?;
+            .await
+            .hosting_context(context)?;
+        let response = http::ensure_success(response, context).await?;
 
-        let projects: Vec<serde_json::Value> = response.json().await?;
+        let projects: Vec<serde_json::Value> = response.json().await.hosting_context(context)?;
         Ok(projects.iter().map(json_to_remote_repo).collect())
     }
 
@@ -136,18 +145,19 @@ impl HostingProvider for GitLabProvider {
         account: &HostingAccount,
         owner: &str,
         repo: &str,
-    ) -> Result<RemoteRepo> {
+    ) -> HostingResult<RemoteRepo> {
         let token = account.token()?;
         let client = make_client(&token);
+        let context = format!("Failed to fork {}/{}", owner, repo);
         let project_path = url_encode(&format!("{}/{}", owner, repo));
         let response = client
             .post(format!("{}/projects/{}/fork", self.base_url, project_path))
             .send()
-            .await?;
-        let response =
-            http::ensure_success(response, &format!("Failed to fork {}/{}", owner, repo)).await?;
+            .await
+            .hosting_context(&context)?;
+        let response = http::ensure_success(response, &context).await?;
 
-        let fork: serde_json::Value = response.json().await?;
+        let fork: serde_json::Value = response.json().await.hosting_context(&context)?;
         Ok(json_to_remote_repo(&fork))
     }
 
@@ -159,7 +169,7 @@ impl HostingProvider for GitLabProvider {
         &self,
         account: &HostingAccount,
         req: &CreatePullRequestRequest,
-    ) -> Result<PullRequest> {
+    ) -> HostingResult<PullRequest> {
         let token = account.token()?;
         let client = make_client(&token);
 
@@ -190,6 +200,7 @@ impl HostingProvider for GitLabProvider {
             (url_encode(&path), body)
         };
 
+        let context = "Failed to create merge request";
         let response = client
             .post(format!(
                 "{}/projects/{}/merge_requests",
@@ -197,10 +208,11 @@ impl HostingProvider for GitLabProvider {
             ))
             .json(&body)
             .send()
-            .await?;
-        let response = http::ensure_success(response, "Failed to create merge request").await?;
+            .await
+            .hosting_context(context)?;
+        let response = http::ensure_success(response, context).await?;
 
-        let mr: serde_json::Value = response.json().await?;
+        let mr: serde_json::Value = response.json().await.hosting_context(context)?;
         Ok(json_to_pull_request(&mr))
     }
 
@@ -209,7 +221,7 @@ impl HostingProvider for GitLabProvider {
         account: &HostingAccount,
         owner: &str,
         repo: &str,
-    ) -> Result<Vec<PullRequest>> {
+    ) -> HostingResult<Vec<PullRequest>> {
         let token = account.token()?;
         let client = make_client(&token);
         let project_path = url_encode(&format!("{}/{}", owner, repo));
@@ -234,7 +246,7 @@ impl HostingProvider for GitLabProvider {
         account: &HostingAccount,
         owner: &str,
         repo: &str,
-    ) -> Result<Vec<String>> {
+    ) -> HostingResult<Vec<String>> {
         let token = account.token()?;
         let client = make_client(&token);
         let project_path = url_encode(&format!("{}/{}", owner, repo));

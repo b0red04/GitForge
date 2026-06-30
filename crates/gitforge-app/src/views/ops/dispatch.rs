@@ -23,14 +23,17 @@
 //!   classifies info-vs-error ([`GitError::is_info`]) and redacts credentials
 //!   ([`GitError::toast_message`]).
 //! - [`AppError::Remote`] carries [`RemoteError`], built at the app boundary
-//!   from `anyhow` results returned by `gitforge-hosting` / `gitforge-ai`.
-//!   `RemoteError` scrubs credential URL userinfo at construction using the
-//!   same redactor as `GitError`, so no toast or banner can leak a token.
+//!   from structured provider errors ([`HostingError`], [`AiError`]) or legacy
+//!   `anyhow` paths (panics, join errors). `RemoteError` scrubs credential URL
+//!   userinfo at construction using the same redactor as `GitError`, so no toast
+//!   or banner can leak a token.
 
 use std::future::Future;
 use std::sync::Arc;
 
+use gitforge_ai::{AiError, AiProvider, ProviderConfig};
 use gitforge_git::{GitError, Repository, first_line, redact_credentials};
+use gitforge_hosting::HostingError;
 use gpui::Context;
 use parking_lot::Mutex;
 
@@ -63,6 +66,18 @@ impl From<GitError> for AppError {
 impl From<RemoteError> for AppError {
     fn from(e: RemoteError) -> Self {
         AppError::Remote(e)
+    }
+}
+
+impl From<HostingError> for AppError {
+    fn from(e: HostingError) -> Self {
+        AppError::Remote(RemoteError::from_hosting(e))
+    }
+}
+
+impl From<AiError> for AppError {
+    fn from(e: AiError) -> Self {
+        AppError::Remote(RemoteError::from_ai(e))
     }
 }
 
@@ -119,6 +134,16 @@ impl RemoteError {
             severity: Severity::Info,
             message: redact_for_display(&msg.into()),
         }
+    }
+
+    /// Build an error-severity [`RemoteError`] from a hosting API failure.
+    pub fn from_hosting(e: HostingError) -> Self {
+        Self::error(e.user_message())
+    }
+
+    /// Build an error-severity [`RemoteError`] from an AI provider failure.
+    pub fn from_ai(e: AiError) -> Self {
+        Self::error(e.user_message())
     }
 
     /// Build an error-severity [`RemoteError`] from an `anyhow` result. This is
@@ -370,22 +395,71 @@ where
     }
 }
 
-/// Run a blocking, repo-independent `anyhow` op on the blocking pool, mapping a
-/// task panic ([`tokio::task::JoinError`]) and the inner [`anyhow::Error`] to
-/// [`AppError::Remote`]. The non-repo companion to [`with_repo_blocking`]:
-/// used by staged ops (AI generation) for the blocking-but-handle-free step,
-/// e.g. keychain-backed AI provider construction.
-pub async fn spawn_blocking_ok<T>(
-    op: impl FnOnce() -> Result<T, anyhow::Error> + Send + 'static,
+/// Run a blocking, repo-independent op on the blocking pool, mapping a task
+/// panic ([`tokio::task::JoinError`]) and the inner error to [`AppError::Remote`].
+/// The non-repo companion to [`with_repo_blocking`]: used by staged ops (AI
+/// generation) for the blocking-but-handle-free step, e.g. keychain-backed AI
+/// provider construction.
+pub async fn spawn_blocking_ok<T, E>(
+    op: impl FnOnce() -> Result<T, E> + Send + 'static,
 ) -> Result<T, AppError>
 where
     T: Send + 'static,
+    E: Into<AppError> + Send + 'static,
 {
     match tokio::task::spawn_blocking(op).await {
         Ok(Ok(value)) => Ok(value),
-        Ok(Err(e)) => Err(AppError::from(e)),
+        Ok(Err(e)) => Err(e.into()),
         Err(join_err) => Err(AppError::Remote(RemoteError::error(join_err.to_string()))),
     }
+}
+
+/// The AI-generation skeleton shared by the three bespoke staged ops
+/// (`generate_commit_message`, `generate_feature_branch_name`,
+/// `generate_pr_title_description`). GPUI-free and `'static`, so it is
+/// unit-testable without a `TestAppContext` and dropped straight into the
+/// future-factory of [`GitForgeApp::run_op_full`].
+///
+/// The body owns the four steps that were copy-pasted across those ops:
+/// 1. compute a diff via [`with_repo_blocking`] using the caller's `diff_fn`;
+/// 2. abort with an info-level [`RemoteError`] (`empty_msg`) when it is blank;
+/// 3. construct the provider on the blocking pool via [`spawn_blocking_ok`];
+/// 4. hand the provider and diff to the caller's `call` future.
+///
+/// The entire 5-axis variance (which diff method, which provider method, which
+/// empty-message, which extra args, which result type `R`) travels as data —
+/// `diff_fn` carries the diff method, `empty_msg` the abort text, and `call`
+/// the provider method plus any post-processing (e.g.
+/// `pick_default_message`). This exploits the seam [`with_repo_blocking`] /
+/// [`spawn_blocking_ok`] opened without adding a new GPUI-bound shell: the op
+/// *body* stays bespoke (each caller still sets its own busy flag and writes its
+/// own result field), but the generation skeleton is uniform.
+///
+/// `call` receives the constructed provider and diff by value (both owned, moved
+/// into the returned future), so its future is `'static` with no borrow gymnastics.
+pub async fn run_ai_generation<R, DiffFn, CallFn, CallFut>(
+    handle: Arc<Mutex<Option<Repository>>>,
+    diff_fn: DiffFn,
+    empty_msg: String,
+    provider_name: String,
+    provider_config: ProviderConfig,
+    call: CallFn,
+) -> Result<R, AppError>
+where
+    DiffFn: FnOnce(&Repository) -> Result<String, GitError> + Send + 'static,
+    CallFn: FnOnce(Box<dyn AiProvider>, String) -> CallFut + Send + 'static,
+    CallFut: Future<Output = Result<R, AiError>> + Send + 'static,
+    R: Send + 'static,
+{
+    let diff = with_repo_blocking(handle, diff_fn).await?;
+    if diff.trim().is_empty() {
+        return Err(AppError::Remote(RemoteError::info(empty_msg)));
+    }
+    let provider = spawn_blocking_ok(move || {
+        gitforge_ai::create_provider(&provider_name, &provider_config)
+    })
+    .await?;
+    call(provider, diff).await.map_err(AppError::from)
 }
 
 // ── shells (GPUI-bound) ─────────────────────────────────────────────────────
@@ -727,6 +801,46 @@ mod tests {
     }
 
     #[test]
+    fn hosting_auth_error_surfaces_via_classifier() {
+        let action = err(
+            "Fetch repos",
+            AppError::from(HostingError::Auth {
+                context: "Failed to list repos".into(),
+                body: "forbidden".into(),
+            }),
+            &TOAST,
+        );
+        assert_eq!(
+            action.surface,
+            Surface::Error("Fetch repos: Failed to list repos: forbidden".into())
+        );
+        assert_eq!(
+            action.error_detail,
+            Some("Failed to list repos: forbidden".into())
+        );
+    }
+
+    #[test]
+    fn ai_auth_error_surfaces_via_classifier() {
+        let action = err(
+            "Generate",
+            AppError::from(AiError::Auth {
+                context: "OpenAI API request failed".into(),
+                body: "invalid key".into(),
+            }),
+            &TOAST,
+        );
+        assert_eq!(
+            action.surface,
+            Surface::Error("Generate: OpenAI API request failed: invalid key".into())
+        );
+        assert_eq!(
+            action.error_detail,
+            Some("OpenAI API request failed: invalid key".into())
+        );
+    }
+
+    #[test]
     fn apperror_from_git_error() {
         let action = err(
             "Op",
@@ -847,5 +961,76 @@ mod tests {
             |_: &Repository| -> Result<(), GitError> { panic!("boom") },
         ));
         assert!(matches!(res, Err(AppError::Remote(_))));
+    }
+
+    // ── run_ai_generation ──
+    //
+    // The provider-construction step would need a live backend / keychain, so
+    // these tests exercise the two short-circuits that precede it (diff error
+    // propagation and the empty-diff abort) plus the diff-handle plumbing —
+    // none reach `create_provider`.
+
+    #[test]
+    fn ai_generation_propagates_diff_error_as_git() {
+        let (repo, _scratch) = scratch_repo();
+        let handle = Arc::new(Mutex::new(Some(repo)));
+        let res = block_on(run_ai_generation(
+            handle,
+            |_| Err::<String, _>(GitError::EmptyCommit),
+            "ignored".to_string(),
+            "ollama".to_string(),
+            ProviderConfig::default(),
+            |_, _| async move { Ok::<_, AiError>(()) },
+        ));
+        assert!(matches!(res, Err(AppError::Git(GitError::EmptyCommit))));
+    }
+
+    #[test]
+    fn ai_generation_empty_diff_aborts_with_info_without_calling_provider() {
+        // An empty diff must short-circuit to the info RemoteError BEFORE the
+        // provider is constructed — otherwise a unit test would hit the
+        // keychain/network. A blank diff_fn confirms the short-circuit fires.
+        let (repo, _scratch) = scratch_repo();
+        let handle = Arc::new(Mutex::new(Some(repo)));
+        let res = block_on(run_ai_generation(
+            handle,
+            |_| Ok::<_, GitError>(String::new()),
+            "no staged changes".to_string(),
+            "ollama".to_string(),
+            ProviderConfig::default(),
+            // If the skeleton failed to short-circuit, create_provider would
+            // run and fail; the panic makes such a regression explicit.
+            |_, _| async move {
+                panic!("call must not run for an empty diff");
+                #[allow(unreachable_code)]
+                Ok::<(), AiError>(())
+            },
+        ));
+        match res {
+            Err(AppError::Remote(r)) => {
+                assert_eq!(r.severity(), Severity::Info);
+                assert_eq!(r.message(), "no staged changes");
+            }
+            other => panic!("expected info RemoteError, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn ai_generation_none_repo_yields_operation_failed() {
+        // The skeleton routes its diff through with_repo_blocking, so a closed
+        // repo surfaces as the same OperationFailed the lock-dance produces.
+        let handle: Arc<Mutex<Option<Repository>>> = Arc::new(Mutex::new(None));
+        let res = block_on(run_ai_generation(
+            handle,
+            |_| Ok::<_, GitError>(String::new()),
+            "ignored".to_string(),
+            "ollama".to_string(),
+            ProviderConfig::default(),
+            |_, _| async move { Ok::<_, AiError>(()) },
+        ));
+        assert!(matches!(
+            res,
+            Err(AppError::Git(GitError::OperationFailed(_)))
+        ));
     }
 }

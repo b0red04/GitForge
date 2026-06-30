@@ -1,4 +1,4 @@
-use anyhow::Result;
+use crate::error::AiResult;
 use async_trait::async_trait;
 
 use crate::config::CommitMessageConfig;
@@ -10,13 +10,13 @@ use crate::prompt::{
 #[async_trait]
 pub trait AiProvider: Send + Sync {
     fn name(&self) -> &str;
-    async fn generate(&self, prompt: &str, system: Option<&str>) -> Result<String>;
+    async fn generate(&self, prompt: &str, system: Option<&str>) -> AiResult<String>;
 
     async fn generate_commit_messages(
         &self,
         diff: &str,
         config: &CommitMessageConfig,
-    ) -> Result<Vec<String>> {
+    ) -> AiResult<Vec<String>> {
         let diff = truncate_diff(diff, config.max_diff_chars);
         let count = config.options_count();
 
@@ -51,7 +51,7 @@ pub trait AiProvider: Send + Sync {
         diff: &str,
         current_branch: &str,
         max_diff_chars: usize,
-    ) -> Result<String> {
+    ) -> AiResult<String> {
         let diff = truncate_diff(diff, max_diff_chars);
         let prompt = build_branch_name_prompt(&diff, current_branch);
         let system = Some(
@@ -65,7 +65,7 @@ pub trait AiProvider: Send + Sync {
         &self,
         diff: &str,
         max_diff_chars: usize,
-    ) -> Result<(String, String)> {
+    ) -> AiResult<(String, String)> {
         let diff = truncate_diff(diff, max_diff_chars);
         let prompt = build_pull_request_prompt(&diff);
         let system = Some(

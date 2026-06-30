@@ -1,8 +1,9 @@
-use anyhow::{Result, bail};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
+use crate::error::{AiNet, AiResult};
 use crate::provider::AiProvider;
+use crate::providers::http;
 
 pub struct OllamaProvider {
     base_url: String,
@@ -49,20 +50,16 @@ struct OllamaModelTag {
     name: String,
 }
 
-pub async fn list_ollama_models(base_url: &str) -> Result<Vec<String>> {
+pub async fn list_ollama_models(base_url: &str) -> AiResult<Vec<String>> {
     let base = base_url.trim_end_matches('/');
     let url = format!("{base}/api/tags");
+    let context = "Ollama models API request failed";
 
     let client = reqwest::Client::new();
-    let resp = client.get(&url).send().await?;
+    let resp = client.get(&url).send().await.ai_context(context)?;
+    let resp = http::ensure_success(resp, context).await?;
 
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let text = resp.text().await.unwrap_or_default();
-        bail!("Ollama models API error ({status}): {text}");
-    }
-
-    let data: OllamaTagsResponse = resp.json().await?;
+    let data: OllamaTagsResponse = resp.json().await.ai_context(context)?;
     let mut names: Vec<String> = data.models.into_iter().map(|m| m.name).collect();
     names.sort();
     names.dedup();
@@ -75,7 +72,7 @@ impl AiProvider for OllamaProvider {
         "ollama"
     }
 
-    async fn generate(&self, prompt: &str, system: Option<&str>) -> Result<String> {
+    async fn generate(&self, prompt: &str, system: Option<&str>) -> AiResult<String> {
         let url = format!("{}/api/generate", self.base_url);
         let body = OllamaRequest {
             model: self.model.clone(),
@@ -87,16 +84,17 @@ impl AiProvider for OllamaProvider {
             },
         };
 
+        let context = "Ollama API request failed";
         let client = reqwest::Client::new();
-        let resp = client.post(&url).json(&body).send().await?;
+        let resp = client
+            .post(&url)
+            .json(&body)
+            .send()
+            .await
+            .ai_context(context)?;
+        let resp = http::ensure_success(resp, context).await?;
 
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let text = resp.text().await.unwrap_or_default();
-            bail!("Ollama API error ({}): {}", status, text);
-        }
-
-        let data: OllamaResponse = resp.json().await?;
+        let data: OllamaResponse = resp.json().await.ai_context(context)?;
         Ok(data.response.trim().to_string())
     }
 }
