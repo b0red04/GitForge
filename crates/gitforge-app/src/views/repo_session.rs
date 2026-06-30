@@ -84,6 +84,25 @@ pub(crate) struct RepoSession {
     pub(crate) tab_drop_target: Option<(u64, bool)>,
 }
 
+/// The readiness of the active tab to run a git op — the single guard
+/// `run_git_blocking` checks before spawning. GPUI-free, so it is unit-testable
+/// without a `TestAppContext`.
+///
+/// Distinct from `active_repo_ready` (which gates on `repo_state.is_some()` for
+/// UI that reads the snapshot): the git-op path needs the live repository
+/// handle, not the snapshot. The inner `Option<Repository>` of the handle is
+/// checked later by `with_repo_blocking`; `Ready` only asserts the active tab
+/// exists, is not loading, and holds a handle.
+pub(crate) enum GitOpReadiness {
+    /// The active tab is loaded and holds a repo handle — the op may run.
+    Ready(Arc<Mutex<Option<Repository>>>),
+    /// No active tab (no repo open). The caller surfaces a Warning.
+    NoRepo,
+    /// The active tab is still in discovery (`loading == true`). The caller
+    /// skips silently.
+    Loading,
+}
+
 impl RepoSession {
     pub fn new(cx: &mut gpui::App) -> Self {
         Self {
@@ -139,6 +158,19 @@ impl RepoSession {
     pub(crate) fn active_repo_ready(&self) -> bool {
         self.active_tab()
             .is_some_and(|tab| !tab.loading && tab.repo_state.is_some())
+    }
+
+    /// The single readiness check for a git op. Returns the repo handle when the
+    /// active tab is loaded, or the reason it cannot run. See
+    /// [`GitOpReadiness`].
+    pub(crate) fn git_op_readiness(&self) -> GitOpReadiness {
+        let Some(tab) = self.active_tab() else {
+            return GitOpReadiness::NoRepo;
+        };
+        if tab.loading {
+            return GitOpReadiness::Loading;
+        }
+        GitOpReadiness::Ready(tab.repo.clone())
     }
 
     pub(crate) fn repo_tab_views(&self) -> Vec<RepoTabView> {
@@ -992,6 +1024,48 @@ mod active_repo_ready_tests {
         cx.update(|app| {
             let session = session_with_tab(app, fake_tab(1, false, true));
             assert!(session.active_repo_ready());
+        });
+    }
+
+    #[gpui::test]
+    fn git_op_readiness_no_repo_when_no_tab(cx: &mut TestAppContext) {
+        cx.update(|app| {
+            let session = RepoSession::new(app);
+            assert!(matches!(session.git_op_readiness(), GitOpReadiness::NoRepo));
+        });
+    }
+
+    #[gpui::test]
+    fn git_op_readiness_no_repo_when_no_active_tab(cx: &mut TestAppContext) {
+        cx.update(|app| {
+            let mut session = RepoSession::new(app);
+            session.open_repo_tabs.push(fake_tab(1, false, true));
+            session.active_repo_tab_id = None;
+            assert!(matches!(session.git_op_readiness(), GitOpReadiness::NoRepo));
+        });
+    }
+
+    #[gpui::test]
+    fn git_op_readiness_loading_when_tab_loading(cx: &mut TestAppContext) {
+        cx.update(|app| {
+            // `has_state = true` here is deliberate: git-op readiness gates on
+            // `loading`, not on `repo_state` (unlike `active_repo_ready`).
+            let session = session_with_tab(app, fake_tab(1, true, true));
+            assert!(matches!(session.git_op_readiness(), GitOpReadiness::Loading));
+        });
+    }
+
+    #[gpui::test]
+    fn git_op_readiness_ready_when_loaded_even_without_state(cx: &mut TestAppContext) {
+        cx.update(|app| {
+            // The key distinction from `active_repo_ready`: a git op only needs
+            // the live handle, so `has_state = false` still yields `Ready`.
+            let session = session_with_tab(app, fake_tab(1, false, false));
+            match session.git_op_readiness() {
+                GitOpReadiness::Ready(_) => {}
+                GitOpReadiness::NoRepo => panic!("expected Ready, got NoRepo"),
+                GitOpReadiness::Loading => panic!("expected Ready, got Loading"),
+            }
         });
     }
 }

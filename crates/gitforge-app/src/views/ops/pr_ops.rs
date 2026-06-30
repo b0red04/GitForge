@@ -323,7 +323,7 @@ impl GitForgeApp {
                 this.create_pr.repos = repos;
                 cx.notify();
             },
-            move |this, _cx| {
+            move |this, _detail, _cx| {
                 if this.create_pr.provider != provider_err {
                     return;
                 }
@@ -401,7 +401,7 @@ impl GitForgeApp {
                 this.create_pr.to_branches = branches;
                 cx.notify();
             },
-            move |this, _cx| {
+            move |this, _detail, _cx| {
                 if this.create_pr.provider != provider_err || this.create_pr.to_repo != to_repo_err
                 {
                     return;
@@ -570,7 +570,7 @@ impl GitForgeApp {
                 this.open_in_browser(url);
                 this.refresh_pull_requests(cx);
             },
-            move |this, _cx| {
+            move |this, _detail, _cx| {
                 this.create_pr.submitting = false;
             },
         );

@@ -12,9 +12,10 @@ pub fn init_repository(
     cx: &mut Context<GitForgeApp>,
 ) {
     let repo_path = parent.join(&name);
-    app.run_blocking_op_silent(
+    app.run_blocking(
         "Init repository",
         cx,
+        crate::views::ops::dispatch::OpEffects::SILENT,
         move || {
             std::fs::create_dir_all(&repo_path)
                 .map_err(|e| GitError::OperationFailed(e.to_string()))?;

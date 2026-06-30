@@ -9,9 +9,10 @@ impl GitForgeApp {
     }
 
     pub fn generate_ssh_key(&mut self, key_type: String, email: String, cx: &mut Context<Self>) {
-        self.run_blocking_op_returning(
+        self.run_blocking(
             "SSH key generation",
             cx,
+            super::dispatch::OpEffects::QUIET,
             move || gitforge_git::ssh::generate_ssh_key(&key_type, &email, None, None),
             |this, _path, cx| {
                 this.load_ssh_state();
@@ -21,16 +22,17 @@ impl GitForgeApp {
                     cx,
                 );
             },
-            |_, _| {},
+            |_, _, _| {},
         );
     }
 
     pub fn test_ssh_connection(&mut self, host: String, cx: &mut Context<Self>) {
         let host_display = host.clone();
 
-        self.run_blocking_op_returning(
+        self.run_blocking(
             "SSH test",
             cx,
+            super::dispatch::OpEffects::QUIET,
             move || gitforge_git::ssh::test_ssh_connection(&host),
             move |this, msg, cx| {
                 this.push_toast(
@@ -39,7 +41,7 @@ impl GitForgeApp {
                     cx,
                 );
             },
-            |_, _| {},
+            |_, _, _| {},
         );
     }
 }

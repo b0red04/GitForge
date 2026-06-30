@@ -35,6 +35,7 @@ use gpui::Context;
 use parking_lot::Mutex;
 
 use crate::views::app::GitForgeApp;
+use crate::views::repo_session::GitOpReadiness;
 use crate::views::toasts::ToastKind;
 
 /// One error type across git, hosting, and AI operations.
@@ -185,6 +186,32 @@ impl OpEffects {
         remote_status: None,
         error_channel: ErrorChannel::Toast,
     };
+
+    /// No refresh, errors routed to the caller's `on_error` (banner-only). The
+    /// declaration for repo discovery / init, where `apply_repo_state` handles
+    /// the post-op snapshot and failures surface via the persistent
+    /// `last_error` banner rather than a toast.
+    pub const SILENT: Self = Self {
+        refresh_repo: false,
+        refresh_prs: false,
+        remote_status: None,
+        error_channel: ErrorChannel::Silent,
+    };
+
+    /// A git network op (fetch / push / pull) that shows `status` while it runs,
+    /// refreshes the repo on success, and surfaces failures as toasts.
+    /// `refresh_prs` is deliberately false: `refresh_repository`'s success
+    /// callback already refreshes pull requests, so a flag-driven refresh here
+    /// would fire a duplicate, racing API call before the repo state has
+    /// updated.
+    pub fn git_with_status(status: impl Into<String>) -> Self {
+        Self {
+            refresh_repo: true,
+            refresh_prs: false,
+            remote_status: Some(status.into()),
+            error_channel: ErrorChannel::Toast,
+        }
+    }
 }
 
 impl Default for OpEffects {
@@ -454,30 +481,13 @@ impl GitForgeApp {
         .detach();
     }
 
-    /// The common operation shell: [`Self::run_op_full`] with no `on_error` /
-    /// `finally`. Use this for any op that just wants the auto-toast on error
-    /// and has no busy flag — i.e. the overwhelming majority.
-    pub(crate) fn run_op<T, Fut, Op, FOk>(
-        &mut self,
-        label: &str,
-        cx: &mut Context<Self>,
-        fx: OpEffects,
-        op: Op,
-        on_success: FOk,
-    ) where
-        Op: FnOnce() -> Fut + Send + 'static,
-        Fut: Future<Output = Result<T, AppError>> + Send + 'static,
-        T: Send + 'static,
-        FOk: FnOnce(&mut Self, T, &mut Context<Self>) + Send + 'static,
-    {
-        self.run_op_full(label, cx, fx, op, on_success, None, None);
-    }
-
-    /// Sugar for the common blocking-git op: grabs the active repo handle (or
-    /// early-returns + notifies if none), wraps the sync `op` in
-    /// [`with_repo_blocking`], and delegates to [`Self::run_op`]. The ~25
-    /// simple git porcelain ops reach this via the legacy `run_git_op` adapter
-    /// (or call it directly).
+    /// Sugar for the common blocking-git op: the single readiness guard
+    /// (`RepoSession::git_op_readiness` — handle present AND tab not loading),
+    /// wraps the sync `op` in [`with_repo_blocking`], and delegates to
+    /// [`Self::run_op_full`]. Effects (refresh flags, `remote_status`) travel in
+    /// `fx`. Used directly by call sites that need a custom `OpEffects`, and via
+    /// the [`Self::run_git_op`] fire-and-forget sugar for the common
+    /// refresh-on-success case.
     pub(crate) fn run_git_blocking<T, Op, FOk>(
         &mut self,
         label: &str,
@@ -490,25 +500,31 @@ impl GitForgeApp {
         T: Send + 'static,
         FOk: FnOnce(&mut Self, T, &mut Context<Self>) + Send + 'static,
     {
-        let Some(handle) = self.repo_session.require_active_repo_handle() else {
-            tracing::warn!("{label}: no active repo handle");
-            self.push_toast(ToastKind::Warning, "No repository open", cx);
-            return;
+        // The single git-op readiness guard. `git_op_readiness` is GPUI-free and
+        // unit-tested; both skip reasons (no repo / still loading) surface here,
+        // preserving the prior NoRepo (warn + Warning toast) and Loading
+        // (silent debug log) behaviours.
+        let handle = match self.repo_session.git_op_readiness() {
+            GitOpReadiness::Ready(handle) => handle,
+            GitOpReadiness::NoRepo => {
+                self.repo_session.last_error = Some("No repository open".into());
+                tracing::warn!("{label}: no active repo handle");
+                self.push_toast(ToastKind::Warning, "No repository open", cx);
+                return;
+            }
+            GitOpReadiness::Loading => {
+                tracing::debug!("{label}: skipped, repo still loading");
+                return;
+            }
         };
-        if self
-            .repo_session
-            .active_tab()
-            .is_some_and(|tab| tab.loading)
-        {
-            tracing::debug!("{label}: skipped, repo still loading");
-            return;
-        }
-        self.run_op(
+        self.run_op_full(
             label,
             cx,
             fx,
             move || with_repo_blocking(handle, op),
             on_success,
+            None,
+            None,
         );
     }
 }

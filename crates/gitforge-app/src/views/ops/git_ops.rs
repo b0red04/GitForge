@@ -92,9 +92,10 @@ impl GitForgeApp {
 
         let path_for_result = file_path.clone();
 
-        self.run_git_op_returning(
+        self.run_git_blocking(
             "View file",
             cx,
+            super::dispatch::OpEffects::QUIET,
             move |repo| repo.file_at_commit(&commit_id, std::path::Path::new(&file_path)),
             move |this, data, cx| {
                 if let Some(data) = data {
@@ -197,9 +198,10 @@ impl GitForgeApp {
 
         let is_staged = section == StatusFileSection::Staged;
 
-        self.run_git_op_returning(
+        self.run_git_blocking(
             "Load status diff",
             cx,
+            super::dispatch::OpEffects::QUIET,
             move |repo| {
                 let diff_text = if is_staged {
                     repo.diff_head_to_index(Some(std::path::Path::new(&path)))?
@@ -247,9 +249,10 @@ impl GitForgeApp {
             .active_repo_state()
             .and_then(|state| state.head_branch.clone());
 
-        self.run_git_op_returning(
+        self.run_git_blocking(
             "Commit",
             cx,
+            super::dispatch::OpEffects::QUIET,
             move |repo| {
                 if amend {
                     repo.commit_amend(&message)?;
@@ -276,9 +279,10 @@ impl GitForgeApp {
         );
     }
     pub fn load_status(&mut self, cx: &mut Context<Self>) {
-        self.run_git_op_returning(
+        self.run_git_blocking(
             "Load status",
             cx,
+            super::dispatch::OpEffects::QUIET,
             move |repo| repo.status(),
             move |this, status, cx| {
                 this.repo_session.status_panel.set_status(status, false);
@@ -397,26 +401,6 @@ impl GitForgeApp {
     pub fn soft_reset(&mut self, cx: &mut Context<Self>) {
         self.run_git_op("Soft reset", cx, move |repo| repo.soft_reset_head(1));
     }
-    /// General async seam for git operations that produce a value.
-    ///
-    /// Runs a git op against the active repository, hands the value to
-    /// `on_success`, and surfaces a toast on error. Thin adapter over
-    /// `run_git_blocking`; routes through the pure classifier
-    /// (`dispatch::plan_dispatch`) with no auto-refresh — the caller's
-    /// `on_success` decides.
-    pub(crate) fn run_git_op_returning<F, T>(
-        &mut self,
-        label: &str,
-        cx: &mut Context<Self>,
-        op: F,
-        on_success: impl FnOnce(&mut Self, T, &mut Context<Self>) + Send + 'static,
-    ) where
-        F: FnOnce(&gitforge_git::Repository) -> Result<T, gitforge_git::GitError> + Send + 'static,
-        T: Send + 'static,
-    {
-        self.run_git_blocking(label, cx, super::dispatch::OpEffects::QUIET, op, on_success);
-    }
-
     /// Fire-and-refresh git op: runs `op`, then refreshes the repository on
     /// success. Thin adapter over `run_git_blocking` with `OpEffects::GIT`.
     pub(crate) fn run_git_op<F, R>(&mut self, label: &str, cx: &mut Context<Self>, op: F)
@@ -425,48 +409,6 @@ impl GitForgeApp {
         R: Send + 'static,
     {
         self.run_git_blocking(label, cx, super::dispatch::OpEffects::GIT, op, |_, _, _| {});
-    }
-
-    /// Git-op seam that sets `remote_status` before spawn and clears it in every
-    /// arm. Thin adapter over `run_op`: the `remote_status` set/clear is the
-    /// shell's lifecycle effect (declared via `OpEffects::remote_status`) and
-    /// the refresh fires via `OpEffects::refresh_repo`.
-    pub(crate) fn run_git_op_with_status<F, R>(
-        &mut self,
-        label: &str,
-        status: &str,
-        cx: &mut Context<Self>,
-        op: F,
-    ) where
-        F: FnOnce(&gitforge_git::Repository) -> Result<R, gitforge_git::GitError> + Send + 'static,
-        R: Send + 'static,
-    {
-        let Some(handle) = self.repo_session.require_active_repo_handle() else {
-            tracing::warn!("{label}: no active repo handle");
-            self.push_toast(
-                crate::views::toasts::ToastKind::Warning,
-                "No repository open",
-                cx,
-            );
-            return;
-        };
-        // `refresh_prs: false`: `refresh_repository` already calls
-        // `refresh_pull_requests` in its success callback, so an additional
-        // flag-driven refresh here would only fire a duplicate, racing API
-        // call before the repo state has updated.
-        let fx = super::dispatch::OpEffects {
-            refresh_repo: true,
-            refresh_prs: false,
-            remote_status: Some(status.to_string()),
-            error_channel: super::dispatch::ErrorChannel::Toast,
-        };
-        self.run_op(
-            label,
-            cx,
-            fx,
-            move || super::dispatch::with_repo_blocking(handle, op),
-            |_, _, _| {},
-        );
     }
 
     pub fn create_branch(
@@ -595,9 +537,13 @@ impl GitForgeApp {
     }
 
     pub fn fetch_all(&mut self, cx: &mut Context<Self>) {
-        self.run_git_op_with_status("Fetch", "Fetching all remotes...", cx, move |repo| {
-            repo.fetch_all(true)
-        });
+        self.run_git_blocking(
+            "Fetch",
+            cx,
+            super::dispatch::OpEffects::git_with_status("Fetching all remotes..."),
+            move |repo| repo.fetch_all(true),
+            |_, _, _| {},
+        );
     }
 
     pub(crate) fn restart_periodic_fetch(&mut self, cx: &mut Context<Self>) {
@@ -673,9 +619,13 @@ impl GitForgeApp {
 
     pub fn fetch_remote(&mut self, remote: String, cx: &mut Context<Self>) {
         let status = format!("Fetching {}...", remote);
-        self.run_git_op_with_status("Fetch", &status, cx, move |repo| {
-            repo.fetch(Some(&remote), true)
-        });
+        self.run_git_blocking(
+            "Fetch",
+            cx,
+            super::dispatch::OpEffects::git_with_status(&status),
+            move |repo| repo.fetch(Some(&remote), true),
+            |_, _, _| {},
+        );
     }
 
     pub fn push_current_branch(
@@ -686,16 +636,24 @@ impl GitForgeApp {
         cx: &mut Context<Self>,
     ) {
         let status = format!("Pushing {} to {}...", branch, remote);
-        self.run_git_op_with_status("Push", &status, cx, move |repo| {
-            repo.push(&remote, Some(&branch), force, true)
-        });
+        self.run_git_blocking(
+            "Push",
+            cx,
+            super::dispatch::OpEffects::git_with_status(&status),
+            move |repo| repo.push(&remote, Some(&branch), force, true),
+            |_, _, _| {},
+        );
     }
 
     pub fn pull_from_remote(&mut self, remote: String, rebase: bool, cx: &mut Context<Self>) {
         let status = format!("Pulling {}...", remote);
-        self.run_git_op_with_status("Pull", &status, cx, move |repo| {
-            repo.pull(Some(&remote), rebase)
-        });
+        self.run_git_blocking(
+            "Pull",
+            cx,
+            super::dispatch::OpEffects::git_with_status(&status),
+            move |repo| repo.pull(Some(&remote), rebase),
+            |_, _, _| {},
+        );
     }
 
     pub fn push_current(&mut self, cx: &mut Context<Self>) {
@@ -749,14 +707,15 @@ impl GitForgeApp {
 
     pub fn clone_repository(&mut self, url: String, path: String, cx: &mut Context<Self>) {
         let path_buf = std::path::PathBuf::from(&path);
-        self.run_blocking_op_returning(
+        self.run_blocking(
             "Clone",
             cx,
+            super::dispatch::OpEffects::QUIET,
             move || gitforge_git::Repository::clone_repo(&url, &path_buf, false, None),
             move |this, _output, cx| {
                 this.open_repo_from_path(std::path::PathBuf::from(path), cx);
             },
-            |_, _| {},
+            |_, _, _| {},
         );
     }
 
@@ -775,9 +734,13 @@ impl GitForgeApp {
 
     pub fn delete_remote_branch(&mut self, remote: String, branch: String, cx: &mut Context<Self>) {
         let status = format!("Deleting {remote}/{branch}…");
-        self.run_git_op_with_status("Delete remote branch", &status, cx, move |repo| {
-            repo.delete_remote_branch(&remote, &branch)
-        });
+        self.run_git_blocking(
+            "Delete remote branch",
+            cx,
+            super::dispatch::OpEffects::git_with_status(&status),
+            move |repo| repo.delete_remote_branch(&remote, &branch),
+            |_, _, _| {},
+        );
     }
 
     pub fn resolve_conflict_ours(&mut self, path: String, cx: &mut Context<Self>) {
@@ -794,9 +757,10 @@ impl GitForgeApp {
     pub fn view_blame(&mut self, file_path: String, cx: &mut Context<Self>) {
         let path_for_result = file_path.clone();
 
-        self.run_git_op_returning(
+        self.run_git_blocking(
             "Load blame",
             cx,
+            super::dispatch::OpEffects::QUIET,
             move |repo| repo.blame_file(std::path::Path::new(&file_path), None),
             move |this, blame_lines, cx| {
                 this.repo_session
@@ -811,9 +775,10 @@ impl GitForgeApp {
         self.save_settings();
         let load_options = self.load_options();
 
-        self.run_git_op_returning(
+        self.run_git_blocking(
             "Refresh",
             cx,
+            super::dispatch::OpEffects::QUIET,
             move |repo| RepoState::from_repository_with_options(repo, load_options),
             move |this, repo_state, cx| {
                 this.repo_session.apply_repo_state(repo_state);
@@ -838,9 +803,10 @@ impl GitForgeApp {
 
         let id_for_state = commit_id.clone();
 
-        self.run_git_op_returning(
+        self.run_git_blocking(
             "Load diff",
             cx,
+            super::dispatch::OpEffects::QUIET,
             move |repo| repo.unified_diff_for_commit(&commit_id),
             move |this, diff_text, cx| {
                 let file_diffs = gitforge_diff::parser::parse_unified_diff(&diff_text);
