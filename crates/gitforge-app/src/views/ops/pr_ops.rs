@@ -146,31 +146,43 @@ impl GitForgeApp {
         };
 
         let Some(ctx) = self.resolve_origin_hosting() else {
-            match rs.remote_url("origin") {
-                None => self.push_toast(
+            // Mirror pull_request_sidebar_hint's split: distinguish no
+            // origin, an unsupported/unparseable origin URL, and a
+            // supported provider with no matching account.
+            let Some(origin_url) = rs.remote_url("origin") else {
+                self.push_toast(
                     crate::views::toasts::ToastKind::Warning,
                     "No origin remote configured",
                     cx,
-                ),
-                Some(origin_url) => {
-                    let clean_url = urls::normalize_remote_url(origin_url);
-                    if urls::detect_provider_id(&clean_url).is_none() {
-                        self.push_toast(
-                            crate::views::toasts::ToastKind::Warning,
-                            "Origin remote is not a supported hosting provider (GitHub, GitLab, Codeberg)",
-                            cx,
-                        );
-                    } else {
-                        let provider_id = urls::detect_provider_id(&clean_url).unwrap_or("github");
-                        let label = urls::provider_label(provider_id);
-                        self.push_toast(
-                            crate::views::toasts::ToastKind::Warning,
-                            format!("Add a {label} account in Settings → Accounts"),
-                            cx,
-                        );
-                    }
-                }
+                );
+                return;
+            };
+            let clean_url = urls::normalize_remote_url(origin_url);
+            let Some(provider_id) = urls::detect_provider_id(&clean_url) else {
+                self.push_toast(
+                    crate::views::toasts::ToastKind::Warning,
+                    "Origin remote is not a supported hosting provider (GitHub, GitLab, Codeberg)",
+                    cx,
+                );
+                return;
+            };
+            if self.find_hosting_account(provider_id).is_none() {
+                let label = urls::provider_label(provider_id);
+                self.push_toast(
+                    crate::views::toasts::ToastKind::Warning,
+                    format!("Add a {label} account in Settings → Accounts"),
+                    cx,
+                );
+                return;
             }
+            // Provider detected and an account exists, yet
+            // resolve_origin_hosting still failed — the origin URL could
+            // not be parsed into an owner/repo.
+            self.push_toast(
+                crate::views::toasts::ToastKind::Warning,
+                "Origin remote URL could not be parsed into an owner/repo",
+                cx,
+            );
             return;
         };
 
