@@ -17,6 +17,14 @@ pub fn make_client(headers: reqwest::header::HeaderMap) -> reqwest::Client {
         .expect("reqwest client build only fails for invalid builder config; user-agent 'gitforge' and pre-parsed headers are always valid")
 }
 
+/// Percent-encode a namespace path for use as a single URL path segment
+/// (e.g. GitLab `owner/repo` → `owner%2Frepo`).
+pub fn url_encode_path(s: &str) -> String {
+    s.replace('%', "%25")
+        .replace('/', "%2F")
+        .replace(' ', "%20")
+}
+
 /// Percent-encode a free-form string for use as a single URL query-parameter
 /// value. Encodes the characters that would otherwise alter query structure
 /// (`&`, `=`, `#`, `?`), the `+`/space ambiguity, and `%` itself (encoded
