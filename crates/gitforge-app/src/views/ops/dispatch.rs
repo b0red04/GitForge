@@ -404,8 +404,10 @@ where
     }
 }
 
-/// Run a blocking, repo-independent op on the blocking pool, mapping a task
-/// panic ([`tokio::task::JoinError`]) and the inner error to [`AppError::Remote`].
+/// Run a blocking, repo-independent op on the blocking pool. Task panics
+/// ([`tokio::task::JoinError`]) map to [`AppError::Remote`]; the inner error
+/// keeps its own [`AppError`] variant via `E: Into<AppError>` (for example,
+/// [`GitError`] stays [`AppError::Git`]).
 /// The non-repo companion to [`with_repo_blocking`]: used by staged ops (AI
 /// generation) for the blocking-but-handle-free step, e.g. keychain-backed AI
 /// provider construction.

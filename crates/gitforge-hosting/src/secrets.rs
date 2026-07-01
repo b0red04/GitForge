@@ -56,14 +56,31 @@ fn save_file_tokens(tokens: &HashMap<String, String>) -> HostingResult<()> {
         .map_err(HostingError::config)?;
     let path = tokens_file();
     let json = serde_json::to_string(tokens).map_err(HostingError::config)?;
-    fs::write(&path, json)
-        .context("failed to write hosting token file")
-        .map_err(HostingError::config)?;
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
+        use std::fs::OpenOptions;
+        use std::io::Write;
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&path)
+            .context("failed to create hosting token file")
+            .map_err(HostingError::config)?;
+        file.write_all(json.as_bytes())
+            .context("failed to write hosting token file")
+            .map_err(HostingError::config)?;
         fs::set_permissions(&path, fs::Permissions::from_mode(0o600))
             .context("failed to set hosting token file permissions")
+            .map_err(HostingError::config)?;
+    }
+    #[cfg(not(unix))]
+    {
+        fs::write(&path, json)
+            .context("failed to write hosting token file")
             .map_err(HostingError::config)?;
     }
     Ok(())
@@ -84,9 +101,13 @@ fn store_in_keyring(token_key: &str, token: &str) -> HostingResult<()> {
     Ok(())
 }
 
-fn get_from_keyring(token_key: &str) -> HostingResult<String> {
+fn get_from_keyring(token_key: &str) -> HostingResult<Option<String>> {
     let entry = keyring::Entry::new(KEYRING_SERVICE, token_key).map_err(HostingError::config)?;
-    entry.get_password().map_err(HostingError::config)
+    match entry.get_password() {
+        Ok(token) => Ok(Some(token)),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(e) => Err(HostingError::config(e)),
+    }
 }
 
 fn delete_from_keyring(token_key: &str) -> HostingResult<()> {
@@ -115,8 +136,8 @@ pub fn get_token(token_key: &str) -> HostingResult<String> {
         return Ok(token);
     }
 
-    match get_from_keyring(token_key) {
-        Ok(token) => {
+    match get_from_keyring(token_key)? {
+        Some(token) => {
             let mut tokens = load_file_tokens();
             tokens.insert(token_key.to_string(), token.clone());
             if let Err(e) = save_file_tokens(&tokens) {
@@ -124,7 +145,7 @@ pub fn get_token(token_key: &str) -> HostingResult<String> {
             }
             Ok(token)
         }
-        Err(_) => Err(HostingError::token_not_found(token_key)),
+        None => Err(HostingError::token_not_found(token_key)),
     }
 }
 

@@ -76,7 +76,8 @@ impl GitForgeApp {
 
     /// General async seam for hosting-API operations (pure async, no repo
     /// handle). Adapter over `run_op_full`: hosts the `cx.spawn` + await,
-    /// maps `anyhow` errors to `AppError::Remote` (credential-redacted),
+    /// converts [`HostingResult`] failures through [`AppError::from`] so
+    /// structured [`HostingError`] variants stay intact,
     /// surfaces an error toast on failure, and runs `on_error(detail)` first when
     /// provided so callers can clear transient state. The `op` closure builds the
     /// future so the hosting provider can be captured by value (its future borrows

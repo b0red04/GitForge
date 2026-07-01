@@ -112,7 +112,7 @@ impl AiError {
             }
             Self::ApiKeyNotConfigured(msg) => redact_for_display(msg),
             Self::Config(err) => redact_for_display(&err.to_string()),
-            Self::UnknownProvider(msg) => redact_for_display(msg),
+            Self::UnknownProvider(provider) => format!("Unknown AI provider: {provider}"),
         }
     }
 
@@ -159,10 +159,24 @@ pub fn http_response_to_error(
 }
 
 fn parse_retry_after(headers: &HeaderMap) -> Option<u64> {
-    headers
-        .get(reqwest::header::RETRY_AFTER)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|seconds| seconds.parse().ok())
+    let raw = headers
+        .get(reqwest::header::RETRY_AFTER)?
+        .to_str()
+        .ok()?;
+    if let Ok(seconds) = raw.parse::<u64>() {
+        return Some(seconds);
+    }
+    retry_after_from_http_date(raw)
+}
+
+fn retry_after_from_http_date(raw: &str) -> Option<u64> {
+    use chrono::Utc;
+    let retry_at = chrono::DateTime::parse_from_rfc2822(raw.trim())
+        .or_else(|_| chrono::DateTime::parse_from_rfc3339(raw.trim()))
+        .ok()?
+        .with_timezone(&Utc);
+    let seconds = retry_at.signed_duration_since(Utc::now()).num_seconds();
+    Some(seconds.max(0) as u64)
 }
 
 pub trait AiNet<T> {
@@ -238,6 +252,30 @@ mod tests {
             AiError::RateLimited { retry_after, .. } => assert_eq!(retry_after, Some(30)),
             other => panic!("expected RateLimited, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn maps_rate_limit_with_http_date_retry_after() {
+        let mut headers = HeaderMap::new();
+        let retry_at = chrono::Utc::now() + chrono::Duration::seconds(45);
+        let http_date = retry_at.format("%a, %d %b %Y %H:%M:%S GMT").to_string();
+        headers.insert(
+            reqwest::header::RETRY_AFTER,
+            http_date.parse().expect("valid header"),
+        );
+        let err = http_response_to_error("ctx", StatusCode::TOO_MANY_REQUESTS, &headers, String::new());
+        match err {
+            AiError::RateLimited { retry_after, .. } => {
+                assert!(retry_after.unwrap() >= 44 && retry_after.unwrap() <= 46);
+            }
+            other => panic!("expected RateLimited, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn unknown_provider_user_message_includes_context() {
+        let msg = AiError::unknown_provider("foo").user_message();
+        assert_eq!(msg, "Unknown AI provider: foo");
     }
 
     #[test]

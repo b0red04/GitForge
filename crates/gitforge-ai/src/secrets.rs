@@ -32,14 +32,31 @@ fn save_file_secrets(secrets: &HashMap<String, String>) -> AiResult<()> {
         .map_err(AiError::config)?;
     let path = secrets_file();
     let json = serde_json::to_string(secrets).map_err(AiError::config)?;
-    fs::write(&path, json)
-        .context("failed to write API key file")
-        .map_err(AiError::config)?;
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
+        use std::fs::OpenOptions;
+        use std::io::Write;
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&path)
+            .context("failed to create API key file")
+            .map_err(AiError::config)?;
+        file.write_all(json.as_bytes())
+            .context("failed to write API key file")
+            .map_err(AiError::config)?;
         fs::set_permissions(&path, fs::Permissions::from_mode(0o600))
             .context("failed to set API key file permissions")
+            .map_err(AiError::config)?;
+    }
+    #[cfg(not(unix))]
+    {
+        fs::write(&path, json)
+            .context("failed to write API key file")
             .map_err(AiError::config)?;
     }
     Ok(())
@@ -56,9 +73,13 @@ fn store_in_keyring(provider: &str, key: &str) -> AiResult<()> {
     Ok(())
 }
 
-fn get_from_keyring(provider: &str) -> AiResult<String> {
+fn get_from_keyring(provider: &str) -> AiResult<Option<String>> {
     let entry = keyring::Entry::new(KEYRING_SERVICE, provider).map_err(AiError::config)?;
-    entry.get_password().map_err(AiError::config)
+    match entry.get_password() {
+        Ok(password) => Ok(Some(password)),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(e) => Err(AiError::config(e)),
+    }
 }
 
 fn delete_from_keyring(provider: &str) -> AiResult<()> {
@@ -87,7 +108,10 @@ pub fn get_api_key(provider: &str) -> AiResult<String> {
         return Ok(key);
     }
 
-    get_from_keyring(provider).map_err(|_| AiError::api_key_not_configured(provider))
+    match get_from_keyring(provider)? {
+        Some(key) => Ok(key),
+        None => Err(AiError::api_key_not_configured(provider)),
+    }
 }
 
 pub fn has_api_key(provider: &str) -> bool {
@@ -95,7 +119,7 @@ pub fn has_api_key(provider: &str) -> bool {
 }
 
 pub fn delete_api_key(provider: &str) -> AiResult<()> {
-    let _ = delete_from_keyring(provider);
+    delete_from_keyring(provider)?;
     let mut secrets = load_file_secrets();
     secrets.remove(provider);
     if secrets.is_empty() {

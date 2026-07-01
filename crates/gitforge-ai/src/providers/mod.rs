@@ -1,5 +1,5 @@
 pub mod anthropic;
-pub mod http;
+mod http;
 pub mod ollama;
 pub mod openai;
 pub mod openai_compat;

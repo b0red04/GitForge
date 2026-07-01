@@ -261,7 +261,13 @@ async fn error_on_non_2xx_response() {
         .list_repos(&account)
         .await
         .expect_err("should fail");
-    assert!(matches!(err, HostingError::Auth { .. }));
+    match err {
+        HostingError::Auth { context, body } => {
+            assert_eq!(context, "Failed to list repos");
+            assert_eq!(body, "forbidden");
+        }
+        other => panic!("expected Auth, got {other:?}"),
+    }
 }
 
 #[test]
