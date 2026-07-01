@@ -10,8 +10,6 @@ use crate::views::app::GitForgeApp;
 /// unbounded.
 const MAX_TOASTS: usize = 5;
 
-const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(dead_code)]
 pub(crate) enum ToastKind {
@@ -245,7 +243,7 @@ pub(crate) fn render_toasts(
             .py_2()
             .px_3()
             .flex()
-            .items_start()
+            .items_center()
             .gap_3()
             .shadow(vec![BoxShadow {
                 color: black().opacity(0.4),
@@ -294,24 +292,14 @@ pub(crate) fn render_toasts(
 }
 
 fn render_toast_spinner(id: u64, color: Hsla) -> impl IntoElement {
-    div()
-        .id(ElementId::Name(format!("toast-spinner-{id}").into()))
-        .flex_shrink_0()
-        .w(px(14.0))
-        .h(px(14.0))
-        .flex()
-        .items_center()
-        .justify_center()
-        .text_sm()
+    svg()
+        .size(px(14.0))
+        .path("icons/loader.svg")
         .text_color(color)
-        .child(SPINNER_FRAMES[0])
+        .flex_shrink_0()
         .with_animation(
             ElementId::Name(format!("toast-spinner-anim-{id}").into()),
-            Animation::new(Duration::from_millis(80)).repeat(),
-            move |el, delta| {
-                let idx =
-                    (delta * SPINNER_FRAMES.len() as f32) as usize % SPINNER_FRAMES.len();
-                el.child(SPINNER_FRAMES[idx])
-            },
+            Animation::new(Duration::from_millis(850)).repeat(),
+            |icon, delta| icon.with_transformation(Transformation::rotate(percentage(delta))),
         )
 }
