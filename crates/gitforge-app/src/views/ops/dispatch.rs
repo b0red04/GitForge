@@ -31,7 +31,7 @@
 use std::future::Future;
 use std::sync::Arc;
 
-use gitforge_ai::{AiError, AiProvider, ProviderConfig};
+use gitforge_ai::AiError;
 use gitforge_git::{GitError, Repository, first_line, redact_credentials};
 use gitforge_hosting::HostingError;
 use gpui::Context;
@@ -179,7 +179,8 @@ pub enum ErrorChannel {
 /// What an operation wants, declared by the caller. Carried through to
 /// [`plan_dispatch`], which resolves the result-dependent parts into a
 /// [`DispatchAction`]. Lifecycle effects not derived from the result (clearing
-/// `remote_status`, clearing busy flags) stay with the shell.
+/// `remote_status`, busy flags) are owned by the shell — see [`OpEffects::remote_status`]
+/// and [`OpEffects::busy`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OpEffects {
     /// Refresh `RepoState` from the repository on success.
@@ -193,6 +194,10 @@ pub struct OpEffects {
     pub remote_status: Option<String>,
     /// Where failures go. See [`ErrorChannel`].
     pub error_channel: ErrorChannel,
+    /// A busy spinner to show while the op runs. `Some` makes the shell set
+    /// the flag before spawn and clear it in every arm when
+    /// [`BusyFlag::should_clear_on_complete`] holds. See `docs/adr/0005-busy-flag-lifecycle.md`.
+    pub busy: Option<super::lifecycle::BusyFlag>,
 }
 
 impl OpEffects {
@@ -202,6 +207,7 @@ impl OpEffects {
         refresh_prs: false,
         remote_status: None,
         error_channel: ErrorChannel::Toast,
+        busy: None,
     };
 
     /// Refresh the repo on success, errors toast. The common git-op declaration.
@@ -210,6 +216,7 @@ impl OpEffects {
         refresh_prs: false,
         remote_status: None,
         error_channel: ErrorChannel::Toast,
+        busy: None,
     };
 
     /// No refresh, errors routed to the caller's `on_error` (banner-only). The
@@ -221,6 +228,7 @@ impl OpEffects {
         refresh_prs: false,
         remote_status: None,
         error_channel: ErrorChannel::Silent,
+        busy: None,
     };
 
     /// A git network op (fetch / push / pull) that shows `status` while it runs,
@@ -235,6 +243,7 @@ impl OpEffects {
             refresh_prs: false,
             remote_status: Some(status.into()),
             error_channel: ErrorChannel::Toast,
+            busy: None,
         }
     }
 }
@@ -414,54 +423,6 @@ where
     }
 }
 
-/// The AI-generation skeleton shared by the three bespoke staged ops
-/// (`generate_commit_message`, `generate_feature_branch_name`,
-/// `generate_pr_title_description`). GPUI-free and `'static`, so it is
-/// unit-testable without a `TestAppContext` and dropped straight into the
-/// future-factory of [`GitForgeApp::run_op_full`].
-///
-/// The body owns the four steps that were copy-pasted across those ops:
-/// 1. compute a diff via [`with_repo_blocking`] using the caller's `diff_fn`;
-/// 2. abort with an info-level [`RemoteError`] (`empty_msg`) when it is blank;
-/// 3. construct the provider on the blocking pool via [`spawn_blocking_ok`];
-/// 4. hand the provider and diff to the caller's `call` future.
-///
-/// The entire 5-axis variance (which diff method, which provider method, which
-/// empty-message, which extra args, which result type `R`) travels as data —
-/// `diff_fn` carries the diff method, `empty_msg` the abort text, and `call`
-/// the provider method plus any post-processing (e.g.
-/// `pick_default_message`). This exploits the seam [`with_repo_blocking`] /
-/// [`spawn_blocking_ok`] opened without adding a new GPUI-bound shell: the op
-/// *body* stays bespoke (each caller still sets its own busy flag and writes its
-/// own result field), but the generation skeleton is uniform.
-///
-/// `call` receives the constructed provider and diff by value (both owned, moved
-/// into the returned future), so its future is `'static` with no borrow gymnastics.
-pub async fn run_ai_generation<R, DiffFn, CallFn, CallFut>(
-    handle: Arc<Mutex<Option<Repository>>>,
-    diff_fn: DiffFn,
-    empty_msg: String,
-    provider_name: String,
-    provider_config: ProviderConfig,
-    call: CallFn,
-) -> Result<R, AppError>
-where
-    DiffFn: FnOnce(&Repository) -> Result<String, GitError> + Send + 'static,
-    CallFn: FnOnce(Box<dyn AiProvider>, String) -> CallFut + Send + 'static,
-    CallFut: Future<Output = Result<R, AiError>> + Send + 'static,
-    R: Send + 'static,
-{
-    let diff = with_repo_blocking(handle, diff_fn).await?;
-    if diff.trim().is_empty() {
-        return Err(AppError::Remote(RemoteError::info(empty_msg)));
-    }
-    let provider = spawn_blocking_ok(move || {
-        gitforge_ai::create_provider(&provider_name, &provider_config)
-    })
-    .await?;
-    call(provider, diff).await.map_err(AppError::from)
-}
-
 // ── shells (GPUI-bound) ─────────────────────────────────────────────────────
 //
 // The classifier and lock-dance above are GPUI-free; these shells are the thin
@@ -469,7 +430,10 @@ where
 // and execute the returned `DispatchAction` on the UI thread. They are methods
 // on `GitForgeApp` so they can reach the refresh/toast/remote-status surface.
 
-type ErrorHandler = Box<dyn FnOnce(&mut GitForgeApp, String, &mut Context<GitForgeApp>) + Send>;
+pub use super::lifecycle::BusyFlag;
+
+pub(crate) type ErrorHandler =
+    Box<dyn FnOnce(&mut GitForgeApp, String, &mut Context<GitForgeApp>) + Send>;
 type FinallyHandler = Box<dyn FnOnce(&mut GitForgeApp, &mut Context<GitForgeApp>) + Send>;
 
 impl GitForgeApp {
@@ -491,12 +455,15 @@ impl GitForgeApp {
     ///   the surface; receives the raw redacted detail. Use it to clear
     ///   transient state or write a banner. `None` for ops that just want the
     ///   auto-toast.
-    /// - `finally` — runs in EVERY arm (success and error), for lifecycle
-    ///   cleanup like clearing busy flags. `None` for ops with no busy flag.
+    /// - `finally` — runs in EVERY arm (success and error), for caller-specific
+    ///   lifecycle cleanup beyond [`OpEffects::busy`] / [`OpEffects::remote_status`].
+    ///   `None` for ops with no extra cleanup.
     ///
-    /// Most ops want the [`Self::run_op`] convenience instead (no `on_error` /
-    /// `finally`). Reach for `run_op_full` only when you need an error callback
-    /// (Silent-channel recovery) or a `finally` (busy-flag lifecycle).
+    /// Most ops use [`Self::run_git_op`] (fire-and-forget git) or
+    /// [`Self::run_hosting_op`] (async hosting). Reach for `run_op_full` when you
+    /// need a custom [`OpEffects`] (including [`OpEffects::busy`] /
+    /// [`OpEffects::remote_status`]), a Silent-channel `on_error`, or caller
+    /// `finally` cleanup beyond shell-owned lifecycle.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn run_op_full<T, Fut, Op, FOk>(
         &mut self,
@@ -517,7 +484,12 @@ impl GitForgeApp {
             self.repo_session.remote_status = status;
             cx.notify();
         }
+        if let Some(busy) = &fx.busy {
+            busy.set(self, true);
+            cx.notify();
+        }
         let clear_status = fx.remote_status.is_some();
+        let busy = fx.busy.clone();
         let label = label.to_string();
         cx.spawn(async move |this, cx| {
             let result = op().await;
@@ -544,6 +516,11 @@ impl GitForgeApp {
                 }
                 if clear_status {
                     this.repo_session.remote_status.clear();
+                }
+                if let Some(ref b) = busy {
+                    if b.should_clear_on_complete(this) {
+                        b.set(this, false);
+                    }
                 }
                 if let Some(fin) = finally {
                     fin(this, cx);
@@ -612,12 +589,14 @@ mod tests {
         refresh_prs: true,
         remote_status: None,
         error_channel: ErrorChannel::Toast,
+        busy: None,
     };
     const SILENT: OpEffects = OpEffects {
         refresh_repo: false,
         refresh_prs: false,
         remote_status: None,
         error_channel: ErrorChannel::Silent,
+        busy: None,
     };
 
     /// Run the classifier on an error with `T = ()`. Error-case tests don't
@@ -961,76 +940,5 @@ mod tests {
             |_: &Repository| -> Result<(), GitError> { panic!("boom") },
         ));
         assert!(matches!(res, Err(AppError::Remote(_))));
-    }
-
-    // ── run_ai_generation ──
-    //
-    // The provider-construction step would need a live backend / keychain, so
-    // these tests exercise the two short-circuits that precede it (diff error
-    // propagation and the empty-diff abort) plus the diff-handle plumbing —
-    // none reach `create_provider`.
-
-    #[test]
-    fn ai_generation_propagates_diff_error_as_git() {
-        let (repo, _scratch) = scratch_repo();
-        let handle = Arc::new(Mutex::new(Some(repo)));
-        let res = block_on(run_ai_generation(
-            handle,
-            |_| Err::<String, _>(GitError::EmptyCommit),
-            "ignored".to_string(),
-            "ollama".to_string(),
-            ProviderConfig::default(),
-            |_, _| async move { Ok::<_, AiError>(()) },
-        ));
-        assert!(matches!(res, Err(AppError::Git(GitError::EmptyCommit))));
-    }
-
-    #[test]
-    fn ai_generation_empty_diff_aborts_with_info_without_calling_provider() {
-        // An empty diff must short-circuit to the info RemoteError BEFORE the
-        // provider is constructed — otherwise a unit test would hit the
-        // keychain/network. A blank diff_fn confirms the short-circuit fires.
-        let (repo, _scratch) = scratch_repo();
-        let handle = Arc::new(Mutex::new(Some(repo)));
-        let res = block_on(run_ai_generation(
-            handle,
-            |_| Ok::<_, GitError>(String::new()),
-            "no staged changes".to_string(),
-            "ollama".to_string(),
-            ProviderConfig::default(),
-            // If the skeleton failed to short-circuit, create_provider would
-            // run and fail; the panic makes such a regression explicit.
-            |_, _| async move {
-                panic!("call must not run for an empty diff");
-                #[allow(unreachable_code)]
-                Ok::<(), AiError>(())
-            },
-        ));
-        match res {
-            Err(AppError::Remote(r)) => {
-                assert_eq!(r.severity(), Severity::Info);
-                assert_eq!(r.message(), "no staged changes");
-            }
-            other => panic!("expected info RemoteError, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn ai_generation_none_repo_yields_operation_failed() {
-        // The skeleton routes its diff through with_repo_blocking, so a closed
-        // repo surfaces as the same OperationFailed the lock-dance produces.
-        let handle: Arc<Mutex<Option<Repository>>> = Arc::new(Mutex::new(None));
-        let res = block_on(run_ai_generation(
-            handle,
-            |_| Ok::<_, GitError>(String::new()),
-            "ignored".to_string(),
-            "ollama".to_string(),
-            ProviderConfig::default(),
-            |_, _| async move { Ok::<_, AiError>(()) },
-        ));
-        assert!(matches!(
-            res,
-            Err(AppError::Git(GitError::OperationFailed(_)))
-        ));
     }
 }

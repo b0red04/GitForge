@@ -4,7 +4,9 @@ use gpui::Context;
 
 use crate::views::app::{AppDialog, GitForgeApp};
 use crate::views::dialogs::CreatePrDropdown;
-use crate::views::ops::dispatch::{ErrorChannel, OpEffects, run_ai_generation};
+use crate::views::ops::dispatch::{
+    AppError, BusyFlag, ErrorChannel, OpEffects, RemoteError, spawn_blocking_ok, with_repo_blocking,
+};
 
 pub(crate) struct OriginHostingContext {
     pub provider_id: String,
@@ -74,25 +76,30 @@ impl GitForgeApp {
             return;
         };
 
-        let tab_id = self.repo_session.active_repo_tab_id;
-        let tab_path = self.repo_session.active_tab().map(|t| t.path.clone());
-
-        if let Some(tab) = self.repo_session.active_tab_mut() {
-            tab.pull_requests_loading = true;
-        }
-        cx.notify();
+        let Some(tab_id) = self.repo_session.active_repo_tab_id else {
+            return;
+        };
+        let Some(tab_path) = self.repo_session.active_tab().map(|t| t.path.clone()) else {
+            return;
+        };
 
         let provider = ctx.provider_id;
         let owner = ctx.owner;
         let repo = ctx.repo;
         let account = ctx.account;
 
-        let tab_path_err = tab_path.clone();
+        let guard = BusyFlag::PullRequests {
+            tab_id,
+            tab_path: tab_path.clone(),
+        };
+        let guard_ok = guard.clone();
+        let guard_err = guard.clone();
         let fx = OpEffects {
             refresh_repo: false,
             refresh_prs: false,
             remote_status: None,
             error_channel: ErrorChannel::Silent,
+            busy: Some(guard),
         };
 
         self.run_op_full(
@@ -105,28 +112,18 @@ impl GitForgeApp {
                 Ok(p.list_pull_requests(&account, &owner, &repo).await?)
             },
             move |this, prs, cx| {
-                if this.repo_session.active_repo_tab_id != tab_id {
-                    return;
+                if guard_ok.still_relevant(this) {
+                    if let Some(tab) = this.repo_session.active_tab_mut() {
+                        tab.pull_requests = prs;
+                    }
+                    cx.notify();
                 }
-                if this.repo_session.active_tab().map(|t| &t.path) != tab_path.as_ref() {
-                    return;
-                }
-                if let Some(tab) = this.repo_session.active_tab_mut() {
-                    tab.pull_requests_loading = false;
-                    tab.pull_requests = prs;
-                }
-                cx.notify();
             },
             Some(Box::new(move |this, _detail, _cx| {
-                if this.repo_session.active_repo_tab_id != tab_id {
-                    return;
-                }
-                if this.repo_session.active_tab().map(|t| &t.path) != tab_path_err.as_ref() {
-                    return;
-                }
-                if let Some(tab) = this.repo_session.active_tab_mut() {
-                    tab.pull_requests_loading = false;
-                    tab.pull_requests.clear();
+                if guard_err.still_relevant(this) {
+                    if let Some(tab) = this.repo_session.active_tab_mut() {
+                        tab.pull_requests.clear();
+                    }
                 }
             })),
             None,
@@ -299,34 +296,28 @@ impl GitForgeApp {
             return;
         };
 
-        self.create_pr.loading_repos = true;
-        cx.notify();
-
-        let provider_ok = provider.clone();
-        let provider_err = provider.clone();
+        let guard = BusyFlag::CreatePrRepos(provider.clone());
+        let fx = OpEffects {
+            busy: Some(guard.clone()),
+            ..OpEffects::QUIET
+        };
 
         self.run_hosting_op(
             "List repositories",
             cx,
+            fx,
             move || async move {
                 let p = gitforge_hosting::get_provider(&provider)
                     .ok_or_else(|| anyhow::anyhow!("Unknown provider: {}", provider))?;
                 p.list_repos(&account).await
             },
             move |this, repos, cx| {
-                if this.create_pr.provider != provider_ok {
-                    return;
+                if guard.still_relevant(this) {
+                    this.create_pr.repos = repos;
+                    cx.notify();
                 }
-                this.create_pr.loading_repos = false;
-                this.create_pr.repos = repos;
-                cx.notify();
             },
-            move |this, _detail, _cx| {
-                if this.create_pr.provider != provider_err {
-                    return;
-                }
-                this.create_pr.loading_repos = false;
-            },
+            None,
         );
     }
 
@@ -353,6 +344,7 @@ impl GitForgeApp {
             branches.sort();
             if !branches.is_empty() {
                 self.create_pr.to_branches = branches;
+                self.create_pr.loading_branches = false;
                 cx.notify();
                 return;
             }
@@ -375,37 +367,31 @@ impl GitForgeApp {
             return;
         };
 
-        self.create_pr.loading_branches = true;
-        cx.notify();
-
-        let provider_ok = provider.clone();
-        let to_repo_ok = to_repo.clone();
-        let provider_err = provider.clone();
-        let to_repo_err = to_repo.clone();
+        let guard = BusyFlag::CreatePrBranches {
+            provider: provider.clone(),
+            to_repo: to_repo.clone(),
+        };
+        let fx = OpEffects {
+            busy: Some(guard.clone()),
+            ..OpEffects::QUIET
+        };
 
         self.run_hosting_op(
             "List branches",
             cx,
+            fx,
             move || async move {
                 let p = gitforge_hosting::get_provider(&provider)
                     .ok_or_else(|| anyhow::anyhow!("Unknown provider: {}", provider))?;
                 p.list_branches(&account, &owner, &repo).await
             },
             move |this, branches, cx| {
-                if this.create_pr.provider != provider_ok || this.create_pr.to_repo != to_repo_ok {
-                    return;
+                if guard.still_relevant(this) {
+                    this.create_pr.to_branches = branches;
+                    cx.notify();
                 }
-                this.create_pr.loading_branches = false;
-                this.create_pr.to_branches = branches;
-                cx.notify();
             },
-            move |this, _detail, _cx| {
-                if this.create_pr.provider != provider_err || this.create_pr.to_repo != to_repo_err
-                {
-                    return;
-                }
-                this.create_pr.loading_branches = false;
-            },
+            None,
         );
     }
 
@@ -434,45 +420,50 @@ impl GitForgeApp {
 
         let base_branch = self.create_pr.to_branch.clone();
         let head_branch = self.create_pr.from_branch.clone();
+        let req_base = base_branch.clone();
+        let req_head = head_branch.clone();
         let max_diff_chars = self.settings.ai.max_diff_chars;
 
         let Some(handle) = self.repo_session.require_active_repo_handle() else {
             return;
         };
 
-        self.create_pr.generating_ai = true;
-        cx.notify();
-
         self.run_op_full(
             "Generate PR description",
             cx,
-            OpEffects::QUIET,
-            move || {
-                run_ai_generation(
-                    handle,
-                    move |repo| {
-                        let base = format!("origin/{}", base_branch);
-                        repo.unified_diff_between_refs(&base, &head_branch)
-                    },
-                    "No changes between selected branches".to_string(),
-                    provider_name,
-                    provider_config,
-                    move |provider, diff| async move {
-                        provider
-                            .generate_pull_request_content(&diff, max_diff_chars)
-                            .await
-                    },
-                )
+            OpEffects {
+                busy: Some(BusyFlag::CreatePrGeneratingAi),
+                ..OpEffects::QUIET
             },
-            |this, (title, body), cx| {
-                this.create_pr.title_input.set_text(title);
-                this.create_pr.description_input.set_text(body);
-                cx.notify();
+            move || async move {
+                let diff = with_repo_blocking(handle, move |repo| {
+                    let base = format!("origin/{}", base_branch);
+                    repo.unified_diff_between_refs(&base, &head_branch)
+                })
+                .await?;
+                if diff.trim().is_empty() {
+                    return Err(AppError::Remote(RemoteError::info(
+                        "No changes between selected branches",
+                    )));
+                }
+                let provider = spawn_blocking_ok(move || {
+                    gitforge_ai::create_provider(&provider_name, &provider_config)
+                })
+                .await?;
+                let (title, body) = provider
+                    .generate_pull_request_content(&diff, max_diff_chars)
+                    .await?;
+                Ok((title, body))
+            },
+            move |this, (title, body), cx| {
+                if this.create_pr.to_branch == req_base && this.create_pr.from_branch == req_head {
+                    this.create_pr.title_input.set_text(title);
+                    this.create_pr.description_input.set_text(body);
+                    cx.notify();
+                }
             },
             None,
-            Some(Box::new(|this, _cx| {
-                this.create_pr.generating_ai = false;
-            })),
+            None,
         );
     }
 
@@ -541,12 +532,13 @@ impl GitForgeApp {
             draft: self.create_pr.draft,
         };
 
-        self.create_pr.submitting = true;
-        cx.notify();
-
         self.run_hosting_op(
             "Create pull request",
             cx,
+            OpEffects {
+                busy: Some(BusyFlag::CreatePrSubmitting),
+                ..OpEffects::QUIET
+            },
             move || async move {
                 let p = gitforge_hosting::get_provider(&provider)
                     .ok_or_else(|| anyhow::anyhow!("Unknown provider: {}", provider))?;
@@ -554,7 +546,6 @@ impl GitForgeApp {
             },
             move |this, pr, cx| {
                 let url = pr.html_url.clone();
-                this.create_pr.submitting = false;
                 this.active_dialog = AppDialog::None;
                 this.create_pr.reset();
                 this.push_toast(
@@ -565,9 +556,7 @@ impl GitForgeApp {
                 this.open_in_browser(url);
                 this.refresh_pull_requests(cx);
             },
-            move |this, _detail, _cx| {
-                this.create_pr.submitting = false;
-            },
+            None,
         );
     }
 

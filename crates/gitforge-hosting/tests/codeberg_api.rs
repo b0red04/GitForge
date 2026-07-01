@@ -9,7 +9,7 @@ mod common;
 
 use common::{ensure_test_tokens, test_account};
 use gitforge_hosting::CreatePullRequestRequest;
-use gitforge_hosting::gitea_style::GiteaStyleProvider;
+use gitforge_hosting::ConfigDrivenProvider;
 use gitforge_hosting::provider::HostingProvider;
 use httpmock::Method::{GET, POST};
 use httpmock::prelude::*;
@@ -30,8 +30,8 @@ fn cb_repo_json(full_name: &str, updated: &str, stars: u64) -> serde_json::Value
     })
 }
 
-fn provider(server: &MockServer) -> GiteaStyleProvider {
-    GiteaStyleProvider::with_url_codeberg(server.base_url())
+fn provider(server: &MockServer) -> ConfigDrivenProvider {
+    ConfigDrivenProvider::with_url_codeberg(server.base_url())
 }
 
 #[tokio::test]
@@ -243,6 +243,6 @@ async fn error_on_non_2xx() {
 
 #[test]
 fn repo_url_uses_web_url() {
-    let cb = GiteaStyleProvider::new_codeberg();
+    let cb = ConfigDrivenProvider::new_codeberg();
     assert_eq!(cb.repo_url("foo/bar"), "https://codeberg.org/foo/bar");
 }
