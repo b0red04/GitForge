@@ -58,7 +58,6 @@ the spinner field and, when needed, a stale-response token captured at spawn:
 |---|---|---|
 | `HostingRepos { expect_provider }` | `hosting_repos_loading` | `Some(p)` → active provider must match; `None` → unconditional |
 | `AiGenerating` | `ai_generating` | none |
-| `CommitPushGeneratingBranch` | `commit_push_generating_branch` | none |
 | `CreatePrRepos(p)` | `create_pr.loading_repos` | `create_pr.provider == p` |
 | `CreatePrBranches { provider, to_repo }` | `create_pr.loading_branches` | provider + `to_repo` |
 | `CreatePrGeneratingAi` | `create_pr.generating_ai` | none |
