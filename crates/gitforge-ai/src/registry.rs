@@ -1,7 +1,7 @@
-use anyhow::{Result, bail};
 use std::str::FromStr;
 
 use crate::config::{ProviderConfig, ZaiEndpoint};
+use crate::error::{AiError, AiResult};
 use crate::get_api_key;
 use crate::provider::AiProvider;
 use crate::providers::{
@@ -48,7 +48,7 @@ pub fn provider_descriptor(id: &str) -> Option<&'static ProviderDescriptor> {
     AI_PROVIDERS.iter().find(|p| p.id == id)
 }
 
-pub fn create_provider(name: &str, config: &ProviderConfig) -> Result<Box<dyn AiProvider>> {
+pub fn create_provider(name: &str, config: &ProviderConfig) -> AiResult<Box<dyn AiProvider>> {
     let model = config.model_or_default(name);
 
     match name {
@@ -82,7 +82,7 @@ pub fn create_provider(name: &str, config: &ProviderConfig) -> Result<Box<dyn Ai
                 config.temperature,
             )))
         }
-        other => bail!("Unknown AI provider: {other}"),
+        other => Err(AiError::unknown_provider(other)),
     }
 }
 
@@ -91,20 +91,19 @@ pub async fn list_models_for_provider(
     ollama_url: &str,
     zai_endpoint: ZaiEndpoint,
     api_key: Option<String>,
-) -> Result<Vec<String>> {
+) -> AiResult<Vec<String>> {
     match provider {
         "openai" => {
-            let api_key =
-                api_key.ok_or_else(|| anyhow::anyhow!("OpenAI API key not configured"))?;
+            let api_key = api_key.ok_or_else(|| AiError::api_key_not_configured("openai"))?;
             list_openai_compatible_models(crate::providers::openai::OPENAI_BASE_URL, &api_key).await
         }
         "zai" => {
-            let api_key = api_key.ok_or_else(|| anyhow::anyhow!("Z.ai API key not configured"))?;
+            let api_key = api_key.ok_or_else(|| AiError::api_key_not_configured("zai"))?;
             list_openai_compatible_models(zai_models_base_url(zai_endpoint), &api_key).await
         }
         "ollama" => list_ollama_models(ollama_url).await,
         "anthropic" => Ok(Vec::new()),
-        _ => bail!("Provider does not support model listing: {provider}"),
+        other => Err(AiError::model_listing_unsupported(other)),
     }
 }
 

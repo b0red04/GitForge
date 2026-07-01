@@ -1,7 +1,8 @@
-use anyhow::{Result, bail};
+use gitforge_remote::ensure_success;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
+use crate::error::{AiError, AiNet, AiResult};
 use crate::provider::AiProvider;
 
 pub struct OpenAiCompatibleProvider {
@@ -63,9 +64,10 @@ struct ModelEntry {
     id: String,
 }
 
-pub async fn list_openai_compatible_models(base_url: &str, api_key: &str) -> Result<Vec<String>> {
+pub async fn list_openai_compatible_models(base_url: &str, api_key: &str) -> AiResult<Vec<String>> {
     let base = base_url.trim_end_matches('/');
     let url = format!("{base}/models");
+    let context = "Models API request failed";
 
     let client = reqwest::Client::new();
     let resp = client
@@ -73,15 +75,11 @@ pub async fn list_openai_compatible_models(base_url: &str, api_key: &str) -> Res
         .header("Authorization", format!("Bearer {api_key}"))
         .header("Accept-Language", "en-US,en")
         .send()
-        .await?;
+        .await
+        .ai_context(context)?;
+    let resp = ensure_success(resp, context).await?;
 
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let text = resp.text().await.unwrap_or_default();
-        bail!("Models API error ({status}): {text}");
-    }
-
-    let data: ModelsResponse = resp.json().await?;
+    let data: ModelsResponse = resp.json().await.ai_context(context)?;
     let mut ids: Vec<String> = data.data.into_iter().map(|m| m.id).collect();
     ids.sort();
     ids.dedup();
@@ -94,7 +92,7 @@ impl AiProvider for OpenAiCompatibleProvider {
         &self.provider_id
     }
 
-    async fn generate(&self, prompt: &str, system: Option<&str>) -> Result<String> {
+    async fn generate(&self, prompt: &str, system: Option<&str>) -> AiResult<String> {
         let mut messages = Vec::new();
         if let Some(sys) = system {
             messages.push(ChatMessage {
@@ -113,6 +111,7 @@ impl AiProvider for OpenAiCompatibleProvider {
             temperature: self.temperature,
         };
 
+        let context = format!("{} API request failed", self.provider_id);
         let url = format!("{}/chat/completions", self.base_url);
         let client = reqwest::Client::new();
         let resp = client
@@ -122,18 +121,14 @@ impl AiProvider for OpenAiCompatibleProvider {
             .header("Content-Type", "application/json")
             .json(&body)
             .send()
-            .await?;
+            .await
+            .ai_context(&context)?;
+        let resp = ensure_success(resp, &context).await?;
 
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let text = resp.text().await.unwrap_or_default();
-            bail!("{} API error ({}): {}", self.provider_id, status, text);
-        }
-
-        let data: ChatResponse = resp.json().await?;
+        let data: ChatResponse = resp.json().await.ai_context(&context)?;
         match data.choices.first() {
             Some(choice) => Ok(choice.message.content.trim().to_string()),
-            None => bail!("{} returned no choices", self.provider_id),
+            None => Err(AiError::empty_response(&self.provider_id)),
         }
     }
 }

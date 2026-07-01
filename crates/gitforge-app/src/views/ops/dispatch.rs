@@ -23,14 +23,17 @@
 //!   classifies info-vs-error ([`GitError::is_info`]) and redacts credentials
 //!   ([`GitError::toast_message`]).
 //! - [`AppError::Remote`] carries [`RemoteError`], built at the app boundary
-//!   from `anyhow` results returned by `gitforge-hosting` / `gitforge-ai`.
-//!   `RemoteError` scrubs credential URL userinfo at construction using the
-//!   same redactor as `GitError`, so no toast or banner can leak a token.
+//!   from structured provider errors ([`HostingError`], [`AiError`]) or legacy
+//!   `anyhow` paths (panics, join errors). `RemoteError` scrubs credential URL
+//!   userinfo at construction using the same redactor as `GitError`, so no toast
+//!   or banner can leak a token.
 
 use std::future::Future;
 use std::sync::Arc;
 
+use gitforge_ai::AiError;
 use gitforge_git::{GitError, Repository, first_line, redact_credentials};
+use gitforge_hosting::HostingError;
 use gpui::Context;
 use parking_lot::Mutex;
 
@@ -63,6 +66,18 @@ impl From<GitError> for AppError {
 impl From<RemoteError> for AppError {
     fn from(e: RemoteError) -> Self {
         AppError::Remote(e)
+    }
+}
+
+impl From<HostingError> for AppError {
+    fn from(e: HostingError) -> Self {
+        AppError::Remote(RemoteError::from_hosting(e))
+    }
+}
+
+impl From<AiError> for AppError {
+    fn from(e: AiError) -> Self {
+        AppError::Remote(RemoteError::from_ai(e))
     }
 }
 
@@ -119,6 +134,16 @@ impl RemoteError {
             severity: Severity::Info,
             message: redact_for_display(&msg.into()),
         }
+    }
+
+    /// Build an error-severity [`RemoteError`] from a hosting API failure.
+    pub fn from_hosting(e: HostingError) -> Self {
+        Self::error(e.user_message())
+    }
+
+    /// Build an error-severity [`RemoteError`] from an AI provider failure.
+    pub fn from_ai(e: AiError) -> Self {
+        Self::error(e.user_message())
     }
 
     /// Build an error-severity [`RemoteError`] from an `anyhow` result. This is
@@ -379,20 +404,23 @@ where
     }
 }
 
-/// Run a blocking, repo-independent `anyhow` op on the blocking pool, mapping a
-/// task panic ([`tokio::task::JoinError`]) and the inner [`anyhow::Error`] to
-/// [`AppError::Remote`]. The non-repo companion to [`with_repo_blocking`]:
-/// used by staged ops (AI generation) for the blocking-but-handle-free step,
-/// e.g. keychain-backed AI provider construction.
-pub async fn spawn_blocking_ok<T>(
-    op: impl FnOnce() -> Result<T, anyhow::Error> + Send + 'static,
+/// Run a blocking, repo-independent op on the blocking pool. Task panics
+/// ([`tokio::task::JoinError`]) map to [`AppError::Remote`]; the inner error
+/// keeps its own [`AppError`] variant via `E: Into<AppError>` (for example,
+/// [`GitError`] stays [`AppError::Git`]).
+/// The non-repo companion to [`with_repo_blocking`]: used by staged ops (AI
+/// generation) for the blocking-but-handle-free step, e.g. keychain-backed AI
+/// provider construction.
+pub async fn spawn_blocking_ok<T, E>(
+    op: impl FnOnce() -> Result<T, E> + Send + 'static,
 ) -> Result<T, AppError>
 where
     T: Send + 'static,
+    E: Into<AppError> + Send + 'static,
 {
     match tokio::task::spawn_blocking(op).await {
         Ok(Ok(value)) => Ok(value),
-        Ok(Err(e)) => Err(AppError::from(e)),
+        Ok(Err(e)) => Err(e.into()),
         Err(join_err) => Err(AppError::Remote(RemoteError::error(join_err.to_string()))),
     }
 }
@@ -557,6 +585,7 @@ impl GitForgeApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gitforge_remote::HttpRemoteError;
 
     const TOAST: OpEffects = OpEffects {
         refresh_repo: true,
@@ -751,6 +780,46 @@ mod tests {
         let r = RemoteError::from_anyhow(anyhow::anyhow!("boom https://t@h"));
         assert_eq!(r.severity(), Severity::Error);
         assert_eq!(r.message(), "boom https://***@h");
+    }
+
+    #[test]
+    fn hosting_auth_error_surfaces_via_classifier() {
+        let action = err(
+            "Fetch repos",
+            AppError::from(HostingError::Http(HttpRemoteError::Auth {
+                context: "Failed to list repos".into(),
+                body: "forbidden".into(),
+            })),
+            &TOAST,
+        );
+        assert_eq!(
+            action.surface,
+            Surface::Error("Fetch repos: Failed to list repos: forbidden".into())
+        );
+        assert_eq!(
+            action.error_detail,
+            Some("Failed to list repos: forbidden".into())
+        );
+    }
+
+    #[test]
+    fn ai_auth_error_surfaces_via_classifier() {
+        let action = err(
+            "Generate",
+            AppError::from(AiError::Http(HttpRemoteError::Auth {
+                context: "OpenAI API request failed".into(),
+                body: "invalid key".into(),
+            })),
+            &TOAST,
+        );
+        assert_eq!(
+            action.surface,
+            Surface::Error("Generate: OpenAI API request failed: invalid key".into())
+        );
+        assert_eq!(
+            action.error_detail,
+            Some("OpenAI API request failed: invalid key".into())
+        );
     }
 
     #[test]

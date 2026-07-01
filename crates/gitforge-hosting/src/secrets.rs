@@ -1,8 +1,11 @@
-use anyhow::{Context, Result};
+use anyhow::Context;
+use gitforge_remote::write_restricted_json;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::OnceLock;
+
+use crate::error::{HostingError, HostingResult};
 
 const KEYRING_SERVICE: &str = "gitforge-hosting";
 
@@ -47,18 +50,16 @@ fn load_file_tokens() -> HashMap<String, String> {
     serde_json::from_str(&content).unwrap_or_default()
 }
 
-fn save_file_tokens(tokens: &HashMap<String, String>) -> Result<()> {
+fn save_file_tokens(tokens: &HashMap<String, String>) -> HostingResult<()> {
     let dir = config_dir();
-    fs::create_dir_all(&dir).context("failed to create config directory")?;
+    fs::create_dir_all(&dir)
+        .context("failed to create config directory")
+        .map_err(HostingError::config)?;
     let path = tokens_file();
-    fs::write(&path, serde_json::to_string(tokens)?)
-        .context("failed to write hosting token file")?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o600))
-            .context("failed to set hosting token file permissions")?;
-    }
+    let json = serde_json::to_string(tokens).map_err(HostingError::config)?;
+    write_restricted_json(&path, &json)
+        .context("failed to write hosting token file")
+        .map_err(HostingError::config)?;
     Ok(())
 }
 
@@ -66,28 +67,36 @@ fn get_from_file(token_key: &str) -> Option<String> {
     load_file_tokens().get(token_key).cloned()
 }
 
-fn store_in_keyring(token_key: &str, token: &str) -> Result<()> {
-    let entry = keyring::Entry::new(KEYRING_SERVICE, token_key)?;
-    entry.set_password(token)?;
-    entry.get_password()?;
+fn store_in_keyring(token_key: &str, token: &str) -> HostingResult<()> {
+    let entry = keyring::Entry::new(KEYRING_SERVICE, token_key).map_err(HostingError::config)?;
+    entry
+        .set_password(token)
+        .map_err(HostingError::config)?;
+    entry
+        .get_password()
+        .map_err(HostingError::config)?;
     Ok(())
 }
 
-fn get_from_keyring(token_key: &str) -> Result<String> {
-    let entry = keyring::Entry::new(KEYRING_SERVICE, token_key)?;
-    Ok(entry.get_password()?)
-}
-
-fn delete_from_keyring(token_key: &str) -> Result<()> {
-    let entry = keyring::Entry::new(KEYRING_SERVICE, token_key)?;
-    match entry.delete_credential() {
-        Ok(()) => Ok(()),
-        Err(keyring::Error::NoEntry) => Ok(()),
-        Err(e) => Err(e.into()),
+fn get_from_keyring(token_key: &str) -> HostingResult<Option<String>> {
+    let entry = keyring::Entry::new(KEYRING_SERVICE, token_key).map_err(HostingError::config)?;
+    match entry.get_password() {
+        Ok(token) => Ok(Some(token)),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(e) => Err(HostingError::config(e)),
     }
 }
 
-pub fn store_token(token_key: &str, token: &str) -> Result<()> {
+fn delete_from_keyring(token_key: &str) -> HostingResult<()> {
+    let entry = keyring::Entry::new(KEYRING_SERVICE, token_key).map_err(HostingError::config)?;
+    match entry.delete_credential() {
+        Ok(()) => Ok(()),
+        Err(keyring::Error::NoEntry) => Ok(()),
+        Err(e) => Err(HostingError::config(e)),
+    }
+}
+
+pub fn store_token(token_key: &str, token: &str) -> HostingResult<()> {
     let mut tokens = load_file_tokens();
     tokens.insert(token_key.to_string(), token.to_string());
     save_file_tokens(&tokens)?;
@@ -99,13 +108,13 @@ pub fn store_token(token_key: &str, token: &str) -> Result<()> {
     get_token(token_key).map(|_| ())
 }
 
-pub fn get_token(token_key: &str) -> Result<String> {
+pub fn get_token(token_key: &str) -> HostingResult<String> {
     if let Some(token) = get_from_file(token_key) {
         return Ok(token);
     }
 
-    match get_from_keyring(token_key) {
-        Ok(token) => {
+    match get_from_keyring(token_key)? {
+        Some(token) => {
             let mut tokens = load_file_tokens();
             tokens.insert(token_key.to_string(), token.clone());
             if let Err(e) = save_file_tokens(&tokens) {
@@ -113,19 +122,17 @@ pub fn get_token(token_key: &str) -> Result<String> {
             }
             Ok(token)
         }
-        Err(_) => anyhow::bail!(
-            "Hosting token not found for \"{token_key}\". Re-add the account in Settings → Accounts."
-        ),
+        None => Err(HostingError::token_not_found(token_key)),
     }
 }
 
-pub fn delete_token(token_key: &str) -> Result<()> {
+pub fn delete_token(token_key: &str) -> HostingResult<()> {
     let mut tokens = load_file_tokens();
     tokens.remove(token_key);
     if tokens.is_empty() {
         let path = tokens_file();
         if path.exists() {
-            fs::remove_file(path)?;
+            fs::remove_file(path).map_err(HostingError::config)?;
         }
     } else {
         save_file_tokens(&tokens)?;

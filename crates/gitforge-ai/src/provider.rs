@@ -1,22 +1,22 @@
-use anyhow::Result;
+use crate::error::AiResult;
 use async_trait::async_trait;
 
 use crate::config::CommitMessageConfig;
 use crate::prompt::{
     build_branch_name_prompt, build_commit_message_prompt, build_multi_commit_message_prompt,
-    build_pull_request_prompt, sanitize_branch_name, truncate_diff,
+    build_pull_request_prompt, sanitize_branch_name, sanitize_commit_message, truncate_diff,
 };
 
 #[async_trait]
 pub trait AiProvider: Send + Sync {
     fn name(&self) -> &str;
-    async fn generate(&self, prompt: &str, system: Option<&str>) -> Result<String>;
+    async fn generate(&self, prompt: &str, system: Option<&str>) -> AiResult<String>;
 
     async fn generate_commit_messages(
         &self,
         diff: &str,
         config: &CommitMessageConfig,
-    ) -> Result<Vec<String>> {
+    ) -> AiResult<Vec<String>> {
         let diff = truncate_diff(diff, config.max_diff_chars);
         let count = config.options_count();
 
@@ -26,7 +26,7 @@ pub trait AiProvider: Send + Sync {
                 "You are an expert at writing git commit messages. Output only the commit message, nothing else.",
             );
             let message = self.generate(&prompt, system).await?;
-            return Ok(vec![message.trim().to_string()]);
+            return Ok(vec![sanitize_commit_message(&message)]);
         }
 
         let prompt = build_multi_commit_message_prompt(&diff, config, count);
@@ -36,11 +36,11 @@ pub trait AiProvider: Send + Sync {
         let raw = self.generate(&prompt, system).await?;
         let messages: Vec<String> = raw
             .split("\n---\n")
-            .map(|s| s.trim().to_string())
+            .map(sanitize_commit_message)
             .filter(|s| !s.is_empty())
             .collect();
         if messages.is_empty() {
-            Ok(vec![raw.trim().to_string()])
+            Ok(vec![sanitize_commit_message(&raw)])
         } else {
             Ok(messages)
         }
@@ -51,7 +51,7 @@ pub trait AiProvider: Send + Sync {
         diff: &str,
         current_branch: &str,
         max_diff_chars: usize,
-    ) -> Result<String> {
+    ) -> AiResult<String> {
         let diff = truncate_diff(diff, max_diff_chars);
         let prompt = build_branch_name_prompt(&diff, current_branch);
         let system = Some(
@@ -65,7 +65,7 @@ pub trait AiProvider: Send + Sync {
         &self,
         diff: &str,
         max_diff_chars: usize,
-    ) -> Result<(String, String)> {
+    ) -> AiResult<(String, String)> {
         let diff = truncate_diff(diff, max_diff_chars);
         let prompt = build_pull_request_prompt(&diff);
         let system = Some(

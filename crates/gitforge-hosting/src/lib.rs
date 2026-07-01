@@ -1,5 +1,6 @@
 pub mod avatar;
 pub mod config_driven;
+pub mod error;
 pub mod http;
 pub mod models;
 pub mod provider;
@@ -8,6 +9,7 @@ pub mod urls;
 
 pub use avatar::{avatar_cache_path, cached_avatar_path, ensure_avatar_cached};
 pub use config_driven::ConfigDrivenProvider;
+pub use error::{HostingError, HostingResult};
 pub use models::{CreatePullRequestRequest, HostingAccount, PullRequest, RemoteRepo};
 pub use provider::HostingProvider;
 

@@ -14,3 +14,5 @@ tracing.workspace = true
 async-trait = "0.1.89"
 keyring.workspace = true
 dirs.workspace = true
+chrono.workspace = true
+gitforge-remote.workspace = true

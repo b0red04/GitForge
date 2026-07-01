@@ -10,6 +10,8 @@ use common::{ensure_test_tokens, test_account};
 use gitforge_hosting::CreatePullRequestRequest;
 use gitforge_hosting::ConfigDrivenProvider;
 use gitforge_hosting::provider::HostingProvider;
+use gitforge_hosting::HostingError;
+use gitforge_remote::HttpRemoteError;
 use httpmock::Method::{GET, POST};
 use httpmock::prelude::*;
 
@@ -260,11 +262,13 @@ async fn error_on_non_2xx_response() {
         .list_repos(&account)
         .await
         .expect_err("should fail");
-    let msg = format!("{err}");
-    assert!(
-        msg.contains("403") || msg.contains("Forbidden") || msg.contains("forbidden"),
-        "unexpected error message: {msg}"
-    );
+    match err {
+        HostingError::Http(HttpRemoteError::Auth { context, body }) => {
+            assert_eq!(context, "Failed to list repos");
+            assert_eq!(body, "forbidden");
+        }
+        other => panic!("expected Auth, got {other:?}"),
+    }
 }
 
 #[test]

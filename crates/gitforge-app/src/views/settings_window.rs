@@ -625,7 +625,7 @@ impl SettingsWindow {
                     }
                     Err(e) => {
                         this.available_models.clear();
-                        this.models_error = Some(e.to_string());
+                        this.models_error = Some(e.user_message());
                     }
                 }
                 cx.notify();

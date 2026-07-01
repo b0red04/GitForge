@@ -4,8 +4,9 @@ use gpui::Context;
 
 use crate::views::app::{AppDialog, GitForgeApp};
 use crate::views::dialogs::AddRepoTab;
-use crate::views::ops::dispatch::{AppError, BusyFlag, ErrorHandler, OpEffects, RemoteError};
+use crate::views::ops::dispatch::{AppError, BusyFlag, ErrorHandler, OpEffects};
 use crate::views::settings_window::SettingsSection;
+use gitforge_hosting::HostingResult;
 
 impl GitForgeApp {
     pub(crate) fn find_hosting_account(
@@ -75,7 +76,8 @@ impl GitForgeApp {
 
     /// General async seam for hosting-API operations (pure async, no repo
     /// handle). Adapter over `run_op_full`: hosts the `cx.spawn` + await,
-    /// maps `anyhow` errors to `AppError::Remote` (credential-redacted),
+    /// converts [`HostingResult`] failures through [`AppError::from`] so
+    /// structured [`HostingError`] variants stay intact,
     /// surfaces an error toast on failure, and runs `on_error(detail)` first when
     /// provided so callers can clear transient state. The `op` closure builds the
     /// future so the hosting provider can be captured by value (its future borrows
@@ -89,7 +91,7 @@ impl GitForgeApp {
         on_success: FOk,
         on_error: Option<ErrorHandler>,
     ) where
-        Fut: Future<Output = anyhow::Result<T>> + Send + 'static,
+        Fut: Future<Output = HostingResult<T>> + Send + 'static,
         T: Send + 'static,
         FOk: FnOnce(&mut Self, T, &mut Context<Self>) + Send + 'static,
     {
@@ -97,10 +99,7 @@ impl GitForgeApp {
             label,
             cx,
             fx,
-            move || async move {
-                op().await
-                    .map_err(|e| AppError::Remote(RemoteError::from_anyhow(e)))
-            },
+            move || async move { op().await.map_err(AppError::from) },
             on_success,
             on_error,
             None,

@@ -1,4 +1,5 @@
 pub mod config;
+pub mod error;
 pub mod prompt;
 pub mod provider;
 pub mod providers;
@@ -11,7 +12,8 @@ pub use config::{
     default_model_for_provider, default_temperature, default_variation_mode, normalize_tone,
     pick_default_message,
 };
-pub use prompt::{sanitize_branch_name, truncate_diff};
+pub use error::{AiError, AiResult};
+pub use prompt::{sanitize_branch_name, sanitize_commit_message, truncate_diff};
 pub use provider::AiProvider;
 pub use providers::{
     AnthropicProvider, OllamaProvider, OpenAiCompatibleProvider, list_ollama_models,
@@ -22,13 +24,11 @@ pub use registry::{
     parse_zai_endpoint, provider_descriptor,
 };
 
-use anyhow::Result;
-
-pub fn store_api_key(provider: &str, key: &str) -> Result<()> {
+pub fn store_api_key(provider: &str, key: &str) -> AiResult<()> {
     secrets::store_api_key(provider, key)
 }
 
-pub fn get_api_key(provider: &str) -> Result<String> {
+pub fn get_api_key(provider: &str) -> AiResult<String> {
     secrets::get_api_key(provider)
 }
 
@@ -36,6 +36,6 @@ pub fn has_api_key(provider: &str) -> bool {
     secrets::has_api_key(provider)
 }
 
-pub fn delete_api_key(provider: &str) -> Result<()> {
+pub fn delete_api_key(provider: &str) -> AiResult<()> {
     secrets::delete_api_key(provider)
 }

@@ -1,9 +1,9 @@
 //! [`ConfigDrivenProvider`] implementation and pull-request creation hooks.
 
+use crate::error::{HostingError, HostingResult};
 use crate::http;
 use crate::models::{CreatePullRequestRequest, HostingAccount, PullRequest, RemoteRepo};
 use crate::provider::HostingProvider;
-use anyhow::Result;
 use async_trait::async_trait;
 
 use super::config::{
@@ -87,7 +87,7 @@ impl ConfigDrivenProvider {
         }
     }
 
-    fn make_client(&self, token: &str) -> Result<reqwest::Client> {
+    fn make_client(&self, token: &str) -> HostingResult<reqwest::Client> {
         let mut headers = reqwest::header::HeaderMap::new();
         if let Some(accept) = self.config.accept {
             headers.insert(
@@ -138,16 +138,11 @@ impl HostingProvider for ConfigDrivenProvider {
         &self.base_url
     }
 
-    async fn authenticate(&self, token: &str) -> Result<HostingAccount> {
+    async fn authenticate(&self, token: &str) -> HostingResult<HostingAccount> {
         let client = self.make_client(token)?;
-        let response = client.get(format!("{}/user", self.base_url)).send().await?;
-        let response = http::ensure_success(
-            response,
-            &format!("{} authentication failed", self.config.display_name),
-        )
-        .await?;
-
-        let user: serde_json::Value = response.json().await?;
+        let ctx = format!("{} authentication failed", self.config.display_name);
+        let user: serde_json::Value =
+            http::get_json(&client, format!("{}/user", self.base_url), &ctx).await?;
         let username = user[self.config.username_key]
             .as_str()
             .unwrap_or("unknown")
@@ -171,7 +166,7 @@ impl HostingProvider for ConfigDrivenProvider {
         })
     }
 
-    async fn list_repos(&self, account: &HostingAccount) -> Result<Vec<RemoteRepo>> {
+    async fn list_repos(&self, account: &HostingAccount) -> HostingResult<Vec<RemoteRepo>> {
         let token = account.token()?;
         let client = self.make_client(&token)?;
         let cfg = self.config;
@@ -203,7 +198,11 @@ impl HostingProvider for ConfigDrivenProvider {
         Ok(repos)
     }
 
-    async fn search_repos(&self, account: &HostingAccount, query: &str) -> Result<Vec<RemoteRepo>> {
+    async fn search_repos(
+        &self,
+        account: &HostingAccount,
+        query: &str,
+    ) -> HostingResult<Vec<RemoteRepo>> {
         let token = account.token()?;
         let client = self.make_client(&token)?;
         let encoded = http::url_encode_query(query);
@@ -224,9 +223,8 @@ impl HostingProvider for ConfigDrivenProvider {
                     self.config.page_param,
                     self.config.page_size
                 );
-                let response = client.get(url).send().await?;
-                let response = http::ensure_success(response, "Failed to search repos").await?;
-                let result: serde_json::Value = response.json().await?;
+                let result: serde_json::Value =
+                    http::get_json(&client, url, "Failed to search repos").await?;
                 extract_envelope(&result, envelope)
             }
             SearchStyle::ProjectFilter {
@@ -244,10 +242,7 @@ impl HostingProvider for ConfigDrivenProvider {
                     page_size,
                     query_extra
                 );
-                let response = client.get(url).send().await?;
-                let response =
-                    http::ensure_success(response, "Failed to search GitLab projects").await?;
-                response.json().await?
+                http::get_json(&client, url, "Failed to search GitLab projects").await?
             }
         };
 
@@ -262,15 +257,12 @@ impl HostingProvider for ConfigDrivenProvider {
         account: &HostingAccount,
         owner: &str,
         repo: &str,
-    ) -> Result<RemoteRepo> {
+    ) -> HostingResult<RemoteRepo> {
         let token = account.token()?;
         let client = self.make_client(&token)?;
+        let ctx = format!("Failed to fork {}/{}", owner, repo);
         let url = config::collection_url(&self.base_url, self.config, owner, repo, EndpointAction::Fork);
-        let response = client.post(url).send().await?;
-        let response =
-            http::ensure_success(response, &format!("Failed to fork {}/{}", owner, repo)).await?;
-
-        let fork: serde_json::Value = response.json().await?;
+        let fork: serde_json::Value = http::post_json(&client, url, None::<&()>, &ctx).await?;
         Ok(json_to_remote_repo(&fork, &self.config.family.repo_keys))
     }
 
@@ -287,7 +279,7 @@ impl HostingProvider for ConfigDrivenProvider {
         &self,
         account: &HostingAccount,
         req: &CreatePullRequestRequest,
-    ) -> Result<PullRequest> {
+    ) -> HostingResult<PullRequest> {
         match self.config.family.pr_strategy {
             PullRequestStrategy::HeadColonOnTarget => {
                 create_pr_head_colon_on_target(self, account, req).await
@@ -303,7 +295,7 @@ impl HostingProvider for ConfigDrivenProvider {
         account: &HostingAccount,
         owner: &str,
         repo: &str,
-    ) -> Result<Vec<PullRequest>> {
+    ) -> HostingResult<Vec<PullRequest>> {
         let token = account.token()?;
         let client = self.make_client(&token)?;
         let base_url = self.base_url.clone();
@@ -337,7 +329,7 @@ impl HostingProvider for ConfigDrivenProvider {
         account: &HostingAccount,
         owner: &str,
         repo: &str,
-    ) -> Result<Vec<String>> {
+    ) -> HostingResult<Vec<String>> {
         let token = account.token()?;
         let client = self.make_client(&token)?;
         let base_url = self.base_url.clone();
@@ -368,9 +360,9 @@ async fn create_pr_head_colon_on_target(
     provider: &ConfigDrivenProvider,
     account: &HostingAccount,
     req: &CreatePullRequestRequest,
-) -> Result<PullRequest> {
+) -> HostingResult<PullRequest> {
     let token = account.token()?;
-        let client = provider.make_client(&token)?;
+    let client = provider.make_client(&token)?;
     let keys = &provider.config.family.pr_keys;
 
     let head = if req.head_owner == req.owner {
@@ -394,10 +386,8 @@ async fn create_pr_head_colon_on_target(
         &req.repo,
         EndpointAction::PullRequest,
     );
-    let response = client.post(url).json(&body).send().await?;
-    let response = http::ensure_success(response, "Failed to create pull request").await?;
-
-    let pr: serde_json::Value = response.json().await?;
+    let ctx = "Failed to create pull request";
+    let pr: serde_json::Value = http::post_json(&client, url, Some(&body), ctx).await?;
     Ok(json_to_pull_request(&pr, keys))
 }
 
@@ -405,9 +395,9 @@ async fn create_pr_target_project_id_on_source(
     provider: &ConfigDrivenProvider,
     account: &HostingAccount,
     req: &CreatePullRequestRequest,
-) -> Result<PullRequest> {
+) -> HostingResult<PullRequest> {
     let token = account.token()?;
-        let client = provider.make_client(&token)?;
+    let client = provider.make_client(&token)?;
     let keys = &provider.config.family.pr_keys;
 
     let mut body = serde_json::json!({
@@ -435,10 +425,8 @@ async fn create_pr_target_project_id_on_source(
         repo,
         EndpointAction::PullRequest,
     );
-    let response = client.post(url).json(&body).send().await?;
-    let response = http::ensure_success(response, "Failed to create merge request").await?;
-
-    let mr: serde_json::Value = response.json().await?;
+    let ctx = "Failed to create merge request";
+    let mr: serde_json::Value = http::post_json(&client, url, Some(&body), ctx).await?;
     Ok(json_to_pull_request(&mr, keys))
 }
 
@@ -446,23 +434,15 @@ async fn fetch_project_id(
     client: &reqwest::Client,
     base_url: &str,
     full_path: &str,
-) -> Result<u64> {
-    let response = client
-        .get(format!(
-            "{}/projects/{}",
-            base_url,
-            http::url_encode_path(full_path)
-        ))
-        .send()
-        .await?;
-    let response = http::ensure_success(
-        response,
-        &format!("Failed to resolve GitLab project id for {full_path}"),
-    )
-    .await?;
-
-    let project: serde_json::Value = response.json().await?;
-    project["id"]
-        .as_u64()
-        .ok_or_else(|| anyhow::anyhow!("Missing numeric id for GitLab project {full_path}"))
+) -> HostingResult<u64> {
+    let ctx = format!("Failed to resolve GitLab project id for {full_path}");
+    let url = format!(
+        "{}/projects/{}",
+        base_url,
+        http::url_encode_path(full_path)
+    );
+    let project: serde_json::Value = http::get_json(client, url, &ctx).await?;
+    project["id"].as_u64().ok_or(HostingError::MissingProjectId {
+        path: full_path.to_string(),
+    })
 }
