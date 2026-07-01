@@ -154,7 +154,8 @@ pub enum ErrorChannel {
 /// What an operation wants, declared by the caller. Carried through to
 /// [`plan_dispatch`], which resolves the result-dependent parts into a
 /// [`DispatchAction`]. Lifecycle effects not derived from the result (clearing
-/// `remote_status`, clearing busy flags) stay with the shell.
+/// `remote_status`, busy flags) are owned by the shell — see [`OpEffects::remote_status`]
+/// and [`OpEffects::busy`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OpEffects {
     /// Refresh `RepoState` from the repository on success.
@@ -168,6 +169,10 @@ pub struct OpEffects {
     pub remote_status: Option<String>,
     /// Where failures go. See [`ErrorChannel`].
     pub error_channel: ErrorChannel,
+    /// A busy spinner to show while the op runs. `Some` makes the shell set
+    /// the flag before spawn and clear it in every arm when
+    /// [`BusyFlag::should_clear_on_complete`] holds. See `docs/adr/0005-busy-flag-lifecycle.md`.
+    pub busy: Option<super::lifecycle::BusyFlag>,
 }
 
 impl OpEffects {
@@ -177,6 +182,7 @@ impl OpEffects {
         refresh_prs: false,
         remote_status: None,
         error_channel: ErrorChannel::Toast,
+        busy: None,
     };
 
     /// Refresh the repo on success, errors toast. The common git-op declaration.
@@ -185,6 +191,7 @@ impl OpEffects {
         refresh_prs: false,
         remote_status: None,
         error_channel: ErrorChannel::Toast,
+        busy: None,
     };
 
     /// No refresh, errors routed to the caller's `on_error` (banner-only). The
@@ -196,6 +203,7 @@ impl OpEffects {
         refresh_prs: false,
         remote_status: None,
         error_channel: ErrorChannel::Silent,
+        busy: None,
     };
 
     /// A git network op (fetch / push / pull) that shows `status` while it runs,
@@ -210,6 +218,7 @@ impl OpEffects {
             refresh_prs: false,
             remote_status: Some(status.into()),
             error_channel: ErrorChannel::Toast,
+            busy: None,
         }
     }
 }
@@ -395,7 +404,10 @@ where
 // and execute the returned `DispatchAction` on the UI thread. They are methods
 // on `GitForgeApp` so they can reach the refresh/toast/remote-status surface.
 
-type ErrorHandler = Box<dyn FnOnce(&mut GitForgeApp, String, &mut Context<GitForgeApp>) + Send>;
+pub use super::lifecycle::BusyFlag;
+
+pub(crate) type ErrorHandler =
+    Box<dyn FnOnce(&mut GitForgeApp, String, &mut Context<GitForgeApp>) + Send>;
 type FinallyHandler = Box<dyn FnOnce(&mut GitForgeApp, &mut Context<GitForgeApp>) + Send>;
 
 impl GitForgeApp {
@@ -417,12 +429,15 @@ impl GitForgeApp {
     ///   the surface; receives the raw redacted detail. Use it to clear
     ///   transient state or write a banner. `None` for ops that just want the
     ///   auto-toast.
-    /// - `finally` — runs in EVERY arm (success and error), for lifecycle
-    ///   cleanup like clearing busy flags. `None` for ops with no busy flag.
+    /// - `finally` — runs in EVERY arm (success and error), for caller-specific
+    ///   lifecycle cleanup beyond [`OpEffects::busy`] / [`OpEffects::remote_status`].
+    ///   `None` for ops with no extra cleanup.
     ///
-    /// Most ops want the [`Self::run_op`] convenience instead (no `on_error` /
-    /// `finally`). Reach for `run_op_full` only when you need an error callback
-    /// (Silent-channel recovery) or a `finally` (busy-flag lifecycle).
+    /// Most ops use [`Self::run_git_op`] (fire-and-forget git) or
+    /// [`Self::run_hosting_op`] (async hosting). Reach for `run_op_full` when you
+    /// need a custom [`OpEffects`] (including [`OpEffects::busy`] /
+    /// [`OpEffects::remote_status`]), a Silent-channel `on_error`, or caller
+    /// `finally` cleanup beyond shell-owned lifecycle.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn run_op_full<T, Fut, Op, FOk>(
         &mut self,
@@ -443,7 +458,12 @@ impl GitForgeApp {
             self.repo_session.remote_status = status;
             cx.notify();
         }
+        if let Some(busy) = &fx.busy {
+            busy.set(self, true);
+            cx.notify();
+        }
         let clear_status = fx.remote_status.is_some();
+        let busy = fx.busy.clone();
         let label = label.to_string();
         cx.spawn(async move |this, cx| {
             let result = op().await;
@@ -470,6 +490,11 @@ impl GitForgeApp {
                 }
                 if clear_status {
                     this.repo_session.remote_status.clear();
+                }
+                if let Some(ref b) = busy {
+                    if b.should_clear_on_complete(this) {
+                        b.set(this, false);
+                    }
                 }
                 if let Some(fin) = finally {
                     fin(this, cx);
@@ -538,12 +563,14 @@ mod tests {
         refresh_prs: true,
         remote_status: None,
         error_channel: ErrorChannel::Toast,
+        busy: None,
     };
     const SILENT: OpEffects = OpEffects {
         refresh_repo: false,
         refresh_prs: false,
         remote_status: None,
         error_channel: ErrorChannel::Silent,
+        busy: None,
     };
 
     /// Run the classifier on an error with `T = ()`. Error-case tests don't

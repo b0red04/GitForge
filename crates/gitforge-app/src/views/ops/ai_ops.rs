@@ -2,7 +2,7 @@ use gpui::Context;
 
 use crate::views::app::GitForgeApp;
 use crate::views::ops::dispatch::{
-    AppError, OpEffects, RemoteError, spawn_blocking_ok, with_repo_blocking,
+    AppError, BusyFlag, OpEffects, RemoteError, spawn_blocking_ok, with_repo_blocking,
 };
 
 impl GitForgeApp {
@@ -27,13 +27,13 @@ impl GitForgeApp {
             return;
         };
 
-        self.ai_generating = true;
-        cx.notify();
-
         self.run_op_full(
             "Generate commit message",
             cx,
-            OpEffects::QUIET,
+            OpEffects {
+                busy: Some(BusyFlag::AiGenerating),
+                ..OpEffects::QUIET
+            },
             move || async move {
                 let diff = with_repo_blocking(handle, |repo| repo.diff_head_to_index(None)).await?;
                 if diff.trim().is_empty() {
@@ -66,9 +66,7 @@ impl GitForgeApp {
                 cx.notify();
             },
             None,
-            Some(Box::new(|this, _cx| {
-                this.ai_generating = false;
-            })),
+            None,
         );
     }
 
@@ -103,13 +101,13 @@ impl GitForgeApp {
             return;
         };
 
-        self.commit_push_generating_branch = true;
-        cx.notify();
-
         self.run_op_full(
             "Generate branch name",
             cx,
-            OpEffects::QUIET,
+            OpEffects {
+                busy: Some(BusyFlag::CommitPushGeneratingBranch),
+                ..OpEffects::QUIET
+            },
             move || async move {
                 let diff = with_repo_blocking(handle, |repo| repo.diff_head_to_index(None)).await?;
                 if diff.trim().is_empty() {
@@ -130,9 +128,7 @@ impl GitForgeApp {
                 this.set_dialog_input_text(&name, cx);
             },
             None,
-            Some(Box::new(|this, _cx| {
-                this.commit_push_generating_branch = false;
-            })),
+            None,
         );
     }
 }
