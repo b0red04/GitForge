@@ -31,6 +31,7 @@ pub fn build_commit_message_prompt(diff: &str, config: &CommitMessageConfig) -> 
          {wrap_instruction}\
          - Do not mention the commit message itself in the output\n\
          - Do not add quotes around the message\n\
+         - Do not wrap the output in markdown code blocks\n\
          - Only output the commit message, nothing else\n\n\
          Diff:\n```\n{diff}\n```"
     )
@@ -63,6 +64,7 @@ pub fn build_multi_commit_message_prompt(
          - Separate each message with a line containing only '---'\n\
          - Do not number the messages\n\
          - Do not add quotes around messages\n\
+         - Do not wrap messages in markdown code blocks\n\
          - Do not include any other text\n\n\
          Diff:\n```\n{diff}\n```"
     )
@@ -141,6 +143,48 @@ pub fn build_branch_name_prompt(diff: &str, current_branch: &str) -> String {
          - Output only the branch name, nothing else\n\n\
          Diff:\n<git_diff>\n{safe_diff}\n</git_diff>"
     )
+}
+
+/// Strip markdown fences and other AI formatting artifacts from a commit message.
+pub fn sanitize_commit_message(raw: &str) -> String {
+    let mut lines: Vec<String> = raw.lines().map(String::from).collect();
+    let mut stripped_leading_fence = false;
+
+    while lines.first().is_some_and(|line| is_ignorable_boundary_line(line)) {
+        if lines[0].trim().starts_with("```") {
+            stripped_leading_fence = true;
+        }
+        lines.remove(0);
+    }
+
+    if let Some(first) = lines.first_mut() {
+        if let Some(rest) = first.trim().strip_prefix("```") {
+            *first = rest.trim().to_string();
+            stripped_leading_fence = true;
+        }
+    }
+
+    if stripped_leading_fence {
+        while lines.last().is_some_and(|line| is_ignorable_boundary_line(line)) {
+            lines.pop();
+        }
+    }
+
+    let message = lines.join("\n");
+    let message = message.trim();
+    if (message.starts_with('"') && message.ends_with('"'))
+        || (message.starts_with('\'') && message.ends_with('\''))
+    {
+        return message[1..message.len() - 1].trim().to_string();
+    }
+    message.to_string()
+}
+
+fn is_ignorable_boundary_line(line: &str) -> bool {
+    let t = line.trim();
+    t.is_empty()
+        || t == "```"
+        || (t.starts_with("```") && !t[3..].contains(' ') && t.len() > 3)
 }
 
 /// Normalize an AI-generated or user-entered branch name into a valid git ref.
@@ -243,6 +287,42 @@ mod tests {
         assert!(prompt.contains("Current branch: main"));
         assert!(prompt.contains("feat/"));
         assert!(prompt.contains("kebab-case"));
+    }
+
+    #[test]
+    fn sanitize_commit_message_strips_leading_fence_line() {
+        let raw = "```\nExtract shared utilities into gitforge-remote crate\n\nBody text.";
+        assert_eq!(
+            sanitize_commit_message(raw),
+            "Extract shared utilities into gitforge-remote crate\n\nBody text."
+        );
+    }
+
+    #[test]
+    fn sanitize_commit_message_strips_inline_fence_prefix() {
+        let raw = "``` Extract shared utilities into gitforge-remote crate\n\nBody text.";
+        assert_eq!(
+            sanitize_commit_message(raw),
+            "Extract shared utilities into gitforge-remote crate\n\nBody text."
+        );
+    }
+
+    #[test]
+    fn sanitize_commit_message_strips_trailing_fence() {
+        let raw = "```\nFix retry-after parsing\n\nDetails here.\n```";
+        assert_eq!(
+            sanitize_commit_message(raw),
+            "Fix retry-after parsing\n\nDetails here."
+        );
+    }
+
+    #[test]
+    fn sanitize_commit_message_preserves_body_code_fences() {
+        let raw = "Add example\n\nUse:\n```rust\nfn main() {}\n```";
+        assert_eq!(
+            sanitize_commit_message(raw),
+            "Add example\n\nUse:\n```rust\nfn main() {}\n```"
+        );
     }
 
     #[test]

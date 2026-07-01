@@ -13,7 +13,7 @@ pub use config::{
     pick_default_message,
 };
 pub use error::{AiError, AiResult};
-pub use prompt::{sanitize_branch_name, truncate_diff};
+pub use prompt::{sanitize_branch_name, sanitize_commit_message, truncate_diff};
 pub use provider::AiProvider;
 pub use providers::{
     AnthropicProvider, OllamaProvider, OpenAiCompatibleProvider, list_ollama_models,
