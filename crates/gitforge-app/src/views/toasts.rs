@@ -214,7 +214,7 @@ pub(crate) fn render_toasts(
     entity: WeakEntity<GitForgeApp>,
 ) -> Div {
     let surface = rgba_to_hsla(colors.surface_high);
-    let border = rgba_to_hsla(colors.border);
+    let accent = rgba_to_hsla(colors.accent);
     let text_color = rgba_to_hsla(colors.text);
     let muted = rgba_to_hsla(colors.text_muted);
 
@@ -238,7 +238,7 @@ pub(crate) fn render_toasts(
             .id(ElementId::Name(format!("toast-{id}").into()))
             .bg(surface)
             .border_1()
-            .border_color(border)
+            .border_color(accent)
             .rounded(px(6.0))
             .py_2()
             .px_3()
