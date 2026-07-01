@@ -137,9 +137,24 @@ impl GitForgeApp {
         let label = "Commit & Push".to_string();
 
         cx.spawn(async move |this, cx| {
-            let mut step_toast = |msg: String| {
+            let progress_id = this
+                .update(cx, |app, cx| {
+                    let initial = if use_feature_branch {
+                        "Generating branch name...".to_string()
+                    } else {
+                        "Committing and pushing...".to_string()
+                    };
+                    app.push_progress_toast(initial, cx)
+                })
+                .ok()
+                .unwrap_or(0);
+
+            let mut update_progress = |msg: String| {
+                if progress_id == 0 {
+                    return;
+                }
                 this.update(cx, |app, cx| {
-                    app.push_toast(ToastKind::Info, msg, cx);
+                    app.update_progress_toast(progress_id, msg, cx);
                 })
                 .ok();
             };
@@ -155,7 +170,7 @@ impl GitForgeApp {
                 }
 
                 let pushed_branch = if use_feature_branch {
-                    step_toast("Generating branch name...".to_string());
+                    update_progress("Generating branch name...".to_string());
                     let branch_provider_name = provider_name.clone();
                     let branch_provider_config = provider_config.clone();
                     let provider = spawn_blocking_ok(move || {
@@ -166,7 +181,7 @@ impl GitForgeApp {
                         .generate_branch_name(&diff, &branch_context, max_diff_chars)
                         .await?;
                     let branch_name = gitforge_ai::sanitize_branch_name(&raw_name);
-                    step_toast(format!("Creating branch {branch_name}..."));
+                    update_progress(format!("Creating branch {branch_name}..."));
                     let create_name = branch_name.clone();
                     with_repo_blocking(handle.clone(), move |repo| {
                         repo.create_and_checkout_branch(&create_name, None)
@@ -181,7 +196,7 @@ impl GitForgeApp {
                     existing_message
                 } else {
                     if use_feature_branch {
-                        step_toast("Generating commit message...".to_string());
+                        update_progress("Generating commit message...".to_string());
                     }
                     let message_provider_name = provider_name.clone();
                     let message_provider_config = provider_config.clone();
@@ -202,8 +217,8 @@ impl GitForgeApp {
                 };
 
                 if use_feature_branch {
-                    step_toast("Committing changes...".to_string());
-                    step_toast(format!("Pushing to origin/{pushed_branch}..."));
+                    update_progress("Committing changes...".to_string());
+                    update_progress(format!("Pushing to origin/{pushed_branch}..."));
                 }
 
                 with_repo_blocking(handle, move |repo| {
@@ -223,18 +238,42 @@ impl GitForgeApp {
                 if action.refresh_prs {
                     this.refresh_pull_requests(cx);
                 }
-                match action.surface {
-                    Surface::Silent => {}
-                    Surface::Info(msg) => this.push_toast(ToastKind::Info, msg, cx),
-                    Surface::Error(msg) => this.push_toast(ToastKind::Error, msg, cx),
-                }
-                if let Some(pushed_branch) = action.value {
-                    this.repo_session.take_commit_message();
-                    this.push_toast(
-                        ToastKind::Success,
-                        format!("Committed and pushed to origin/{pushed_branch}"),
-                        cx,
-                    );
+                if progress_id != 0 {
+                    if let Some(pushed_branch) = action.value {
+                        this.repo_session.take_commit_message();
+                        this.finish_progress_toast(
+                            progress_id,
+                            ToastKind::Success,
+                            format!("Committed and pushed to origin/{pushed_branch}"),
+                            cx,
+                        );
+                    } else {
+                        match action.surface {
+                            Surface::Info(msg) => {
+                                this.finish_progress_toast(progress_id, ToastKind::Info, msg, cx);
+                            }
+                            Surface::Error(msg) => {
+                                this.finish_progress_toast(progress_id, ToastKind::Error, msg, cx);
+                            }
+                            Surface::Silent => {
+                                this.dismiss_toast(progress_id, cx);
+                            }
+                        }
+                    }
+                } else {
+                    match action.surface {
+                        Surface::Silent => {}
+                        Surface::Info(msg) => this.push_toast(ToastKind::Info, msg, cx),
+                        Surface::Error(msg) => this.push_toast(ToastKind::Error, msg, cx),
+                    }
+                    if let Some(pushed_branch) = action.value {
+                        this.repo_session.take_commit_message();
+                        this.push_toast(
+                            ToastKind::Success,
+                            format!("Committed and pushed to origin/{pushed_branch}"),
+                            cx,
+                        );
+                    }
                 }
                 if clear_status {
                     this.repo_session.remote_status.clear();

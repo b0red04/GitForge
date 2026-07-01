@@ -1,4 +1,4 @@
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use gitforge_ui::{AppColors, rgba_to_hsla};
 use gpui::*;
@@ -9,6 +9,8 @@ use crate::views::app::GitForgeApp;
 /// dropped when the cap is exceeded so the notification stack can never grow
 /// unbounded.
 const MAX_TOASTS: usize = 5;
+
+const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(dead_code)]
@@ -44,6 +46,7 @@ pub(crate) struct Toast {
     pub id: u64,
     pub kind: ToastKind,
     pub message: String,
+    pub loading: bool,
     #[allow(dead_code)]
     pub created_at: Instant,
 }
@@ -76,12 +79,49 @@ impl Toasts {
             id,
             kind,
             message,
+            loading: false,
             created_at: Instant::now(),
         });
         while self.toasts.len() > MAX_TOASTS {
             self.toasts.remove(0);
         }
         id
+    }
+
+    /// Pushes a loading toast that stays on screen until completed or dismissed.
+    pub(crate) fn push_progress(&mut self, message: String) -> u64 {
+        self.next_id += 1;
+        let id = self.next_id;
+        self.toasts.push(Toast {
+            id,
+            kind: ToastKind::Info,
+            message,
+            loading: true,
+            created_at: Instant::now(),
+        });
+        while self.toasts.len() > MAX_TOASTS {
+            self.toasts.remove(0);
+        }
+        id
+    }
+
+    pub(crate) fn update_message(&mut self, id: u64, message: String) -> bool {
+        let Some(toast) = self.toasts.iter_mut().find(|t| t.id == id) else {
+            return false;
+        };
+        toast.message = message;
+        true
+    }
+
+    /// Marks a progress toast as finished with the given kind and message.
+    pub(crate) fn complete(&mut self, id: u64, kind: ToastKind, message: String) -> bool {
+        let Some(toast) = self.toasts.iter_mut().find(|t| t.id == id) else {
+            return false;
+        };
+        toast.loading = false;
+        toast.kind = kind;
+        toast.message = message;
+        true
     }
 
     pub(crate) fn dismiss(&mut self, id: u64) {
@@ -147,6 +187,25 @@ mod tests {
     fn handles_empty_input() {
         assert_eq!(clean_error_message(""), "");
     }
+
+    #[test]
+    fn progress_toast_updates_and_completes() {
+        let mut toasts = super::Toasts::new();
+        let id = toasts.push_progress("Step one".into());
+        assert!(toasts.iter().any(|t| t.id == id && t.loading));
+
+        assert!(toasts.update_message(id, "Step two".into()));
+        assert_eq!(
+            toasts.iter().find(|t| t.id == id).unwrap().message,
+            "Step two"
+        );
+
+        assert!(toasts.complete(id, super::ToastKind::Success, "Done".into()));
+        let toast = toasts.iter().find(|t| t.id == id).unwrap();
+        assert!(!toast.loading);
+        assert_eq!(toast.kind, super::ToastKind::Success);
+        assert_eq!(toast.message, "Done");
+    }
 }
 
 /// Renders the toast stack as an absolute-positioned overlay anchored to the
@@ -174,9 +233,10 @@ pub(crate) fn render_toasts(
         let id = toast.id;
         let color = toast.kind.color(colors);
         let msg = toast.message.clone();
+        let loading = toast.loading;
         let ent_dismiss = entity.clone();
 
-        let card = div()
+        let mut card = div()
             .id(ElementId::Name(format!("toast-{id}").into()))
             .bg(surface)
             .border_1()
@@ -197,8 +257,15 @@ pub(crate) fn render_toasts(
                 if let Some(e) = ent_dismiss.upgrade() {
                     e.update(cx, |this, cx| this.dismiss_toast(id, cx));
                 }
-            })
-            .child(div().w(px(3.0)).flex_shrink_0().bg(color).rounded(px(2.0)))
+            });
+
+        if loading {
+            card = card.child(render_toast_spinner(id, color));
+        } else {
+            card = card.child(div().w(px(3.0)).flex_shrink_0().bg(color).rounded(px(2.0)));
+        }
+
+        card = card
             .child(
                 div()
                     .flex_1()
@@ -224,4 +291,27 @@ pub(crate) fn render_toasts(
     }
 
     stack
+}
+
+fn render_toast_spinner(id: u64, color: Hsla) -> impl IntoElement {
+    div()
+        .id(ElementId::Name(format!("toast-spinner-{id}").into()))
+        .flex_shrink_0()
+        .w(px(14.0))
+        .h(px(14.0))
+        .flex()
+        .items_center()
+        .justify_center()
+        .text_sm()
+        .text_color(color)
+        .child(SPINNER_FRAMES[0])
+        .with_animation(
+            ElementId::Name(format!("toast-spinner-anim-{id}").into()),
+            Animation::new(Duration::from_millis(80)).repeat(),
+            move |el, delta| {
+                let idx =
+                    (delta * SPINNER_FRAMES.len() as f32) as usize % SPINNER_FRAMES.len();
+                el.child(SPINNER_FRAMES[idx])
+            },
+        )
 }

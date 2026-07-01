@@ -447,6 +447,46 @@ impl GitForgeApp {
         let secs = kind.auto_dismiss_secs();
         let id = self.toasts.push(kind, message.into());
         cx.notify();
+        self.schedule_toast_dismiss(id, secs, cx);
+    }
+
+    /// Pushes a loading toast that stays open until [`Self::finish_progress_toast`].
+    pub(crate) fn push_progress_toast(
+        &mut self,
+        message: impl Into<String>,
+        cx: &mut Context<Self>,
+    ) -> u64 {
+        let id = self.toasts.push_progress(message.into());
+        cx.notify();
+        id
+    }
+
+    pub(crate) fn update_progress_toast(
+        &mut self,
+        id: u64,
+        message: impl Into<String>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.toasts.update_message(id, message.into()) {
+            cx.notify();
+        }
+    }
+
+    /// Converts a progress toast into a final state and schedules auto-dismissal.
+    pub(crate) fn finish_progress_toast(
+        &mut self,
+        id: u64,
+        kind: super::toasts::ToastKind,
+        message: impl Into<String>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.toasts.complete(id, kind, message.into()) {
+            cx.notify();
+            self.schedule_toast_dismiss(id, kind.auto_dismiss_secs(), cx);
+        }
+    }
+
+    fn schedule_toast_dismiss(&mut self, id: u64, secs: u64, cx: &mut Context<Self>) {
         cx.spawn(async move |this, cx| {
             tokio::time::sleep(std::time::Duration::from_secs(secs)).await;
             this.update(cx, |this, cx| {
