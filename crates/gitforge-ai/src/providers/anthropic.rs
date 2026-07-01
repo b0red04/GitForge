@@ -1,9 +1,9 @@
+use gitforge_remote::ensure_success;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{AiError, AiNet, AiResult};
 use crate::provider::AiProvider;
-use crate::providers::http;
 
 pub struct AnthropicProvider {
     api_key: String,
@@ -75,7 +75,7 @@ impl AiProvider for AnthropicProvider {
             .send()
             .await
             .ai_context(context)?;
-        let resp = http::ensure_success(resp, context).await?;
+        let resp = ensure_success(resp, context).await?;
 
         let data: AnthropicResponse = resp.json().await.ai_context(context)?;
         match data.content.first() {

@@ -1,4 +1,5 @@
 use anyhow::Context;
+use gitforge_remote::write_restricted_json;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
@@ -56,33 +57,9 @@ fn save_file_tokens(tokens: &HashMap<String, String>) -> HostingResult<()> {
         .map_err(HostingError::config)?;
     let path = tokens_file();
     let json = serde_json::to_string(tokens).map_err(HostingError::config)?;
-    #[cfg(unix)]
-    {
-        use std::fs::OpenOptions;
-        use std::io::Write;
-        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(0o600)
-            .open(&path)
-            .context("failed to create hosting token file")
-            .map_err(HostingError::config)?;
-        file.write_all(json.as_bytes())
-            .context("failed to write hosting token file")
-            .map_err(HostingError::config)?;
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o600))
-            .context("failed to set hosting token file permissions")
-            .map_err(HostingError::config)?;
-    }
-    #[cfg(not(unix))]
-    {
-        fs::write(&path, json)
-            .context("failed to write hosting token file")
-            .map_err(HostingError::config)?;
-    }
+    write_restricted_json(&path, &json)
+        .context("failed to write hosting token file")
+        .map_err(HostingError::config)?;
     Ok(())
 }
 

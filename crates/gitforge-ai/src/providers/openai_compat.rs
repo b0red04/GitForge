@@ -1,9 +1,9 @@
+use gitforge_remote::ensure_success;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{AiError, AiNet, AiResult};
 use crate::provider::AiProvider;
-use crate::providers::http;
 
 pub struct OpenAiCompatibleProvider {
     base_url: String,
@@ -77,7 +77,7 @@ pub async fn list_openai_compatible_models(base_url: &str, api_key: &str) -> AiR
         .send()
         .await
         .ai_context(context)?;
-    let resp = http::ensure_success(resp, context).await?;
+    let resp = ensure_success(resp, context).await?;
 
     let data: ModelsResponse = resp.json().await.ai_context(context)?;
     let mut ids: Vec<String> = data.data.into_iter().map(|m| m.id).collect();
@@ -123,7 +123,7 @@ impl AiProvider for OpenAiCompatibleProvider {
             .send()
             .await
             .ai_context(&context)?;
-        let resp = http::ensure_success(resp, &context).await?;
+        let resp = ensure_success(resp, &context).await?;
 
         let data: ChatResponse = resp.json().await.ai_context(&context)?;
         match data.choices.first() {

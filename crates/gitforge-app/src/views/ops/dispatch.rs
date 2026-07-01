@@ -585,6 +585,7 @@ impl GitForgeApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gitforge_remote::HttpRemoteError;
 
     const TOAST: OpEffects = OpEffects {
         refresh_repo: true,
@@ -785,10 +786,10 @@ mod tests {
     fn hosting_auth_error_surfaces_via_classifier() {
         let action = err(
             "Fetch repos",
-            AppError::from(HostingError::Auth {
+            AppError::from(HostingError::Http(HttpRemoteError::Auth {
                 context: "Failed to list repos".into(),
                 body: "forbidden".into(),
-            }),
+            })),
             &TOAST,
         );
         assert_eq!(
@@ -805,10 +806,10 @@ mod tests {
     fn ai_auth_error_surfaces_via_classifier() {
         let action = err(
             "Generate",
-            AppError::from(AiError::Auth {
+            AppError::from(AiError::Http(HttpRemoteError::Auth {
                 context: "OpenAI API request failed".into(),
                 body: "invalid key".into(),
-            }),
+            })),
             &TOAST,
         );
         assert_eq!(

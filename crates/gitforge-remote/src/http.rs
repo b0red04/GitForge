@@ -1,11 +1,11 @@
-use crate::error::{http_response_to_error, AiResult};
+use crate::error::{http_response_to_error, HttpResult};
 
 /// Returns `Ok(response)` on 2xx, otherwise reads the body and returns a
-/// structured [`AiError`] mapped from the HTTP status.
+/// structured [`HttpRemoteError`] mapped from the HTTP status.
 pub async fn ensure_success(
     response: reqwest::Response,
     context: &str,
-) -> AiResult<reqwest::Response> {
+) -> HttpResult<reqwest::Response> {
     if response.status().is_success() {
         Ok(response)
     } else {

@@ -2241,11 +2241,11 @@ dependencies = [
  "async-trait",
  "chrono",
  "dirs 6.0.0",
+ "gitforge-remote",
  "keyring",
  "reqwest",
  "serde",
  "serde_json",
- "thiserror 2.0.18",
  "tokio",
  "tracing",
 ]
@@ -2262,6 +2262,7 @@ dependencies = [
  "gitforge-git",
  "gitforge-graph",
  "gitforge-hosting",
+ "gitforge-remote",
  "gitforge-syntax",
  "gitforge-ui",
  "gitforge-update",
@@ -2321,14 +2322,24 @@ dependencies = [
  "async-trait",
  "chrono",
  "dirs 6.0.0",
+ "gitforge-remote",
  "httpmock",
  "keyring",
  "reqwest",
  "serde",
  "serde_json",
- "thiserror 2.0.18",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "gitforge-remote"
+version = "0.2.1"
+dependencies = [
+ "chrono",
+ "reqwest",
+ "serde_json",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

@@ -103,7 +103,7 @@ pub async fn list_models_for_provider(
         }
         "ollama" => list_ollama_models(ollama_url).await,
         "anthropic" => Ok(Vec::new()),
-        other => Err(AiError::unknown_provider(other)),
+        other => Err(AiError::model_listing_unsupported(other)),
     }
 }
 

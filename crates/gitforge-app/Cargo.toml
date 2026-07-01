@@ -51,6 +51,7 @@ gitforge-diff = { path = "../gitforge-diff" }
 gitforge-syntax = { path = "../gitforge-syntax" }
 gitforge-hosting = { path = "../gitforge-hosting" }
 gitforge-ai = { path = "../gitforge-ai" }
+gitforge-remote = { path = "../gitforge-remote" }
 gitforge-update = { path = "../gitforge-update" }
 gpui.workspace = true
 tokio.workspace = true

@@ -1,4 +1,5 @@
 use anyhow::Context;
+use gitforge_remote::write_restricted_json;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
@@ -32,33 +33,9 @@ fn save_file_secrets(secrets: &HashMap<String, String>) -> AiResult<()> {
         .map_err(AiError::config)?;
     let path = secrets_file();
     let json = serde_json::to_string(secrets).map_err(AiError::config)?;
-    #[cfg(unix)]
-    {
-        use std::fs::OpenOptions;
-        use std::io::Write;
-        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(0o600)
-            .open(&path)
-            .context("failed to create API key file")
-            .map_err(AiError::config)?;
-        file.write_all(json.as_bytes())
-            .context("failed to write API key file")
-            .map_err(AiError::config)?;
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o600))
-            .context("failed to set API key file permissions")
-            .map_err(AiError::config)?;
-    }
-    #[cfg(not(unix))]
-    {
-        fs::write(&path, json)
-            .context("failed to write API key file")
-            .map_err(AiError::config)?;
-    }
+    write_restricted_json(&path, &json)
+        .context("failed to write API key file")
+        .map_err(AiError::config)?;
     Ok(())
 }
 

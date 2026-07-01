@@ -1,9 +1,9 @@
+use gitforge_remote::ensure_success;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{AiNet, AiResult};
 use crate::provider::AiProvider;
-use crate::providers::http;
 
 pub struct OllamaProvider {
     base_url: String,
@@ -57,7 +57,7 @@ pub async fn list_ollama_models(base_url: &str) -> AiResult<Vec<String>> {
 
     let client = reqwest::Client::new();
     let resp = client.get(&url).send().await.ai_context(context)?;
-    let resp = http::ensure_success(resp, context).await?;
+    let resp = ensure_success(resp, context).await?;
 
     let data: OllamaTagsResponse = resp.json().await.ai_context(context)?;
     let mut names: Vec<String> = data.models.into_iter().map(|m| m.name).collect();
@@ -92,7 +92,7 @@ impl AiProvider for OllamaProvider {
             .send()
             .await
             .ai_context(context)?;
-        let resp = http::ensure_success(resp, context).await?;
+        let resp = ensure_success(resp, context).await?;
 
         let data: OllamaResponse = resp.json().await.ai_context(context)?;
         Ok(data.response.trim().to_string())

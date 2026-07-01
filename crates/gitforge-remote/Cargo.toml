@@ -1,0 +1,13 @@
+[package]
+name = "gitforge-remote"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+reqwest.workspace = true
+thiserror.workspace = true
+chrono.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

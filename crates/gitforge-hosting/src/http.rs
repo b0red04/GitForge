@@ -5,10 +5,13 @@
 //! shapes into free functions so each provider struct only supplies the parts
 //! that genuinely differ (auth-header scheme, URL templates, JSON key names).
 
-use crate::error::{HostingError, HostingResult, http_response_to_error};
+use crate::error::{HostingError, HostingNet, HostingResult};
+use gitforge_remote::ensure_success as remote_ensure_success;
+use serde::de::DeserializeOwned;
+use serde::Serialize;
 
 /// Build a `reqwest::Client` with the `gitforge` user-agent and the given
-/// default headers (per-provider auth + content-negotiation headers).
+/// default headers and cookies.
 pub fn make_client(headers: reqwest::header::HeaderMap) -> reqwest::Client {
     reqwest::Client::builder()
         .user_agent("gitforge")
@@ -45,14 +48,40 @@ pub async fn ensure_success(
     response: reqwest::Response,
     context: &str,
 ) -> HostingResult<reqwest::Response> {
-    if response.status().is_success() {
-        Ok(response)
-    } else {
-        let status = response.status();
-        let headers = response.headers().clone();
-        let body = response.text().await.unwrap_or_default();
-        Err(http_response_to_error(context, status, &headers, body))
+    remote_ensure_success(response, context)
+        .await
+        .map_err(HostingError::from)
+}
+
+/// GET `url`, check status, and deserialize the JSON body.
+pub async fn get_json<T: DeserializeOwned>(
+    client: &reqwest::Client,
+    url: impl AsRef<str>,
+    context: &str,
+) -> HostingResult<T> {
+    let response = client
+        .get(url.as_ref())
+        .send()
+        .await
+        .hosting_context(context)?;
+    let response = ensure_success(response, context).await?;
+    response.json().await.hosting_context(context)
+}
+
+/// POST `url` with optional JSON body, check status, and deserialize the response.
+pub async fn post_json<T: DeserializeOwned, B: Serialize>(
+    client: &reqwest::Client,
+    url: impl AsRef<str>,
+    body: Option<&B>,
+    context: &str,
+) -> HostingResult<T> {
+    let mut request = client.post(url.as_ref());
+    if let Some(body) = body {
+        request = request.json(body);
     }
+    let response = request.send().await.hosting_context(context)?;
+    let response = ensure_success(response, context).await?;
+    response.json().await.hosting_context(context)
 }
 
 /// Paginate a JSON array endpoint.
@@ -73,16 +102,7 @@ pub async fn paginate<T>(
     let mut all = Vec::new();
     let mut page = 1;
     loop {
-        let response = client
-            .get(url_for_page(page))
-            .send()
-            .await
-            .map_err(|detail| HostingError::network(context, detail))?;
-        let response = ensure_success(response, context).await?;
-        let json: serde_json::Value = response
-            .json()
-            .await
-            .map_err(|detail| HostingError::network(context, detail))?;
+        let json: serde_json::Value = get_json(client, url_for_page(page), context).await?;
         let items = extract_items(&json);
         let raw_count = items.len();
         if items.is_empty() {
