@@ -2,7 +2,8 @@ use gpui::Context;
 
 use crate::views::app::{AppDialog, CommitPushMode, GitForgeApp};
 use crate::views::ops::dispatch::{
-    AppError, OpEffects, RemoteError, spawn_blocking_ok, with_repo_blocking,
+    AppError, OpEffects, RemoteError, Surface, plan_dispatch, spawn_blocking_ok,
+    with_repo_blocking,
 };
 use crate::views::toasts::ToastKind;
 
@@ -45,53 +46,44 @@ impl GitForgeApp {
         } else {
             CommitPushMode::CurrentBranch
         };
-        self.commit_push_generating_branch = false;
         self.dialog_input.clear();
         self.active_dialog = AppDialog::CommitAndPush {
             current_branch: current_branch.clone(),
             detached,
         };
         cx.notify();
-
-        if detached {
-            self.generate_feature_branch_name(cx);
-        }
     }
 
     pub fn set_commit_push_mode(&mut self, mode: CommitPushMode, cx: &mut Context<Self>) {
         self.commit_push_mode = mode;
-        if mode == CommitPushMode::FeatureBranch && self.dialog_input.text().trim().is_empty() {
-            self.generate_feature_branch_name(cx);
-        }
-        cx.notify();
-    }
-
-    pub fn set_dialog_input_text(&mut self, text: &str, cx: &mut Context<Self>) {
-        self.dialog_input.set_text(text);
         cx.notify();
     }
 
     pub fn confirm_commit_and_push(&mut self, current_branch: String, cx: &mut Context<Self>) {
         let use_feature = self.commit_push_mode == CommitPushMode::FeatureBranch;
-        let branch_name = if use_feature {
-            gitforge_ai::sanitize_branch_name(self.dialog_input.text().trim())
-        } else {
-            current_branch
-        };
         self.commit_push_mode = CommitPushMode::CurrentBranch;
-        self.commit_push_generating_branch = false;
         self.dialog_input.clear();
-        self.execute_commit_and_push(use_feature, branch_name, cx);
+        self.execute_commit_and_push(use_feature, current_branch, cx);
     }
 
     pub fn execute_commit_and_push(
         &mut self,
         use_feature_branch: bool,
-        branch_name: String,
+        current_branch: String,
         cx: &mut Context<Self>,
     ) {
         let existing_message = self.repo_session.commit_editor.message().trim().to_string();
         let needs_ai_message = existing_message.is_empty();
+        let needs_ai = use_feature_branch || needs_ai_message;
+
+        if use_feature_branch && self.settings.ai.provider == "disabled" {
+            self.push_toast(
+                ToastKind::Error,
+                "Enable AI to generate feature branch names.".to_string(),
+                cx,
+            );
+            return;
+        }
 
         if needs_ai_message && self.settings.ai.provider == "disabled" {
             self.push_toast(
@@ -105,7 +97,7 @@ impl GitForgeApp {
         let provider_name = self.settings.ai.provider.clone();
         let commit_config = self.settings.ai.commit_message_config();
         let mut provider_config = self.settings.ai.provider_config();
-        if needs_ai_message {
+        if needs_ai {
             let model = provider_config.model_or_default(&provider_name);
             if model.is_empty() {
                 self.repo_session.last_error = Some(format!(
@@ -116,6 +108,13 @@ impl GitForgeApp {
             }
             provider_config.model = model;
         }
+
+        let max_diff_chars = commit_config.max_diff_chars;
+        let branch_context = self
+            .repo_session
+            .active_repo_state()
+            .and_then(|state| state.head_branch.clone())
+            .unwrap_or_else(|| "HEAD".to_string());
 
         let Some(handle) = self.repo_session.require_active_repo_handle() else {
             cx.notify();
@@ -130,33 +129,64 @@ impl GitForgeApp {
             busy: None,
         };
 
-        let pushed_branch = branch_name.clone();
-        self.run_op_full(
-            "Commit & Push",
-            cx,
-            fx,
-            move || async move {
-                let diff = with_repo_blocking(handle.clone(), |repo| repo.diff_head_to_index(None))
-                    .await?;
+        if let Some(status) = fx.remote_status.clone() {
+            self.repo_session.remote_status = status;
+            cx.notify();
+        }
+        let clear_status = fx.remote_status.is_some();
+        let label = "Commit & Push".to_string();
+
+        cx.spawn(async move |this, cx| {
+            let mut step_toast = |msg: String| {
+                this.update(cx, |app, cx| {
+                    app.push_toast(ToastKind::Info, msg, cx);
+                })
+                .ok();
+            };
+
+            let result = async {
+                let diff =
+                    with_repo_blocking(handle.clone(), |repo| repo.diff_head_to_index(None))
+                        .await?;
                 if diff.trim().is_empty() {
                     return Err(AppError::Remote(RemoteError::info(
                         "No staged changes to commit",
                     )));
                 }
 
-                if use_feature_branch {
+                let pushed_branch = if use_feature_branch {
+                    step_toast("Generating branch name...".to_string());
+                    let branch_provider_name = provider_name.clone();
+                    let branch_provider_config = provider_config.clone();
+                    let provider = spawn_blocking_ok(move || {
+                        gitforge_ai::create_provider(&branch_provider_name, &branch_provider_config)
+                    })
+                    .await?;
+                    let raw_name = provider
+                        .generate_branch_name(&diff, &branch_context, max_diff_chars)
+                        .await?;
+                    let branch_name = gitforge_ai::sanitize_branch_name(&raw_name);
+                    step_toast(format!("Creating branch {branch_name}..."));
                     let create_name = branch_name.clone();
                     with_repo_blocking(handle.clone(), move |repo| {
                         repo.create_and_checkout_branch(&create_name, None)
                     })
                     .await?;
-                }
+                    branch_name
+                } else {
+                    current_branch
+                };
 
                 let message = if !existing_message.is_empty() {
                     existing_message
                 } else {
+                    if use_feature_branch {
+                        step_toast("Generating commit message...".to_string());
+                    }
+                    let message_provider_name = provider_name.clone();
+                    let message_provider_config = provider_config.clone();
                     let provider = spawn_blocking_ok(move || {
-                        gitforge_ai::create_provider(&provider_name, &provider_config)
+                        gitforge_ai::create_provider(&message_provider_name, &message_provider_config)
                     })
                     .await?;
                     let messages = provider
@@ -171,23 +201,48 @@ impl GitForgeApp {
                     })?
                 };
 
+                if use_feature_branch {
+                    step_toast("Committing changes...".to_string());
+                    step_toast(format!("Pushing to origin/{pushed_branch}..."));
+                }
+
                 with_repo_blocking(handle, move |repo| {
                     repo.commit(&message)?;
                     repo.push("origin", Some(&pushed_branch), false, true)?;
                     Ok(pushed_branch)
                 })
                 .await
-            },
-            move |this, pushed_branch, cx| {
-                this.repo_session.take_commit_message();
-                this.push_toast(
-                    ToastKind::Success,
-                    format!("Committed and pushed to origin/{pushed_branch}"),
-                    cx,
-                );
-            },
-            None,
-            None,
-        );
+            }
+            .await;
+
+            let action = plan_dispatch(&label, result, &fx);
+            this.update(cx, |this, cx| {
+                if action.refresh_repo {
+                    this.refresh_repository(cx);
+                }
+                if action.refresh_prs {
+                    this.refresh_pull_requests(cx);
+                }
+                match action.surface {
+                    Surface::Silent => {}
+                    Surface::Info(msg) => this.push_toast(ToastKind::Info, msg, cx),
+                    Surface::Error(msg) => this.push_toast(ToastKind::Error, msg, cx),
+                }
+                if let Some(pushed_branch) = action.value {
+                    this.repo_session.take_commit_message();
+                    this.push_toast(
+                        ToastKind::Success,
+                        format!("Committed and pushed to origin/{pushed_branch}"),
+                        cx,
+                    );
+                }
+                if clear_status {
+                    this.repo_session.remote_status.clear();
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
 }

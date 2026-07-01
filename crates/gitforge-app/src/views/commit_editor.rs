@@ -214,6 +214,8 @@ impl CommitEditor {
                 .border_color(border)
                 .flex()
                 .flex_shrink_0()
+                .justify_between()
+                .items_center()
                 .gap_2()
                 .child({
                     let ent_gen = ent4.clone();

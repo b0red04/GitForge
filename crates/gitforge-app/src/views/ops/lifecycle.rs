@@ -22,7 +22,6 @@ pub enum BusyFlag {
         expect_provider: Option<String>,
     },
     AiGenerating,
-    CommitPushGeneratingBranch,
     CreatePrRepos(String),
     CreatePrBranches {
         provider: String,
@@ -41,7 +40,6 @@ impl BusyFlag {
         match self {
             Self::HostingRepos { .. } => app.hosting_repos_loading = loading,
             Self::AiGenerating => app.ai_generating = loading,
-            Self::CommitPushGeneratingBranch => app.commit_push_generating_branch = loading,
             Self::CreatePrRepos(_) => app.create_pr.loading_repos = loading,
             Self::CreatePrBranches { .. } => app.create_pr.loading_branches = loading,
             Self::CreatePrGeneratingAi => app.create_pr.generating_ai = loading,
@@ -66,7 +64,6 @@ impl BusyFlag {
                 Some(provider) => app.active_hosting_repo_provider() == Some(provider),
             },
             Self::AiGenerating
-            | Self::CommitPushGeneratingBranch
             | Self::CreatePrGeneratingAi
             | Self::CreatePrSubmitting => true,
             Self::CreatePrRepos(provider) => app.create_pr.provider == *provider,
@@ -122,7 +119,6 @@ mod tests {
                 expect_provider: None,
             },
             BusyFlag::AiGenerating,
-            BusyFlag::CommitPushGeneratingBranch,
             BusyFlag::CreatePrGeneratingAi,
             BusyFlag::CreatePrSubmitting,
         ] {

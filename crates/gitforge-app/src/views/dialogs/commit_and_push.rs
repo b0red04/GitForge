@@ -1,7 +1,6 @@
 use gitforge_ui::{
-    AppColors, DialogColors, TextInput, TextInputEvent, TextInputRenderOpts,
-    attach_dialog_input_keys, dialog_body, dialog_overlay, dialog_surface, dialog_title,
-    render_text_input, rgba_to_hsla,
+    AppColors, DialogColors, dialog_body, dialog_overlay, dialog_surface, dialog_title,
+    rgba_to_hsla,
 };
 use gpui::*;
 
@@ -11,17 +10,9 @@ pub fn confirm(
     app: &mut GitForgeApp,
     current_branch: String,
     mode: CommitPushMode,
-    branch_input: &str,
     cx: &mut Context<GitForgeApp>,
 ) {
     app.commit_push_mode = mode;
-    let use_feature = mode == CommitPushMode::FeatureBranch;
-    if use_feature && branch_input.trim().is_empty() {
-        return;
-    }
-    if app.commit_push_generating_branch {
-        return;
-    }
     app.confirm_commit_and_push(current_branch, cx);
 }
 
@@ -29,11 +20,8 @@ pub fn render(
     current_branch: &str,
     detached: bool,
     mode: CommitPushMode,
-    generating_branch: bool,
-    dialog_input: &TextInput,
     colors: &AppColors,
     entity: WeakEntity<GitForgeApp>,
-    window: &mut Window,
 ) -> Stateful<Div> {
     let dc = DialogColors::from_app(colors);
     let border = dc.border;
@@ -44,9 +32,8 @@ pub fn render(
 
     let current_selected = mode == CommitPushMode::CurrentBranch;
     let feature_selected = mode == CommitPushMode::FeatureBranch;
-    let branch_name = dialog_input.text().trim();
     let can_confirm = if feature_selected {
-        !generating_branch && !branch_name.is_empty()
+        true
     } else {
         !detached
     };
@@ -54,9 +41,7 @@ pub fn render(
     let ent_key_cancel = entity.clone();
     let ent_key_confirm = entity.clone();
     let current_branch_key = current_branch.to_string();
-    let fh = dialog_input.focus_handle().clone();
     let mode_key = mode;
-    let branch_input_key = dialog_input.text().to_string();
 
     let branch_label = if detached {
         "(detached HEAD)".to_string()
@@ -67,10 +52,6 @@ pub fn render(
     };
 
     let mut dialog_box = dialog_surface(px(420.0), dc)
-        .track_focus(&fh)
-        .on_click(move |_ev, window, _cx| {
-            window.focus(&fh);
-        })
         .on_key_down(
             move |ev: &KeyDownEvent, _window, cx| match ev.keystroke.key.as_str() {
                 "escape" => {
@@ -85,7 +66,7 @@ pub fn render(
                         let current_branch = current_branch_key.clone();
                         e.update(cx, |this, cx| {
                             this.active_dialog = AppDialog::None;
-                            confirm(this, current_branch, mode_key, &branch_input_key, cx);
+                            confirm(this, current_branch, mode_key, cx);
                         });
                     }
                 }
@@ -127,40 +108,6 @@ pub fn render(
         entity.clone(),
         CommitPushMode::FeatureBranch,
     ));
-
-    if feature_selected {
-        let placeholder = if generating_branch {
-            "Generating branch name..."
-        } else {
-            "Branch name"
-        };
-        let input_field = attach_dialog_input_keys(
-            render_text_input(
-                dialog_input,
-                colors,
-                window,
-                &TextInputRenderOpts::new(ElementId::Name("commit-push-branch-input".into()))
-                    .placeholder(placeholder)
-                    .font_family("monospace"),
-                |_| {},
-            ),
-            entity.clone(),
-            move |this, cx, _window, event| match event {
-                TextInputEvent::Enter { .. } if can_confirm => this.confirm_dialog(cx),
-                TextInputEvent::Escape => this.cancel_dialog(cx),
-                TextInputEvent::Backspace => this.edit_dialog_input(None, cx),
-                TextInputEvent::Typed(c) => this.edit_dialog_input(Some(&c), cx),
-                _ => {}
-            },
-        );
-        dialog_box = dialog_box.child(
-            div()
-                .mt_2()
-                .px_3()
-                .child(div().text_xs().text_color(muted).child("Branch name"))
-                .child(input_field),
-        );
-    }
 
     let confirm_bg = if can_confirm {
         rgba_to_hsla(colors.accent)
@@ -216,14 +163,12 @@ pub fn render(
                             return;
                         }
                         if let Some(e) = ent_confirm.upgrade() {
-                            let branch_input = e.read(cx).dialog_input.text().to_string();
                             e.update(cx, |this, cx| {
                                 this.active_dialog = AppDialog::None;
                                 confirm(
                                     this,
                                     current_branch_confirm.clone(),
                                     mode_confirm,
-                                    &branch_input,
                                     cx,
                                 );
                             });
@@ -319,7 +264,7 @@ fn radio_row(
 pub fn confirm_from_dialog(
     app: &mut GitForgeApp,
     dialog: AppDialog,
-    input: &str,
+    _input: &str,
     cx: &mut Context<GitForgeApp>,
 ) {
     if let AppDialog::CommitAndPush {
@@ -328,6 +273,6 @@ pub fn confirm_from_dialog(
     } = dialog
     {
         let mode = app.commit_push_mode;
-        confirm(app, current_branch, mode, input, cx);
+        confirm(app, current_branch, mode, cx);
     }
 }
