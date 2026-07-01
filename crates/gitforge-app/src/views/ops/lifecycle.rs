@@ -1,8 +1,12 @@
 //! Busy-flag lifecycle for staged operations. Each variant names which UI
 //! spinner field to toggle and, when applicable, the stale-response token
 //! captured at spawn time. `run_op_full` sets the flag before spawn and clears
-//! it on every outcome when [`BusyFlag::still_relevant`] holds. Callers gate
-//! data writes with the same cloned [`BusyFlag`] so guards stay in one place.
+//! it on every outcome when [`BusyFlag::should_clear_on_complete`] holds.
+//! Callers gate data writes with [`BusyFlag::still_relevant`] on the same
+//! cloned [`BusyFlag`], so the result-relevance predicate and the cleanup
+//! predicate cannot drift. Per-owner flags (e.g. [`BusyFlag::PullRequests`])
+//! clear unconditionally — their `set` targets the captured owner, not a shared
+//! field — so navigating away mid-request can never strand a spinner.
 
 use std::path::PathBuf;
 
@@ -76,6 +80,26 @@ impl BusyFlag {
                         .active_tab()
                         .is_some_and(|t| t.path == *tab_path)
             }
+        }
+    }
+
+    /// Whether the shell should clear this flag when the owning request
+    /// completes.
+    ///
+    /// This separates **lifecycle cleanup** (clear the spinner) from **result
+    /// relevance** ([`still_relevant`] — apply the data?). Per-owner flags
+    /// (e.g. [`PullRequests`], keyed by `tab_id`) target a specific owner in
+    /// [`set`], so clearing is always safe: the original tab's spinner must not
+    /// get stuck just because the user navigated away mid-request. Shared-field
+    /// flags (everything else) only clear when [`still_relevant`] holds, so a
+    /// stale request can't prematurely hide a newer request's loading state on
+    /// the same field.
+    pub(crate) fn should_clear_on_complete(&self, app: &GitForgeApp) -> bool {
+        match self {
+            // `set` targets the captured `tab_id` directly; the flag is per-tab
+            // and cannot collide with a newer request on a different tab.
+            Self::PullRequests { .. } => true,
+            _ => self.still_relevant(app),
         }
     }
 }
@@ -181,6 +205,70 @@ mod tests {
 
             git_app.repo_session.active_repo_tab_id = Some(99);
             assert!(!flag.still_relevant(&git_app));
+        });
+    }
+
+    #[gpui::test]
+    fn pull_requests_cleanup_always_clears_even_after_tab_switch(cx: &mut TestAppContext) {
+        cx.update(|app| {
+            let mut git_app = GitForgeApp::new(app);
+            let path = PathBuf::from("/tmp/repo");
+            git_app.repo_session.active_repo_tab_id = Some(42);
+            git_app.repo_session.open_repo_tabs.push(crate::views::repo_session::OpenRepoTab {
+                id: 42,
+                path: path.clone(),
+                repo: std::sync::Arc::new(parking_lot::Mutex::new(None)),
+                repo_state: None,
+                loading: false,
+                last_error: None,
+                panel_snapshot: None,
+                pull_requests: Vec::new(),
+                pull_requests_loading: true, // spinner on for tab 42
+            });
+
+            let flag = BusyFlag::PullRequests {
+                tab_id: 42,
+                tab_path: path,
+            };
+
+            // Still on tab 42 → relevant, clear.
+            assert!(flag.should_clear_on_complete(&git_app));
+
+            // User switches to tab 99 → result no longer relevant, but cleanup
+            // must still clear tab 42's spinner (it targets the captured tab).
+            git_app.repo_session.active_repo_tab_id = Some(99);
+            assert!(!flag.still_relevant(&git_app));
+            assert!(flag.should_clear_on_complete(&git_app));
+
+            // Actually clearing targets tab 42, not the active tab 99.
+            flag.set(&mut git_app, false);
+            let tab42 = git_app
+                .repo_session
+                .open_repo_tabs
+                .iter()
+                .find(|t| t.id == 42)
+                .unwrap();
+            assert!(!tab42.pull_requests_loading);
+        });
+    }
+
+    #[gpui::test]
+    fn shared_field_cleanup_follows_still_relevant(cx: &mut TestAppContext) {
+        cx.update(|app| {
+            let mut git_app = GitForgeApp::new(app);
+            git_app.active_dialog = AppDialog::AddRepo;
+            git_app.add_repo_tab = AddRepoTab::Account("github".into());
+
+            let flag = BusyFlag::HostingRepos {
+                expect_provider: Some("github".into()),
+            };
+            // Provider matches → cleanup proceeds.
+            assert!(flag.should_clear_on_complete(&git_app));
+
+            // User switched providers → stale request must NOT clear the shared
+            // field (the newer request's loading state is still in flight).
+            git_app.add_repo_tab = AddRepoTab::Account("gitlab".into());
+            assert!(!flag.should_clear_on_complete(&git_app));
         });
     }
 }

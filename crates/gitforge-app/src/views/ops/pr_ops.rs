@@ -344,6 +344,7 @@ impl GitForgeApp {
             branches.sort();
             if !branches.is_empty() {
                 self.create_pr.to_branches = branches;
+                self.create_pr.loading_branches = false;
                 cx.notify();
                 return;
             }
@@ -419,6 +420,8 @@ impl GitForgeApp {
 
         let base_branch = self.create_pr.to_branch.clone();
         let head_branch = self.create_pr.from_branch.clone();
+        let req_base = base_branch.clone();
+        let req_head = head_branch.clone();
         let max_diff_chars = self.settings.ai.max_diff_chars;
 
         let Some(handle) = self.repo_session.require_active_repo_handle() else {
@@ -452,10 +455,12 @@ impl GitForgeApp {
                     .await?;
                 Ok((title, body))
             },
-            |this, (title, body), cx| {
-                this.create_pr.title_input.set_text(title);
-                this.create_pr.description_input.set_text(body);
-                cx.notify();
+            move |this, (title, body), cx| {
+                if this.create_pr.to_branch == req_base && this.create_pr.from_branch == req_head {
+                    this.create_pr.title_input.set_text(title);
+                    this.create_pr.description_input.set_text(body);
+                    cx.notify();
+                }
             },
             None,
             None,

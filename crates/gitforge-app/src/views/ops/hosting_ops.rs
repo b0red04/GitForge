@@ -416,10 +416,11 @@ impl GitForgeApp {
             return;
         };
 
+        let guard = BusyFlag::HostingRepos {
+            expect_provider: Some(provider.clone()),
+        };
         let fx = OpEffects {
-            busy: Some(BusyFlag::HostingRepos {
-                expect_provider: None,
-            }),
+            busy: Some(guard.clone()),
             ..OpEffects::QUIET
         };
         self.run_hosting_op(
@@ -428,8 +429,10 @@ impl GitForgeApp {
             fx,
             move || async move { p.search_repos(&account, &query).await },
             move |this, repos, cx| {
-                this.hosting_repos = repos;
-                cx.notify();
+                if guard.still_relevant(this) {
+                    this.hosting_repos = repos;
+                    cx.notify();
+                }
             },
             None,
         );

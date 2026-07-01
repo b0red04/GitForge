@@ -31,7 +31,23 @@ shell" but were still scattered in caller closures.
 
 Carry busy-flag lifecycle as data in `OpEffects.busy: Option<BusyFlag>`.
 `run_op_full` owns set-before-spawn and clear-on-every-outcome (when
-`BusyFlag::still_relevant` holds), mirroring `remote_status`.
+`BusyFlag::should_clear_on_complete` holds), mirroring `remote_status`.
+
+### Cleanup vs. result relevance
+
+Two predicates on `BusyFlag` serve two distinct concerns:
+
+- **`still_relevant(app)`** — result relevance. Callers gate **data writes** with
+  this on a cloned `BusyFlag` so a stale response cannot clobber the active view
+  (e.g. don't overwrite `hosting_repos` after the user switched providers).
+- **`should_clear_on_complete(app)`** — lifecycle cleanup. `run_op_full` uses this
+  to decide whether to clear the spinner flag when the request completes. For
+  **shared-field** flags (e.g. `hosting_repos_loading`) this delegates to
+  `still_relevant`, so a stale request cannot prematurely hide a newer request's
+  loading state on the same field. For **per-owner** flags
+  (`PullRequests { tab_id }`) this returns `true` unconditionally, because
+  `set` targets the captured `tab_id` directly — the original tab's spinner must
+  not get stuck just because the user navigated to a different tab mid-request.
 
 ### `BusyFlag` enum
 
@@ -47,7 +63,7 @@ the spinner field and, when needed, a stale-response token captured at spawn:
 | `CreatePrBranches { provider, to_repo }` | `create_pr.loading_branches` | provider + `to_repo` |
 | `CreatePrGeneratingAi` | `create_pr.generating_ai` | none |
 | `CreatePrSubmitting` | `create_pr.submitting` | none |
-| `PullRequests { tab_id, tab_path }` | `tab.pull_requests_loading` | active tab id + path |
+| `PullRequests { tab_id, tab_path }` | `tab.pull_requests_loading` | active tab id + path (data write); cleanup always clears |
 
 `still_relevant` encodes the guard once. Success and error handlers clone the
 same [`BusyFlag`] and gate data writes with `guard.still_relevant(app)` so

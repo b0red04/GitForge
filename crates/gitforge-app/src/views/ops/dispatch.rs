@@ -171,7 +171,7 @@ pub struct OpEffects {
     pub error_channel: ErrorChannel,
     /// A busy spinner to show while the op runs. `Some` makes the shell set
     /// the flag before spawn and clear it in every arm when
-    /// [`BusyFlag::still_relevant`] holds. See `docs/adr/0005-busy-flag-lifecycle.md`.
+    /// [`BusyFlag::should_clear_on_complete`] holds. See `docs/adr/0005-busy-flag-lifecycle.md`.
     pub busy: Option<super::lifecycle::BusyFlag>,
 }
 
@@ -492,7 +492,7 @@ impl GitForgeApp {
                     this.repo_session.remote_status.clear();
                 }
                 if let Some(ref b) = busy {
-                    if b.still_relevant(this) {
+                    if b.should_clear_on_complete(this) {
                         b.set(this, false);
                     }
                 }
