@@ -46,6 +46,16 @@ impl Repository {
         Ok(remotes)
     }
 
+    /// True when `refs/remotes/{remote}/{branch}` exists (branch was published).
+    pub fn remote_branch_exists(&self, remote: &str, branch: &str) -> GitResult<bool> {
+        let output = self.run_git_raw(&[
+            "rev-parse",
+            "--verify",
+            &format!("refs/remotes/{remote}/{branch}"),
+        ])?;
+        Ok(output.status.success())
+    }
+
     /// Spawns a `git` subprocess.
     pub fn fetch(&self, remote: Option<&str>, prune: bool) -> GitResult<String> {
         let mut args = vec!["fetch"];
@@ -72,6 +82,8 @@ impl Repository {
         let mut args = vec!["pull"];
         if rebase {
             args.push("--rebase");
+        } else {
+            args.push("--no-rebase");
         }
         if let Some(r) = remote {
             args.push(r);
@@ -89,7 +101,7 @@ impl Repository {
     ) -> GitResult<String> {
         let mut args = vec!["push"];
         if force {
-            args.push("--force");
+            args.push("--force-with-lease");
         }
         if set_upstream {
             args.push("-u");

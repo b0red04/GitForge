@@ -10,6 +10,7 @@ pub mod init_repo;
 pub mod remove_worktree;
 pub mod simple_input;
 pub mod squash_wizard;
+pub mod update_remote_branch;
 pub mod worktree;
 
 use gitforge_ui::TextInput;
@@ -39,6 +40,9 @@ pub fn confirm(
         }
         AppDialog::DeleteRemoteBranch { .. } => {
             delete_remote_branch::confirm_from_dialog(app, dialog, cx)
+        }
+        AppDialog::UpdateRemoteBranch { .. } => {
+            update_remote_branch::confirm_from_dialog(app, dialog, cx)
         }
         AppDialog::ForkRepo { .. } => fork_confirm::confirm_from_dialog(app, dialog, cx),
         AppDialog::CreateWorktree => worktree::confirm_from_dialog(app, dialog, input, input_2, cx),
@@ -96,6 +100,13 @@ pub fn render(
             dialog_input.focus_handle(),
         ),
         AppDialog::DeleteRemoteBranch { remote, branch } => delete_remote_branch::render(
+            remote,
+            branch,
+            colors,
+            entity,
+            dialog_input.focus_handle(),
+        ),
+        AppDialog::UpdateRemoteBranch { remote, branch } => update_remote_branch::render(
             remote,
             branch,
             colors,

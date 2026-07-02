@@ -29,7 +29,6 @@ pub struct SquashWizardState {
     pub entries: Vec<SquashWizardEntry>,
     pub combined_message: String,
     pub needs_force_push: bool,
-    pub offer_force_push: bool,
     pub message_input: TextInput,
     pub submitting: bool,
     pub generating_ai_message: bool,
@@ -52,7 +51,6 @@ impl SquashWizardState {
             entries,
             combined_message,
             needs_force_push: false,
-            offer_force_push: false,
             message_input,
             submitting: false,
             generating_ai_message: false,
@@ -106,9 +104,8 @@ pub fn render(
                     .text_xs()
                     .text_color(muted)
                     .child(
-                        "Choose what happens to each commit (oldest at top). \
-                         Squash merges a commit into the one above — set Pick on the commit to keep, \
-                         then Squash on the commits to combine into it.",
+                        "Combine several commits into fewer. Oldest commits are at the top. \
+                         Use Squash all into one for the common case, or set each row's action manually.",
                     ),
             );
             body = body.child(
@@ -173,10 +170,25 @@ pub fn render(
                         .rounded(px(4.0))
                         .border_1()
                         .border_color(accent)
-                        .text_xs()
-                        .text_color(text_color)
+                        .flex()
+                        .flex_col()
+                        .gap_1()
                         .child(
-                            "This branch was pushed to the remote. You'll need to force-push after rewriting.",
+                            div()
+                                .text_xs()
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(text_color)
+                                .child("This branch is already on the remote"),
+                        )
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(muted)
+                                .child(
+                                    "Combining commits rewrites history. GitForge will update the \
+                                     remote branch for you when you continue — you don't need to \
+                                     do anything else afterward.",
+                                ),
                         ),
                 );
             }
@@ -220,23 +232,13 @@ pub fn render(
                         .mt_1(),
                     ),
             );
-            body = body.child(checkbox_row(
-                "squash-force-push",
-                "Force push after squash",
-                state.offer_force_push,
-                accent,
-                border,
-                muted,
-                text_color,
-                entity.clone(),
-                |app, cx| app.toggle_squash_force_push(cx),
-            ));
         }
     }
 
     let step = state.step;
     let can_next = !state.entries.is_empty() && !state.submitting;
     let can_confirm = !state.message_input.text().trim().is_empty() && !state.submitting;
+    let needs_force_push = state.needs_force_push;
 
     let ent_cancel = entity.clone();
     let ent_back = entity.clone();
@@ -311,8 +313,10 @@ pub fn render(
                         "squash-confirm",
                         if state.submitting {
                             "Squashing..."
+                        } else if needs_force_push {
+                            "Squash & update remote"
                         } else {
-                            "Squash"
+                            "Squash commits"
                         },
                         if can_confirm { accent } else { muted },
                         rgba_to_hsla(colors.background),
@@ -812,54 +816,4 @@ fn banner_button(
         .text_color(text_color)
         .child(label)
         .on_click(on_click)
-}
-
-fn checkbox_row(
-    id: &'static str,
-    label: &str,
-    checked: bool,
-    accent: Hsla,
-    border: Hsla,
-    _muted: Hsla,
-    text_color: Hsla,
-    entity: WeakEntity<GitForgeApp>,
-    on_toggle: impl Fn(&mut GitForgeApp, &mut Context<GitForgeApp>) + 'static,
-) -> Stateful<Div> {
-    let radio_border = if checked { accent } else { border };
-    let radio_bg = if checked { accent } else { gpui::transparent_black() };
-    div()
-        .id(id)
-        .mt_2()
-        .px_3()
-        .flex()
-        .items_center()
-        .gap_2()
-        .cursor_pointer()
-        .on_click(move |_ev, _window, cx| {
-            if let Some(e) = entity.upgrade() {
-                e.update(cx, |this, cx| on_toggle(this, cx));
-            }
-        })
-        .child(
-            div()
-                .w(px(14.0))
-                .h(px(14.0))
-                .flex_shrink_0()
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded(px(3.0))
-                .border_1()
-                .border_color(radio_border)
-                .bg(radio_bg)
-                .text_color(gpui::hsla(0.0, 0.0, 1.0, 1.0))
-                .text_xs()
-                .child(if checked { "\u{2713}" } else { "" }),
-        )
-        .child(
-            div()
-                .text_xs()
-                .text_color(text_color)
-                .child(label.to_string()),
-        )
 }

@@ -46,21 +46,10 @@ impl GitForgeApp {
                         commits.len()
                     )));
                 }
-                Ok((branch, onto, commits))
+                let needs_force_push = repo.remote_branch_exists("origin", &branch)?;
+                Ok((branch, onto, commits, needs_force_push))
             },
-            |this, (branch, onto, commits), cx| {
-                let needs_force_push = this
-                    .repo_session
-                    .active_repo_state()
-                    .and_then(|state| {
-                        state
-                            .references
-                            .iter()
-                            .find(|r| r.name == branch)
-                            .map(|r| r.commits_ahead > 0)
-                    })
-                    .unwrap_or(false);
-
+            |this, (branch, onto, commits, needs_force_push), cx| {
                 let entries = commits
                     .iter()
                     .map(|c| SquashWizardEntry {
@@ -80,7 +69,6 @@ impl GitForgeApp {
                 ));
                 if let Some(wizard) = this.squash_wizard.as_mut() {
                     wizard.needs_force_push = needs_force_push;
-                    wizard.offer_force_push = needs_force_push;
                 }
                 this.active_dialog = AppDialog::SquashWizard;
                 cx.notify();
@@ -234,13 +222,6 @@ impl GitForgeApp {
         }
     }
 
-    pub fn toggle_squash_force_push(&mut self, cx: &mut Context<Self>) {
-        if let Some(wizard) = self.squash_wizard.as_mut() {
-            wizard.offer_force_push = !wizard.offer_force_push;
-            cx.notify();
-        }
-    }
-
     pub fn edit_squash_message(&mut self, typed_char: Option<&str>, cx: &mut Context<Self>) {
         if let Some(wizard) = self.squash_wizard.as_mut() {
             wizard.message_input.edit(typed_char);
@@ -342,7 +323,7 @@ impl GitForgeApp {
             return;
         }
 
-        let offer_force_push = wizard_ref.offer_force_push;
+        let needs_force_push = wizard_ref.needs_force_push;
         let branch = wizard_ref.branch.clone();
         if let Some(wizard) = self.squash_wizard.as_mut() {
             wizard.submitting = true;
@@ -373,13 +354,18 @@ impl GitForgeApp {
                 }
                 if action.value.is_some() {
                     this.squash_wizard = None;
+                    let success = if needs_force_push {
+                        "Commits squashed — updating remote branch..."
+                    } else {
+                        "Commits squashed successfully"
+                    };
                     this.finish_progress_toast(
                         progress_id,
                         ToastKind::Success,
-                        "Commits squashed successfully",
+                        success,
                         cx,
                     );
-                    if offer_force_push {
+                    if needs_force_push {
                         this.push_current_branch("origin".into(), branch, true, cx);
                     }
                 } else {

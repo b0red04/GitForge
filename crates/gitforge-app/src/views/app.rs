@@ -121,6 +121,11 @@ pub enum AppDialog {
         current_branch: String,
         detached: bool,
     },
+    /// Shown when push is rejected after history was rewritten locally.
+    UpdateRemoteBranch {
+        remote: String,
+        branch: String,
+    },
     SquashWizard,
 }
 

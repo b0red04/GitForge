@@ -1,12 +1,14 @@
-use gitforge_git::RepoState;
+use gitforge_git::{GitError, RepoState};
 use gpui::*;
 
-use crate::views::app::GitForgeApp;
+use crate::views::app::{AppDialog, GitForgeApp};
 use crate::views::diff_panel::CommitDiffState;
 use crate::views::diff_viewer::file_diff_path_or_empty;
 use crate::views::graph_panel::GraphSelection;
-use crate::views::repo_session::SelectionEffect;
+use crate::views::ops::dispatch::{AppError, OpEffects, Surface, plan_dispatch, with_repo_blocking};
+use crate::views::repo_session::{GitOpReadiness, SelectionEffect};
 use crate::views::status_panel::StatusFileSection;
+use crate::views::toasts::ToastKind;
 
 impl GitForgeApp {
     pub fn select_uncommitted(&mut self, cx: &mut Context<Self>) {
@@ -635,14 +637,7 @@ impl GitForgeApp {
         force: bool,
         cx: &mut Context<Self>,
     ) {
-        let status = format!("Pushing {} to {}...", branch, remote);
-        self.run_git_blocking(
-            "Push",
-            cx,
-            super::dispatch::OpEffects::git_with_status(&status),
-            move |repo| repo.push(&remote, Some(&branch), force, true),
-            |_, _, _| {},
-        );
+        self.execute_push(remote, branch, force, false, cx);
     }
 
     pub fn pull_from_remote(&mut self, remote: String, rebase: bool, cx: &mut Context<Self>) {
@@ -666,7 +661,7 @@ impl GitForgeApp {
             return;
         };
         match state.head_branch.clone() {
-            Some(branch) => self.push_current_branch("origin".into(), branch, false, cx),
+            Some(branch) => self.execute_push("origin".into(), branch, false, true, cx),
             None => {
                 self.push_toast(
                     crate::views::toasts::ToastKind::Warning,
@@ -695,6 +690,25 @@ impl GitForgeApp {
             );
             return;
         }
+        if let Some(branch) = head_branch {
+            if let Some((ahead, behind)) = self.branch_sync_status(&branch)
+                && ahead > 0
+                && behind > 0
+            {
+                self.push_toast(
+                    ToastKind::Warning,
+                    "Your branch and the remote have different histories. If you combined \
+                     commits locally, update the remote instead of pulling.",
+                    cx,
+                );
+                self.active_dialog = AppDialog::UpdateRemoteBranch {
+                    remote: "origin".into(),
+                    branch,
+                };
+                cx.notify();
+                return;
+            }
+        }
         // No dirty-tree pre-flight: `git pull` itself performs the authoritative
         // "Your local changes ... would be overwritten" check and aborts only
         // when local edits actually conflict with incoming changes. That abort
@@ -703,6 +717,88 @@ impl GitForgeApp {
         // `has_changes()` pre-flight here would only block pulls that would
         // otherwise merge cleanly.
         self.pull_from_remote("origin".into(), false, cx);
+    }
+
+    fn branch_sync_status(&self, branch: &str) -> Option<(u32, u32)> {
+        self.repo_session.active_repo_state().and_then(|state| {
+            state
+                .references
+                .iter()
+                .find(|r| r.name == branch)
+                .map(|r| (r.commits_ahead, r.commits_behind))
+        })
+    }
+
+    fn execute_push(
+        &mut self,
+        remote: String,
+        branch: String,
+        force: bool,
+        offer_update_remote_dialog: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let handle = match self.repo_session.git_op_readiness() {
+            GitOpReadiness::Ready(handle) => handle,
+            GitOpReadiness::NoRepo => {
+                self.repo_session.last_error = Some("No repository open".into());
+                self.push_toast(ToastKind::Warning, "No repository open", cx);
+                return;
+            }
+            GitOpReadiness::Loading => return,
+        };
+
+        let status = format!("Pushing {branch} to {remote}...");
+        let fx = OpEffects::git_with_status(&status);
+        let remote_for_push = remote.clone();
+        let branch_for_push = branch.clone();
+
+        cx.spawn(async move |this, cx| {
+            let result = with_repo_blocking(handle, move |repo| {
+                repo.push(
+                    &remote_for_push,
+                    Some(&branch_for_push),
+                    force,
+                    true,
+                )
+            })
+            .await;
+
+            if offer_update_remote_dialog && !force {
+                if let Err(AppError::Git(GitError::NonFastForwardPush {
+                    remote,
+                    branch,
+                    ..
+                })) = &result
+                {
+                    this.update(cx, |this, cx| {
+                        this.active_dialog = AppDialog::UpdateRemoteBranch {
+                            remote: remote.clone(),
+                            branch: branch.clone(),
+                        };
+                        this.repo_session.remote_status.clear();
+                        cx.notify();
+                    })
+                    .ok();
+                    return;
+                }
+            }
+
+            let action = plan_dispatch("Push", result, &fx);
+            this.update(cx, |this, cx| {
+                if action.refresh_repo {
+                    this.refresh_repository(cx);
+                }
+                match action.surface {
+                    Surface::Silent => {}
+                    Surface::Info(msg) => this.push_toast(ToastKind::Info, msg, cx),
+                    Surface::Error(msg) => this.push_toast(ToastKind::Error, msg, cx),
+                }
+                this.repo_session.remote_status.clear();
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
 
     pub fn clone_repository(&mut self, url: String, path: String, cx: &mut Context<Self>) {
