@@ -10,6 +10,7 @@ pub mod merge_impl;
 pub mod network_impl;
 pub mod objects_impl;
 pub mod staging_impl;
+pub mod rebase_impl;
 pub mod stash_impl;
 pub mod status_impl;
 pub mod submodule_impl;

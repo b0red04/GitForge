@@ -16,6 +16,8 @@ pub use dialog::dialog_label;
 pub use dialog::dialog_overlay;
 pub use dialog::dialog_surface;
 pub use dialog::dialog_title;
+pub use dialog::popover_anchor_below_trigger;
+pub use dialog::window_anchored_popover;
 pub use text_input::TextInput;
 pub use text_input::TextInputDisplay;
 pub use text_input::TextInputEvent;

@@ -8,6 +8,7 @@ use super::command_palette::CommandPalette;
 use super::commands::TitlebarMenu;
 use super::dialogs::AddRepoTab;
 use super::dialogs::CreatePrState;
+use super::dialogs::SquashWizardState;
 use super::repo_session::{RepoSession, drop_caret_index};
 use super::settings::AppSettings;
 use super::settings_window::SettingsWindow;
@@ -120,6 +121,7 @@ pub enum AppDialog {
         current_branch: String,
         detached: bool,
     },
+    SquashWizard,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -163,6 +165,7 @@ pub struct GitForgeApp {
     pub(crate) focus_subscription: Option<gpui::Subscription>,
     pub(crate) toasts: super::toasts::Toasts,
     pub(crate) create_pr: CreatePrState,
+    pub(crate) squash_wizard: Option<SquashWizardState>,
     pub(crate) update_indicator: Entity<super::update_indicator::UpdateIndicator>,
     pub(crate) shown_update_notification: bool,
     /// User-controlled width of the left sidebar, in px. Loaded from settings
@@ -225,6 +228,7 @@ impl GitForgeApp {
             focus_subscription: None,
             toasts: super::toasts::Toasts::new(),
             create_pr: CreatePrState::new(cx),
+            squash_wizard: None,
             update_indicator,
             shown_update_notification: false,
             sidebar_width,
@@ -711,12 +715,18 @@ impl Render for GitForgeApp {
         .h_full()
         .w_full();
 
+        let mut graph_column_inner = div()
+            .flex()
+            .flex_col()
+            .h_full()
+            .overflow_hidden();
+        if active_repo_state.is_some_and(|s| s.rebase_in_progress) {
+            graph_column_inner = graph_column_inner.child(
+                super::dialogs::squash_wizard::render_rebase_banner(&self.colors, entity.clone()),
+            );
+        }
         let graph_column = super::layout::grow_center(
-            div()
-                .flex()
-                .flex_col()
-                .h_full()
-                .overflow_hidden()
+            graph_column_inner
                 .child(toolbar)
                 .child(
                     div()
@@ -916,6 +926,7 @@ impl Render for GitForgeApp {
                 self.hosting_repos_loading,
                 &self.add_repo_tab,
                 &self.create_pr,
+                self.squash_wizard.as_ref(),
             ));
         }
 

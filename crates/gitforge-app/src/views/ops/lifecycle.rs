@@ -29,6 +29,7 @@ pub enum BusyFlag {
     },
     CreatePrGeneratingAi,
     CreatePrSubmitting,
+    SquashWizardGeneratingAi,
     PullRequests {
         tab_id: u64,
         tab_path: PathBuf,
@@ -44,6 +45,11 @@ impl BusyFlag {
             Self::CreatePrBranches { .. } => app.create_pr.loading_branches = loading,
             Self::CreatePrGeneratingAi => app.create_pr.generating_ai = loading,
             Self::CreatePrSubmitting => app.create_pr.submitting = loading,
+            Self::SquashWizardGeneratingAi => {
+                if let Some(wizard) = app.squash_wizard.as_mut() {
+                    wizard.generating_ai_message = loading;
+                }
+            }
             Self::PullRequests { tab_id, .. } => {
                 if let Some(tab) = app
                     .repo_session
@@ -65,7 +71,8 @@ impl BusyFlag {
             },
             Self::AiGenerating
             | Self::CreatePrGeneratingAi
-            | Self::CreatePrSubmitting => true,
+            | Self::CreatePrSubmitting
+            | Self::SquashWizardGeneratingAi => true,
             Self::CreatePrRepos(provider) => app.create_pr.provider == *provider,
             Self::CreatePrBranches { provider, to_repo } => {
                 app.create_pr.provider == *provider && app.create_pr.to_repo == *to_repo
@@ -121,6 +128,7 @@ mod tests {
             BusyFlag::AiGenerating,
             BusyFlag::CreatePrGeneratingAi,
             BusyFlag::CreatePrSubmitting,
+            BusyFlag::SquashWizardGeneratingAi,
         ] {
             assert!(flag.still_relevant(&app), "{flag:?}");
         }

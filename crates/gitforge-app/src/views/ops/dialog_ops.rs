@@ -81,6 +81,10 @@ impl GitForgeApp {
         self.hosting_repos.clear();
         self.hosting_repos_loading = false;
         self.add_repo_tab = crate::views::dialogs::AddRepoTab::Local;
+        if let Some(wizard) = self.squash_wizard.as_mut() {
+            wizard.reset();
+        }
+        self.squash_wizard = None;
         cx.notify();
     }
 

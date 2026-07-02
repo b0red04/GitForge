@@ -149,6 +149,31 @@ fn dialog_button<E: 'static>(
         })
 }
 
+/// Anchor point for a window-positioned popover below a trigger, using the mouse
+/// position at click time and the trigger's approximate size.
+pub fn popover_anchor_below_trigger(
+    mouse: Point<Pixels>,
+    trigger_width: Pixels,
+    trigger_height: Pixels,
+) -> Point<Pixels> {
+    let mx: f32 = mouse.x.into();
+    let my: f32 = mouse.y.into();
+    let tw: f32 = trigger_width.into();
+    let th: f32 = trigger_height.into();
+    point(px(mx - tw / 2.0), px(my + th / 2.0))
+}
+
+/// Wrap `child` in a window-anchored popover positioned below a trigger (Zed-style).
+pub fn window_anchored_popover(anchor: Point<Pixels>, child: impl IntoElement) -> Anchored {
+    anchored()
+        .position_mode(AnchoredPositionMode::Window)
+        .position(anchor)
+        .anchor(Corner::TopLeft)
+        .offset(point(px(0.0), px(2.0)))
+        .snap_to_window_with_margin(px(8.0))
+        .child(child)
+}
+
 pub fn attach_dialog_input_keys<E, F>(
     field: Stateful<Div>,
     entity: WeakEntity<E>,

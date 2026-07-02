@@ -2,7 +2,7 @@ use gitforge_ui::TextInput;
 use gpui::*;
 
 use crate::views::app::{AppDialog, CommitPushMode, GitForgeApp};
-use crate::views::dialogs::{self, AddRepoTab, CreatePrState};
+use crate::views::dialogs::{self, AddRepoTab, CreatePrState, SquashWizardState};
 
 pub(crate) fn render_dialog_overlay(
     dialog: &AppDialog,
@@ -18,6 +18,7 @@ pub(crate) fn render_dialog_overlay(
     hosting_repos_loading: bool,
     add_repo_tab: &AddRepoTab,
     create_pr: &CreatePrState,
+    squash_wizard: Option<&SquashWizardState>,
 ) -> Stateful<Div> {
     dialogs::render(
         dialog,
@@ -33,5 +34,6 @@ pub(crate) fn render_dialog_overlay(
         hosting_repos_loading,
         add_repo_tab,
         create_pr,
+        squash_wizard,
     )
 }
