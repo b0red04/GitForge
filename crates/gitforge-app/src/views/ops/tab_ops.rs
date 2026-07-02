@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::views::app::GitForgeApp;
-use crate::views::ops::pr_ops::PullRequestRefreshMode;
+use crate::views::ops::pr_ops::{PullRequestRefreshMode, pull_request_refresh_mode_for_tab};
 use crate::views::repo_session::{OpenRepoTab, RepoSession};
 use crate::views::settings_window::SettingsRepoData;
 
@@ -35,6 +35,7 @@ impl GitForgeApp {
                 panel_snapshot: None,
                 pull_requests: Vec::new(),
                 pull_requests_loading: false,
+                pull_requests_loaded: false,
             });
             restore_ids.push(id);
         }
@@ -79,6 +80,7 @@ impl GitForgeApp {
             panel_snapshot: None,
             pull_requests: Vec::new(),
             pull_requests_loading: false,
+            pull_requests_loaded: false,
         });
         self.repo_session.active_repo_tab_id = Some(id);
         self.repo_session.apply_active_repo_tab_to_view();
@@ -204,15 +206,11 @@ impl GitForgeApp {
         cx.notify();
         self.restart_periodic_fetch(cx);
         self.fetch_on_activate(cx);
-        let pr_mode = if self
+        let pr_mode = self
             .repo_session
             .active_tab()
-            .is_some_and(|tab| !tab.pull_requests.is_empty())
-        {
-            PullRequestRefreshMode::Background
-        } else {
-            PullRequestRefreshMode::Initial
-        };
+            .map(pull_request_refresh_mode_for_tab)
+            .unwrap_or(PullRequestRefreshMode::Initial);
         self.refresh_pull_requests(cx, pr_mode);
     }
 

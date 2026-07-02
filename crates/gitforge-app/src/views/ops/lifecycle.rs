@@ -195,6 +195,7 @@ mod tests {
                 panel_snapshot: None,
                 pull_requests: Vec::new(),
                 pull_requests_loading: false,
+                pull_requests_loaded: false,
             });
 
             let flag = BusyFlag::PullRequests {
@@ -224,6 +225,7 @@ mod tests {
                 panel_snapshot: None,
                 pull_requests: Vec::new(),
                 pull_requests_loading: true, // spinner on for tab 42
+                pull_requests_loaded: false,
             });
 
             let flag = BusyFlag::PullRequests {

@@ -7,6 +7,7 @@ use crate::views::dialogs::CreatePrDropdown;
 use crate::views::ops::dispatch::{
     AppError, BusyFlag, ErrorChannel, OpEffects, RemoteError, spawn_blocking_ok, with_repo_blocking,
 };
+use crate::views::repo_session::OpenRepoTab;
 
 pub(crate) struct OriginHostingContext {
     pub provider_id: String,
@@ -46,6 +47,14 @@ pub(crate) fn apply_pull_request_refresh(
             *current = incoming;
             true
         }
+    }
+}
+
+pub(crate) fn pull_request_refresh_mode_for_tab(tab: &OpenRepoTab) -> PullRequestRefreshMode {
+    if tab.pull_requests_loaded {
+        PullRequestRefreshMode::Background
+    } else {
+        PullRequestRefreshMode::Initial
     }
 }
 
@@ -151,17 +160,19 @@ impl GitForgeApp {
                 Ok(p.list_pull_requests(&account, &owner, &repo).await?)
             },
             move |this, prs, cx| {
-                if guard_ok.still_relevant(this)
-                    && let Some(tab) = this.repo_session.active_tab_mut()
-                    && apply_pull_request_refresh(&mut tab.pull_requests, prs, mode_ok)
+                if guard_ok.still_relevant(this) && let Some(tab) = this.repo_session.active_tab_mut()
                 {
-                    cx.notify();
+                    tab.pull_requests_loaded = true;
+                    if apply_pull_request_refresh(&mut tab.pull_requests, prs, mode_ok) {
+                        cx.notify();
+                    }
                 }
             },
             Some(Box::new(move |this, _detail, _cx| {
                 if guard_err.still_relevant(this) && mode_err == PullRequestRefreshMode::Initial {
                     if let Some(tab) = this.repo_session.active_tab_mut() {
                         tab.pull_requests.clear();
+                        tab.pull_requests_loaded = true;
                     }
                 }
             })),
@@ -593,7 +604,12 @@ impl GitForgeApp {
                     cx,
                 );
                 this.open_in_browser(url);
-                this.refresh_pull_requests(cx, PullRequestRefreshMode::Background);
+                let pr_mode = this
+                    .repo_session
+                    .active_tab()
+                    .map(pull_request_refresh_mode_for_tab)
+                    .unwrap_or(PullRequestRefreshMode::Initial);
+                this.refresh_pull_requests(cx, pr_mode);
             },
             None,
         );
@@ -634,7 +650,15 @@ fn default_base_branch(rs: &gitforge_git::RepoState) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{PullRequestRefreshMode, apply_pull_request_refresh};
+    use std::path::PathBuf;
+    use std::sync::Arc;
+
+    use parking_lot::Mutex;
+
+    use super::{
+        PullRequestRefreshMode, apply_pull_request_refresh, pull_request_refresh_mode_for_tab,
+    };
+    use crate::views::repo_session::OpenRepoTab;
     use gitforge_hosting::PullRequest;
 
     fn sample_pr(number: u64, title: &str) -> PullRequest {
@@ -672,6 +696,33 @@ mod tests {
             PullRequestRefreshMode::Background
         ));
         assert_eq!(current.len(), 2);
+    }
+
+    #[test]
+    fn refresh_mode_uses_loaded_flag_not_list_len() {
+        let tab = OpenRepoTab {
+            id: 1,
+            path: PathBuf::from("/tmp/repo"),
+            repo: Arc::new(Mutex::new(None)),
+            repo_state: None,
+            loading: false,
+            last_error: None,
+            panel_snapshot: None,
+            pull_requests: Vec::new(),
+            pull_requests_loading: false,
+            pull_requests_loaded: true,
+        };
+        assert_eq!(
+            pull_request_refresh_mode_for_tab(&tab),
+            PullRequestRefreshMode::Background
+        );
+        assert_eq!(
+            pull_request_refresh_mode_for_tab(&OpenRepoTab {
+                pull_requests_loaded: false,
+                ..tab
+            }),
+            PullRequestRefreshMode::Initial
+        );
     }
 
     #[test]
