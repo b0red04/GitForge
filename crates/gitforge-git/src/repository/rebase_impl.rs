@@ -182,10 +182,7 @@ fi
     }
 
     fn rebase_work_dir(&self) -> GitResult<PathBuf> {
-        let dir = self
-            .path
-            .join(".git")
-            .join("gitforge-rebase-tmp");
+        let dir = self.repo.git_dir().join("gitforge-rebase-tmp");
         if dir.exists() {
             fs::remove_dir_all(&dir).ok();
         }
