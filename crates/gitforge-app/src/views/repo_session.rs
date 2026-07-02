@@ -27,6 +27,8 @@ pub(crate) struct OpenRepoTab {
     pub(crate) panel_snapshot: Option<TabSnapshot>,
     pub(crate) pull_requests: Vec<gitforge_hosting::PullRequest>,
     pub(crate) pull_requests_loading: bool,
+    /// True after the first hosting API fetch for this tab completes.
+    pub(crate) pull_requests_loaded: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -678,6 +680,7 @@ mod reorder_tests {
             panel_snapshot: None,
             pull_requests: Vec::new(),
             pull_requests_loading: false,
+            pull_requests_loaded: false,
         }
     }
 
@@ -985,6 +988,7 @@ mod active_repo_ready_tests {
             panel_snapshot: None,
             pull_requests: Vec::new(),
             pull_requests_loading: false,
+            pull_requests_loaded: false,
         }
     }
 

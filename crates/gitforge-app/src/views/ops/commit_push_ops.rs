@@ -5,6 +5,7 @@ use crate::views::ops::dispatch::{
     AppError, OpEffects, RemoteError, Surface, plan_dispatch, spawn_blocking_ok,
     with_repo_blocking,
 };
+use crate::views::ops::pr_ops::PullRequestRefreshMode;
 use crate::views::toasts::ToastKind;
 
 impl GitForgeApp {
@@ -236,7 +237,7 @@ impl GitForgeApp {
                     this.refresh_repository(cx);
                 }
                 if action.refresh_prs {
-                    this.refresh_pull_requests(cx);
+                    this.refresh_pull_requests(cx, PullRequestRefreshMode::Initial);
                 }
                 if progress_id != 0 {
                     if let Some(pushed_branch) = action.value {

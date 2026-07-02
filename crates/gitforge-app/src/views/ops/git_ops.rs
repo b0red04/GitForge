@@ -2,6 +2,7 @@ use gitforge_git::{GitError, RepoState};
 use gpui::*;
 
 use crate::views::app::{AppDialog, GitForgeApp};
+use crate::views::ops::pr_ops::PullRequestRefreshMode;
 use crate::views::diff_panel::CommitDiffState;
 use crate::views::diff_viewer::file_diff_path_or_empty;
 use crate::views::graph_panel::GraphSelection;
@@ -878,7 +879,7 @@ impl GitForgeApp {
             move |repo| RepoState::from_repository_with_options(repo, load_options),
             move |this, repo_state, cx| {
                 this.repo_session.apply_repo_state(repo_state);
-                this.refresh_pull_requests(cx);
+                this.refresh_pull_requests(cx, PullRequestRefreshMode::Background);
                 cx.notify();
             },
         );
