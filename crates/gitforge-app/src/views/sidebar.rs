@@ -335,7 +335,7 @@ pub(crate) fn render_sidebar(
             ));
 
             if state.pull_requests_expanded {
-                if pull_requests_loading {
+                if pull_requests_loading && pull_requests.is_empty() {
                     sidebar = sidebar.child(render_empty_hint("Loading...", muted));
                 } else if let Some(hint) = pull_request_hint {
                     sidebar = sidebar.child(render_pull_request_hint(hint, muted));
