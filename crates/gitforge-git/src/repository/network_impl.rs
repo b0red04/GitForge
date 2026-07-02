@@ -99,18 +99,49 @@ impl Repository {
         force: bool,
         set_upstream: bool,
     ) -> GitResult<String> {
-        let mut args = vec!["push"];
+        let Some(branch) = branch else {
+            let mut args = vec!["push"];
+            if force {
+                args.push("--force-with-lease");
+            }
+            args.push(remote);
+            return self.run_git_with_combined_error(&args);
+        };
+
+        validate_local_push_branch(branch)?;
+
+        let refspec = format!("refs/heads/{branch}:refs/heads/{branch}");
+        let mut args: Vec<String> = vec!["push".into()];
+
         if force {
-            args.push("--force-with-lease");
+            let tracking = format!("refs/remotes/{remote}/{branch}");
+            match self.run_git_raw(&["rev-parse", &tracking]) {
+                Ok(out) if out.status.success() => {
+                    let expected = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                    args.push(format!("--force-with-lease=refs/heads/{branch}:{expected}"));
+                }
+                _ => args.push("--force".into()),
+            }
         }
-        if set_upstream {
-            args.push("-u");
+
+        if set_upstream && !self.branch_has_upstream(branch)? {
+            args.push("-u".into());
         }
-        args.push(remote);
-        if let Some(b) = branch {
-            args.push(b);
-        }
-        self.run_git_with_combined_error(&args)
+
+        args.push(remote.into());
+        args.push(refspec);
+
+        let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
+        self.run_git_with_combined_error(&arg_refs)
+    }
+
+    fn branch_has_upstream(&self, branch: &str) -> GitResult<bool> {
+        let output = self.run_git_raw(&[
+            "rev-parse",
+            "--abbrev-ref",
+            &format!("{branch}@{{upstream}}"),
+        ])?;
+        Ok(output.status.success())
     }
 
     /// Spawns `git push <remote> --delete <branch>`. Refuses to delete the
@@ -182,5 +213,31 @@ impl Repository {
             return Err(classify_git_failure(&args, &output));
         }
         Ok(())
+    }
+}
+
+fn validate_local_push_branch(branch: &str) -> GitResult<()> {
+    if branch.is_empty() || branch == "HEAD" {
+        return Err(GitError::OperationFailed(
+            "Check out a local branch before pushing".into(),
+        ));
+    }
+    if branch.starts_with("refs/") || branch.contains("/HEAD") {
+        return Err(GitError::OperationFailed(format!(
+            "Can't push '{branch}' — check out a local branch first"
+        )));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validate_local_push_branch_rejects_remote_head() {
+        assert!(validate_local_push_branch("origin/HEAD").is_err());
+        assert!(validate_local_push_branch("refs/remotes/origin/HEAD").is_err());
+        assert!(validate_local_push_branch("feature/foo").is_ok());
     }
 }

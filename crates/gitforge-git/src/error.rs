@@ -232,6 +232,11 @@ pub(crate) fn classify_git_failure(args: &[&str], output: &std::process::Output)
         "pull" if is_divergent_branches(stderr_trim) => GitError::DivergentBranches {
             stderr: stderr_trim.to_string(),
         },
+        "push" if is_unresolved_push_branch(stderr_trim) => GitError::OperationFailed(
+            "Can't push this ref — check out your local branch and try again. \
+             After combining commits, use Update remote when prompted."
+                .into(),
+        ),
         _ => GitError::OperationFailed(stderr_trim.to_string()),
     }
 }
@@ -384,6 +389,10 @@ fn is_non_fast_forward(stderr: &str) -> bool {
 fn is_divergent_branches(stderr: &str) -> bool {
     stderr.contains("Need to specify how to reconcile divergent branches")
         || stderr.contains("have diverged")
+}
+
+fn is_unresolved_push_branch(stderr: &str) -> bool {
+    stderr.contains("cannot be resolved to branch")
 }
 
 fn extract_push_branch(args: &[&str]) -> Option<String> {
