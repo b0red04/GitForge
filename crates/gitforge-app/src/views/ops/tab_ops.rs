@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::views::app::GitForgeApp;
+use crate::views::ops::pr_ops::PullRequestRefreshMode;
 use crate::views::repo_session::{OpenRepoTab, RepoSession};
 use crate::views::settings_window::SettingsRepoData;
 
@@ -151,7 +152,7 @@ impl GitForgeApp {
                         .sidebar_state
                         .seed_expanded_remotes(&repo_state);
                     self.repo_session.apply_active_repo_tab_to_view();
-                    self.refresh_pull_requests(cx);
+                    self.refresh_pull_requests(cx, PullRequestRefreshMode::Initial);
                 }
                 self.record_recent_repo(&repo_state.path);
                 self.save_settings();
@@ -203,7 +204,16 @@ impl GitForgeApp {
         cx.notify();
         self.restart_periodic_fetch(cx);
         self.fetch_on_activate(cx);
-        self.refresh_pull_requests(cx);
+        let pr_mode = if self
+            .repo_session
+            .active_tab()
+            .is_some_and(|tab| !tab.pull_requests.is_empty())
+        {
+            PullRequestRefreshMode::Background
+        } else {
+            PullRequestRefreshMode::Initial
+        };
+        self.refresh_pull_requests(cx, pr_mode);
     }
 
     pub fn close_repo_tab(&mut self, tab_id: u64, cx: &mut Context<Self>) {

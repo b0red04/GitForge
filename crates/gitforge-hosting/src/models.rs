@@ -39,7 +39,7 @@ pub struct CreatePullRequestRequest {
     pub draft: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PullRequest {
     pub number: u64,
     pub title: String,

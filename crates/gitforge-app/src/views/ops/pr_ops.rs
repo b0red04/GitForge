@@ -22,6 +22,33 @@ pub(crate) enum PullRequestSidebarHint {
     NoAccount,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PullRequestRefreshMode {
+    /// First load or no cached data — show loading when list is empty.
+    Initial,
+    /// Post-fetch / tab re-activate — keep showing cached list.
+    Background,
+}
+
+/// Apply fetched pull requests to the tab cache. Returns whether the list changed.
+pub(crate) fn apply_pull_request_refresh(
+    current: &mut Vec<PullRequest>,
+    incoming: Vec<PullRequest>,
+    mode: PullRequestRefreshMode,
+) -> bool {
+    match mode {
+        PullRequestRefreshMode::Initial => {
+            *current = incoming;
+            true
+        }
+        PullRequestRefreshMode::Background if *current == incoming => false,
+        PullRequestRefreshMode::Background => {
+            *current = incoming;
+            true
+        }
+    }
+}
+
 pub(crate) fn pull_request_for_branch<'a>(
     prs: &'a [PullRequest],
     branch: &str,
@@ -66,10 +93,16 @@ impl GitForgeApp {
         None
     }
 
-    pub fn refresh_pull_requests(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn refresh_pull_requests(
+        &mut self,
+        cx: &mut Context<Self>,
+        mode: PullRequestRefreshMode,
+    ) {
         let Some(ctx) = self.resolve_origin_hosting() else {
             if let Some(tab) = self.repo_session.active_tab_mut() {
-                tab.pull_requests.clear();
+                if mode == PullRequestRefreshMode::Initial {
+                    tab.pull_requests.clear();
+                }
                 tab.pull_requests_loading = false;
             }
             cx.notify();
@@ -94,14 +127,20 @@ impl GitForgeApp {
         };
         let guard_ok = guard.clone();
         let guard_err = guard.clone();
+        let busy = match mode {
+            PullRequestRefreshMode::Initial => Some(guard),
+            PullRequestRefreshMode::Background => None,
+        };
         let fx = OpEffects {
             refresh_repo: false,
             refresh_prs: false,
             remote_status: None,
             error_channel: ErrorChannel::Silent,
-            busy: Some(guard),
+            busy,
         };
 
+        let mode_ok = mode;
+        let mode_err = mode;
         self.run_op_full(
             "Refresh pull requests",
             cx,
@@ -112,15 +151,15 @@ impl GitForgeApp {
                 Ok(p.list_pull_requests(&account, &owner, &repo).await?)
             },
             move |this, prs, cx| {
-                if guard_ok.still_relevant(this) {
-                    if let Some(tab) = this.repo_session.active_tab_mut() {
-                        tab.pull_requests = prs;
-                    }
+                if guard_ok.still_relevant(this)
+                    && let Some(tab) = this.repo_session.active_tab_mut()
+                    && apply_pull_request_refresh(&mut tab.pull_requests, prs, mode_ok)
+                {
                     cx.notify();
                 }
             },
             Some(Box::new(move |this, _detail, _cx| {
-                if guard_err.still_relevant(this) {
+                if guard_err.still_relevant(this) && mode_err == PullRequestRefreshMode::Initial {
                     if let Some(tab) = this.repo_session.active_tab_mut() {
                         tab.pull_requests.clear();
                     }
@@ -554,7 +593,7 @@ impl GitForgeApp {
                     cx,
                 );
                 this.open_in_browser(url);
-                this.refresh_pull_requests(cx);
+                this.refresh_pull_requests(cx, PullRequestRefreshMode::Background);
             },
             None,
         );
@@ -591,4 +630,60 @@ fn default_base_branch(rs: &gitforge_git::RepoState) -> String {
                 .to_string()
         })
         .unwrap_or_else(|| "main".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{PullRequestRefreshMode, apply_pull_request_refresh};
+    use gitforge_hosting::PullRequest;
+
+    fn sample_pr(number: u64, title: &str) -> PullRequest {
+        PullRequest {
+            number,
+            title: title.to_string(),
+            html_url: format!("https://example.com/pr/{number}"),
+            state: "open".to_string(),
+            head_branch: Some("feature".to_string()),
+            draft: false,
+        }
+    }
+
+    #[test]
+    fn initial_refresh_always_replaces_list() {
+        let mut current = vec![sample_pr(1, "Old")];
+        let incoming = vec![sample_pr(2, "New")];
+
+        assert!(apply_pull_request_refresh(
+            &mut current,
+            incoming.clone(),
+            PullRequestRefreshMode::Initial
+        ));
+        assert_eq!(current, incoming);
+    }
+
+    #[test]
+    fn background_refresh_skips_unchanged_list() {
+        let mut current = vec![sample_pr(1, "Feature"), sample_pr(2, "Bugfix")];
+        let incoming = current.clone();
+
+        assert!(!apply_pull_request_refresh(
+            &mut current,
+            incoming,
+            PullRequestRefreshMode::Background
+        ));
+        assert_eq!(current.len(), 2);
+    }
+
+    #[test]
+    fn background_refresh_updates_when_list_changes() {
+        let mut current = vec![sample_pr(1, "Feature"), sample_pr(2, "Bugfix")];
+        let incoming = vec![sample_pr(1, "Feature")];
+
+        assert!(apply_pull_request_refresh(
+            &mut current,
+            incoming.clone(),
+            PullRequestRefreshMode::Background
+        ));
+        assert_eq!(current, incoming);
+    }
 }

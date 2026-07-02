@@ -38,6 +38,7 @@ use gpui::Context;
 use parking_lot::Mutex;
 
 use crate::views::app::GitForgeApp;
+use crate::views::ops::pr_ops::PullRequestRefreshMode;
 use crate::views::repo_session::GitOpReadiness;
 use crate::views::toasts::ToastKind;
 
@@ -501,7 +502,7 @@ impl GitForgeApp {
                     this.refresh_repository(cx);
                 }
                 if action.refresh_prs {
-                    this.refresh_pull_requests(cx);
+                    this.refresh_pull_requests(cx, PullRequestRefreshMode::Initial);
                 }
                 if let Some(detail) = action.error_detail
                     && let Some(handler) = on_error
