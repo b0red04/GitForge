@@ -34,7 +34,12 @@ pub struct SquashWizardState {
     pub generating_ai_message: bool,
     pub open_action_dropdown: Option<usize>,
     pub open_action_anchor: Option<Point<Pixels>>,
+    /// Monotonic identity assigned at construction so stale AI-generation
+    /// results can be discarded when the wizard has been rebuilt.
+    pub generation_token: u64,
 }
+
+static NEXT_SQUASH_TOKEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
 impl SquashWizardState {
     pub fn new(branch: String, onto: String, entries: Vec<SquashWizardEntry>, cx: &mut App) -> Self {
@@ -44,6 +49,10 @@ impl SquashWizardState {
             .unwrap_or_default();
         let mut message_input = TextInput::new("Squashed commit message", cx);
         message_input.set_text(&combined_message);
+        let generation_token = NEXT_SQUASH_TOKEN.fetch_add(
+            1,
+            std::sync::atomic::Ordering::Relaxed,
+        );
         Self {
             step: SquashWizardStep::EditPlan,
             branch,
@@ -56,6 +65,7 @@ impl SquashWizardState {
             generating_ai_message: false,
             open_action_dropdown: None,
             open_action_anchor: None,
+            generation_token,
         }
     }
 

@@ -29,7 +29,7 @@ pub enum BusyFlag {
     },
     CreatePrGeneratingAi,
     CreatePrSubmitting,
-    SquashWizardGeneratingAi,
+    SquashWizardGeneratingAi { token: u64 },
     PullRequests {
         tab_id: u64,
         tab_path: PathBuf,
@@ -45,8 +45,10 @@ impl BusyFlag {
             Self::CreatePrBranches { .. } => app.create_pr.loading_branches = loading,
             Self::CreatePrGeneratingAi => app.create_pr.generating_ai = loading,
             Self::CreatePrSubmitting => app.create_pr.submitting = loading,
-            Self::SquashWizardGeneratingAi => {
-                if let Some(wizard) = app.squash_wizard.as_mut() {
+            Self::SquashWizardGeneratingAi { token } => {
+                if let Some(wizard) = app.squash_wizard.as_mut()
+                    && wizard.generation_token == *token
+                {
                     wizard.generating_ai_message = loading;
                 }
             }
@@ -71,8 +73,11 @@ impl BusyFlag {
             },
             Self::AiGenerating
             | Self::CreatePrGeneratingAi
-            | Self::CreatePrSubmitting
-            | Self::SquashWizardGeneratingAi => true,
+            | Self::CreatePrSubmitting => true,
+            Self::SquashWizardGeneratingAi { token } => app
+                .squash_wizard
+                .as_ref()
+                .is_some_and(|w| w.generation_token == *token),
             Self::CreatePrRepos(provider) => app.create_pr.provider == *provider,
             Self::CreatePrBranches { provider, to_repo } => {
                 app.create_pr.provider == *provider && app.create_pr.to_repo == *to_repo
@@ -128,10 +133,34 @@ mod tests {
             BusyFlag::AiGenerating,
             BusyFlag::CreatePrGeneratingAi,
             BusyFlag::CreatePrSubmitting,
-            BusyFlag::SquashWizardGeneratingAi,
         ] {
             assert!(flag.still_relevant(&app), "{flag:?}");
         }
+    }
+
+    #[gpui::test]
+    fn squash_ai_token_matches_current_wizard(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            let mut git_app = GitForgeApp::new(cx);
+            // No wizard present → stale result must be discarded.
+            assert!(!BusyFlag::SquashWizardGeneratingAi { token: 999 }.still_relevant(&git_app));
+
+            // Build a wizard with a known token and verify a matching flag is
+            // still relevant, while a mismatched (older) token is not.
+            let mut wizard = crate::views::dialogs::squash_wizard::SquashWizardState::new(
+                "feature".into(),
+                "main".into(),
+                Vec::new(),
+                cx,
+            );
+            wizard.generation_token = 7;
+            git_app.squash_wizard = Some(wizard);
+            assert!(BusyFlag::SquashWizardGeneratingAi { token: 7 }.still_relevant(&git_app));
+            assert!(
+                !BusyFlag::SquashWizardGeneratingAi { token: 1 }.still_relevant(&git_app),
+                "stale token must be irrelevant"
+            );
+        });
     }
 
     #[gpui::test]

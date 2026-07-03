@@ -396,8 +396,22 @@ fn is_unresolved_push_branch(stderr: &str) -> bool {
 }
 
 fn extract_push_branch(args: &[&str]) -> Option<String> {
-    // `git push <remote> [<branch>]` — branch is the last arg when present.
-    args.get(2).map(|s| (*s).to_string())
+    // `git push [-u] [--force...] <remote> <refspec>` — the refspec is the
+    // second positional arg after the subcommand. It may be a bare branch
+    // name or a `src:dst` refspec; derive the branch from the dst, stripping
+    // any `refs/heads/` prefix.
+    let positional: Vec<&&str> = args
+        .iter()
+        .skip(1)
+        .filter(|a| !a.starts_with('-'))
+        .collect();
+    let refspec = positional.get(1)?;
+    let dst = refspec.rsplit(':').next().unwrap_or(refspec);
+    let branch = dst.strip_prefix("refs/heads/").unwrap_or(dst);
+    if branch.is_empty() {
+        return None;
+    }
+    Some(branch.to_string())
 }
 
 fn is_branch_not_found(stderr: &str) -> bool {
@@ -542,6 +556,24 @@ mod tests {
             }
             other => panic!("expected NonFastForwardPush, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn extract_push_branch_handles_upstream_and_refspec_forms() {
+        // `["push", remote, branch]`
+        assert_eq!(extract_push_branch(&["push", "origin", "main"]), Some("main".into()));
+        // `["push", "-u", remote, refspec]` — must not return the remote.
+        assert_eq!(
+            extract_push_branch(&["push", "-u", "origin", "refs/heads/feature:refs/heads/feature"]),
+            Some("feature".into())
+        );
+        // `["push", "--force", remote, refspec]`
+        assert_eq!(
+            extract_push_branch(&["push", "--force", "origin", "HEAD:refs/heads/dev"]),
+            Some("dev".into())
+        );
+        // No refspec (push without explicit branch) → None.
+        assert_eq!(extract_push_branch(&["push", "origin"]), None);
     }
 
     #[test]

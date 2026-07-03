@@ -167,8 +167,11 @@ fi
 
         let output = Command::new("git")
             .args(["rebase", "-i", &plan.onto])
-            .env("GIT_SEQUENCE_EDITOR", &seq_editor)
-            .env("GIT_EDITOR", &git_editor)
+            .env(
+                "GIT_SEQUENCE_EDITOR",
+                shell_quote_path(&seq_editor),
+            )
+            .env("GIT_EDITOR", shell_quote_path(&git_editor))
             .current_dir(&self.path)
             .output()
             .map_err(|e| GitError::OperationFailed(format!("Failed to run git rebase -i: {e}")))?;
@@ -208,6 +211,16 @@ fn write_executable_script(path: &PathBuf, body: &str) -> GitResult<()> {
         })?;
     }
     Ok(())
+}
+
+/// Wraps a script path in POSIX single quotes so `GIT_SEQUENCE_EDITOR` /
+/// `GIT_EDITOR` values survive `sh -c` invocation when the work-tree (and
+/// thus the rebase temp dir) contains spaces. Embedded single quotes are
+/// escaped with the standard `'\''` sequence.
+fn shell_quote_path(path: &std::path::Path) -> String {
+    let s = path.to_string_lossy();
+    let escaped = s.replace('\'', "'\\''");
+    format!("'{escaped}'")
 }
 
 #[cfg(test)]

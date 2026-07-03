@@ -12,6 +12,13 @@ use crate::views::toasts::ToastKind;
 impl GitForgeApp {
     pub fn open_squash_wizard(&mut self, cx: &mut Context<Self>) {
         if self
+            .squash_wizard
+            .as_ref()
+            .is_some_and(|w| w.submitting)
+        {
+            return;
+        }
+        if self
             .repo_session
             .active_repo_state()
             .is_some_and(|s| s.rebase_in_progress)
@@ -263,6 +270,7 @@ impl GitForgeApp {
 
         let onto = wizard.onto.clone();
         let expect_onto = onto.clone();
+        let expect_token = wizard.generation_token;
 
         let Some(handle) = self.repo_session.require_active_repo_handle() else {
             return;
@@ -272,7 +280,9 @@ impl GitForgeApp {
             "Generate squash commit message",
             cx,
             OpEffects {
-                busy: Some(BusyFlag::SquashWizardGeneratingAi),
+                busy: Some(BusyFlag::SquashWizardGeneratingAi {
+                    token: expect_token,
+                }),
                 ..OpEffects::QUIET
             },
             move || async move {
@@ -302,6 +312,7 @@ impl GitForgeApp {
             move |this, message, cx| {
                 if let Some(wizard) = this.squash_wizard.as_mut()
                     && wizard.onto == expect_onto
+                    && wizard.generation_token == expect_token
                 {
                     wizard.message_input.set_text(&message);
                     wizard.combined_message = message;
@@ -317,9 +328,25 @@ impl GitForgeApp {
         let Some(wizard_ref) = self.squash_wizard.as_ref() else {
             return;
         };
+        if wizard_ref.submitting {
+            return;
+        }
         let plan = self.build_squash_rebase_plan(wizard_ref);
         if let Err(err) = plan.validate() {
             self.push_toast(ToastKind::Error, err.to_string(), cx);
+            return;
+        }
+        if wizard_ref.has_squash_action()
+            && plan
+                .combined_message
+                .as_deref()
+                .is_some_and(|m| m.trim().is_empty())
+        {
+            self.push_toast(
+                ToastKind::Error,
+                "Enter a commit message before squashing".to_string(),
+                cx,
+            );
             return;
         }
 

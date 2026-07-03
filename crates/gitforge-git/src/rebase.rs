@@ -157,10 +157,26 @@ impl RebasePlan {
                 has_non_drop = true;
             }
             match entry.action {
-                RebaseAction::Squash | RebaseAction::Fixup if i == 0 => {
-                    return Err(GitError::OperationFailed(
-                        "Cannot squash or fixup the first commit in a rebase".into(),
-                    ));
+                RebaseAction::Squash | RebaseAction::Fixup => {
+                    // A squash/fixup must follow a continuation-capable entry
+                    // (Pick, Edit, Squash, or Fixup). The first entry has no
+                    // predecessor, and Drop/Reword break the adjacency the
+                    // editor-message queue relies on.
+                    let valid_prev = i > 0
+                        && matches!(
+                            self.entries[i - 1].action,
+                            RebaseAction::Pick
+                                | RebaseAction::Edit
+                                | RebaseAction::Squash
+                                | RebaseAction::Fixup
+                        );
+                    if !valid_prev {
+                        return Err(GitError::OperationFailed(
+                            "Squash/Fixup must immediately follow a Pick, Edit, or another \
+                             Squash/Fixup"
+                                .into(),
+                        ));
+                    }
                 }
                 _ => {}
             }
@@ -318,6 +334,22 @@ mod tests {
             )],
         );
         plan.entries[0].action = RebaseAction::Squash;
+        assert!(plan.validate().is_err());
+    }
+
+    #[test]
+    fn validate_rejects_non_contiguous_squash() {
+        // Pick, Drop, Squash — the squash no longer follows a continuation.
+        let mut plan = RebasePlan::from_commits(
+            "base",
+            &[
+                sample_commit("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "a"),
+                sample_commit("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "b"),
+                sample_commit("cccccccccccccccccccccccccccccccccccccccc", "c"),
+            ],
+        );
+        plan.entries[1].action = RebaseAction::Drop;
+        plan.entries[2].action = RebaseAction::Squash;
         assert!(plan.validate().is_err());
     }
 }
