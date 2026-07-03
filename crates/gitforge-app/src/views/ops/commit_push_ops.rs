@@ -217,8 +217,7 @@ impl GitForgeApp {
                 };
 
                 if use_feature_branch {
-                    update_progress("Committing changes...".to_string());
-                    update_progress(format!("Pushing to origin/{pushed_branch}..."));
+                    update_progress(format!("Committing and pushing to origin/{pushed_branch}..."));
                 }
 
                 with_repo_blocking(handle, move |repo| {
