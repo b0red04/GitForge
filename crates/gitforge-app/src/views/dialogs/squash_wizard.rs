@@ -1,5 +1,5 @@
 use gitforge_git::RebaseAction;
-use gitforge_ui::{AppColors, TextInput, TextInputEvent, TextInputRenderOpts, attach_dialog_input_keys, dialog_body, popover_anchor_below_trigger, render_text_input, rgba_to_hsla, window_anchored_popover};
+use gitforge_ui::{AppColors, TextInput, TextInputEvent, TextInputRenderOpts, attach_dialog_input_keys, dialog_body, floating_menu, popover_anchor_below_bounds, render_text_input, rgba_to_hsla, selectable_menu_row, window_anchored_popover};
 use gpui::*;
 
 use crate::views::app::GitForgeApp;
@@ -33,7 +33,9 @@ pub struct SquashWizardState {
     pub submitting: bool,
     pub generating_ai_message: bool,
     pub open_action_dropdown: Option<usize>,
-    pub open_action_anchor: Option<Point<Pixels>>,
+    pub open_action_bounds: Option<Bounds<Pixels>>,
+    /// Latest window bounds per action trigger, updated each prepaint.
+    pub(crate) action_trigger_bounds: Vec<Option<Bounds<Pixels>>>,
     /// Monotonic identity assigned at construction so stale AI-generation
     /// results can be discarded when the wizard has been rebuilt.
     pub generation_token: u64,
@@ -64,7 +66,8 @@ impl SquashWizardState {
             submitting: false,
             generating_ai_message: false,
             open_action_dropdown: None,
-            open_action_anchor: None,
+            open_action_bounds: None,
+            action_trigger_bounds: Vec::new(),
             generation_token,
         }
     }
@@ -74,7 +77,7 @@ impl SquashWizardState {
         self.generating_ai_message = false;
         self.step = SquashWizardStep::EditPlan;
         self.open_action_dropdown = None;
-        self.open_action_anchor = None;
+        self.open_action_bounds = None;
     }
 
     pub fn has_squash_action(&self) -> bool {
@@ -400,21 +403,12 @@ pub fn render(
 
     if state.step == SquashWizardStep::EditPlan
         && let Some(idx) = state.open_action_dropdown
-        && let Some(anchor) = state.open_action_anchor
+        && let Some(bounds) = state.open_action_bounds
         && let Some(entry) = state.entries.get(idx)
     {
-        overlay = overlay.child(render_floating_action_menu(
-            idx,
-            entry.action,
-            anchor,
-            accent,
-            border,
-            muted,
-            text_color,
-            surface,
-            rgba_to_hsla(colors.sidebar_hover),
-            rgba_to_hsla(colors.selection_bg),
-            entity.clone(),
+        overlay = overlay.child(window_anchored_popover(
+            popover_anchor_below_bounds(bounds),
+            render_action_menu(idx, entry.action, colors, entity.clone()),
         ));
     }
 
@@ -488,114 +482,115 @@ fn render_action_trigger(
     text_color: Hsla,
     entity: WeakEntity<GitForgeApp>,
 ) -> Stateful<Div> {
-    let ent_toggle = entity;
+    let ent_toggle = entity.clone();
+    let bounds_ent = entity;
     div()
         .id(ElementId::Name(format!("squash-action-trigger-{idx}").into()))
-        .w(px(96.0))
+        .relative()
+        .w(ACTION_TRIGGER_WIDTH)
         .flex_shrink_0()
-        .px_2()
-        .py_1()
-        .border_1()
-        .border_color(if open { accent } else { border })
-        .rounded(px(3.0))
-        .flex()
-        .items_center()
-        .justify_between()
-        .cursor_pointer()
-        .on_mouse_down(MouseButton::Left, move |ev, _, cx| {
-            cx.stop_propagation();
-            if let Some(e) = ent_toggle.upgrade() {
-                let anchor = popover_anchor_below_trigger(
-                    ev.position,
-                    ACTION_TRIGGER_WIDTH,
-                    ACTION_TRIGGER_HEIGHT,
-                );
-                e.update(cx, |this, cx| {
-                    this.toggle_squash_action_dropdown(idx, anchor, cx);
-                });
-            }
-        })
         .child(
             div()
-                .text_xs()
-                .text_color(text_color)
-                .child(current.label()),
-        )
-        .child(
-            div()
-                .text_xs()
-                .text_color(muted)
-                .child("▾"),
+                .w_full()
+                .h(ACTION_TRIGGER_HEIGHT)
+                .px_2()
+                .border_1()
+                .border_color(if open { accent } else { border })
+                .rounded(px(3.0))
+                .flex()
+                .items_center()
+                .justify_between()
+                .cursor_pointer()
+                .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                    cx.stop_propagation();
+                    if let Some(e) = ent_toggle.upgrade() {
+                        e.update(cx, |this, cx| {
+                            this.toggle_squash_action_dropdown(idx, cx);
+                        });
+                    }
+                })
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(text_color)
+                        .child(current.label()),
+                )
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(muted)
+                        .child("▾"),
+                )
+                .child(
+                    canvas(
+                        move |bounds, _, cx| {
+                            if let Some(e) = bounds_ent.upgrade() {
+                                e.update(cx, |app, _cx| {
+                                    let wizard = &mut app.squash_wizard.as_mut().unwrap();
+                                    if wizard.action_trigger_bounds.len() <= idx {
+                                        wizard
+                                            .action_trigger_bounds
+                                            .resize(idx + 1, None);
+                                    }
+                                    wizard.action_trigger_bounds[idx] = Some(bounds);
+                                });
+                            }
+                        },
+                        |_, _, _, _| {},
+                    )
+                    .absolute()
+                    .size_full(),
+                ),
         )
 }
 
-fn render_floating_action_menu(
+fn render_action_menu(
     row_idx: usize,
     current: RebaseAction,
-    anchor: Point<Pixels>,
-    accent: Hsla,
-    border: Hsla,
-    muted: Hsla,
-    text_color: Hsla,
-    surface: Hsla,
-    hover_bg: Hsla,
-    selected_bg: Hsla,
+    colors: &AppColors,
     entity: WeakEntity<GitForgeApp>,
-) -> Anchored {
+) -> Stateful<Div> {
+    let accent = rgba_to_hsla(colors.accent);
+    let border = rgba_to_hsla(colors.border);
+    let muted = rgba_to_hsla(colors.text_muted);
+    let text_color = rgba_to_hsla(colors.text);
     let actions = RebaseAction::available_for_entry(row_idx);
     let last_ix = actions.len().saturating_sub(1);
 
-    let mut menu = div()
-        .id("squash-action-menu")
-        .occlude()
+    let mut menu = floating_menu("squash-action-menu", colors)
         .w(px(280.0))
         .flex()
         .flex_col()
         .gap_1()
-        .bg(surface)
-        .border_1()
-        .border_color(accent)
         .rounded(px(6.0))
-        .p_1()
-        .shadow(vec![BoxShadow {
-            color: gpui::black().opacity(0.38),
-            offset: point(px(0.0), px(4.0)),
-            blur_radius: px(12.0),
-            spread_radius: px(0.0),
-        }])
-        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation());
+        .p_1();
 
     for (ix, action) in actions.iter().enumerate() {
         let selected = current == *action;
         let ent = entity.clone();
         let action = *action;
 
-        let mut row = div()
-            .id(ElementId::Name(
+        let mut row = selectable_menu_row(
+            ElementId::Name(
                 format!("squash-action-item-{row_idx}-{}", action.as_str()).into(),
-            ))
-            .w_full()
-            .px_2()
-            .py_1p5()
-            .rounded(px(4.0))
-            .bg(if selected {
-                selected_bg
-            } else {
-                gpui::transparent_black()
-            })
-            .flex()
-            .items_start()
-            .gap_2()
-            .cursor_pointer()
-            .hover(move |s| s.bg(if selected { selected_bg } else { hover_bg }))
-            .on_mouse_down(MouseButton::Left, move |_, _, cx| {
-                cx.stop_propagation();
+            ),
+            selected,
+            colors,
+            move |_, _, cx| {
                 if let Some(e) = ent.upgrade() {
                     e.update(cx, |this, cx| {
                         this.select_squash_action(row_idx, action, cx);
                     });
                 }
-            });
+            },
+        )
+        .w_full()
+        .px_2()
+        .py_1p5()
+        .rounded(px(4.0))
+        .flex()
+        .items_start()
+        .gap_2();
 
         if ix < last_ix {
             row = row.border_b_1().border_color(border);
@@ -637,7 +632,7 @@ fn render_floating_action_menu(
         menu = menu.child(row);
     }
 
-    window_anchored_popover(anchor, menu)
+    menu
 }
 
 fn render_reorder_controls(

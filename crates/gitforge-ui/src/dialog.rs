@@ -149,18 +149,18 @@ fn dialog_button<E: 'static>(
         })
 }
 
-/// Anchor point for a window-positioned popover below a trigger, using the mouse
-/// position at click time and the trigger's approximate size.
-pub fn popover_anchor_below_trigger(
-    mouse: Point<Pixels>,
-    trigger_width: Pixels,
-    trigger_height: Pixels,
-) -> Point<Pixels> {
-    let mx: f32 = mouse.x.into();
-    let my: f32 = mouse.y.into();
-    let tw: f32 = trigger_width.into();
-    let th: f32 = trigger_height.into();
-    point(px(mx - tw / 2.0), px(my + th / 2.0))
+/// Vertical gap between a trigger's bottom edge and a popover menu below it.
+/// Shared by titlebar menus ([`content_anchored_popover`]) and dialog selects
+/// ([`window_anchored_popover`] + [`popover_anchor_below_bounds`]).
+const POPOVER_BELOW_GAP: Pixels = px(2.0);
+
+fn popover_below_offset() -> Point<Pixels> {
+    point(px(0.0), POPOVER_BELOW_GAP)
+}
+
+/// Anchor point for a window-positioned popover below a trigger element.
+pub fn popover_anchor_below_bounds(trigger: Bounds<Pixels>) -> Point<Pixels> {
+    point(trigger.origin.x, trigger.bottom())
 }
 
 /// Wrap `child` in a window-anchored popover positioned below a trigger (Zed-style).
@@ -169,7 +169,22 @@ pub fn window_anchored_popover(anchor: Point<Pixels>, child: impl IntoElement) -
         .position_mode(AnchoredPositionMode::Window)
         .position(anchor)
         .anchor(Corner::TopLeft)
-        .offset(point(px(0.0), px(2.0)))
+        .offset(popover_below_offset())
+        .snap_to_window_with_margin(px(8.0))
+        .child(child)
+}
+
+/// Wrap `child` in a popover anchored to an absolutely-positioned parent.
+///
+/// Use this when the anchor point is measured relative to app content (e.g.
+/// titlebar dropdowns below [`TITLEBAR_HEIGHT`]) rather than raw window
+/// coordinates. Place the returned [`Anchored`] inside a parent with
+/// `.absolute().top(...).left(...)`.
+pub fn content_anchored_popover(child: impl IntoElement) -> Anchored {
+    anchored()
+        .position_mode(AnchoredPositionMode::Local)
+        .anchor(Corner::TopLeft)
+        .offset(popover_below_offset())
         .snap_to_window_with_margin(px(8.0))
         .child(child)
 }

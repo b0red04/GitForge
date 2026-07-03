@@ -1,8 +1,9 @@
 use gitforge_hosting::RemoteRepo;
 use gitforge_ui::{
     AppColors, DialogColors, TextInput, TextInputEvent, TextInputMode, TextInputRenderOpts,
-    attach_dialog_input_keys, dialog_overlay, dialog_surface, popover_anchor_below_trigger,
-    render_text_input, rgba_to_hsla, window_anchored_popover,
+    attach_dialog_input_keys, dialog_overlay, dialog_surface, floating_menu,
+    popover_anchor_below_bounds, render_text_input, rgba_to_hsla, selectable_menu_row,
+    window_anchored_popover,
 };
 use gpui::*;
 
@@ -43,7 +44,9 @@ pub struct CreatePrState {
     pub submitting: bool,
     pub generating_ai: bool,
     pub open_dropdown: CreatePrDropdown,
-    pub open_dropdown_anchor: Option<Point<Pixels>>,
+    pub open_dropdown_bounds: Option<Bounds<Pixels>>,
+    /// Latest window bounds for each dropdown trigger, updated each prepaint.
+    pub(crate) trigger_bounds: [Option<Bounds<Pixels>>; 4],
     pub active_field: CreatePrActiveField,
 }
 
@@ -67,14 +70,15 @@ impl CreatePrState {
             submitting: false,
             generating_ai: false,
             open_dropdown: CreatePrDropdown::None,
-            open_dropdown_anchor: None,
+            open_dropdown_bounds: None,
+            trigger_bounds: [None; 4],
             active_field: CreatePrActiveField::Title,
         }
     }
 
     pub fn reset(&mut self) {
         self.open_dropdown = CreatePrDropdown::None;
-        self.open_dropdown_anchor = None;
+        self.open_dropdown_bounds = None;
         self.submitting = false;
         self.generating_ai = false;
         self.loading_repos = false;
@@ -88,6 +92,16 @@ impl CreatePrState {
             && !self.from_branch.is_empty()
             && !self.to_branch.is_empty()
             && !self.submitting
+    }
+}
+
+pub(crate) fn dropdown_bounds_slot(dropdown: CreatePrDropdown) -> usize {
+    match dropdown {
+        CreatePrDropdown::FromRepo => 0,
+        CreatePrDropdown::FromBranch => 1,
+        CreatePrDropdown::ToRepo => 2,
+        CreatePrDropdown::ToBranch => 3,
+        CreatePrDropdown::None => 0,
     }
 }
 
@@ -450,9 +464,13 @@ pub fn render(
     overlay = overlay.child(dialog);
 
     if state.open_dropdown != CreatePrDropdown::None
-        && let Some(menu) = render_open_dropdown(state, colors, entity.clone())
+        && let Some(bounds) = state.open_dropdown_bounds
+        && let Some(menu) = render_dropdown_menu(state, colors, entity.clone(), state.open_dropdown)
     {
-        overlay = overlay.child(menu);
+        overlay = overlay.child(window_anchored_popover(
+            popover_anchor_below_bounds(bounds),
+            menu,
+        ));
     }
 
     overlay
@@ -469,54 +487,71 @@ fn render_dropdown_trigger(
     entity: WeakEntity<GitForgeApp>,
     dropdown: CreatePrDropdown,
 ) -> Stateful<Div> {
-    let ent = entity;
+    let ent = entity.clone();
+    let bounds_ent = entity.clone();
     let id_owned = id.to_string();
+    let bounds_slot = dropdown_bounds_slot(dropdown);
     div()
         .id(ElementId::Name(format!("pr-trigger-{id_owned}").into()))
-        .px_2()
-        .py_1()
-        .border_1()
-        .border_color(if open { accent } else { border })
-        .rounded(px(3.0))
-        .flex()
-        .items_center()
-        .justify_between()
-        .cursor_pointer()
-        .on_mouse_down(MouseButton::Left, move |ev, _, cx| {
-            cx.stop_propagation();
-            if let Some(e) = ent.upgrade() {
-                let anchor = popover_anchor_below_trigger(
-                    ev.position,
-                    DROPDOWN_TRIGGER_WIDTH,
-                    DROPDOWN_TRIGGER_HEIGHT,
-                );
-                e.update(cx, |this, cx| {
-                    this.toggle_create_pr_dropdown(dropdown, anchor, cx);
-                });
-            }
-        })
+        .relative()
+        .w(DROPDOWN_TRIGGER_WIDTH)
         .child(
             div()
-                .text_xs()
-                .text_color(if label == "Select..." {
-                    muted
-                } else {
-                    text_color
+                .w_full()
+                .h(DROPDOWN_TRIGGER_HEIGHT)
+                .px_2()
+                .border_1()
+                .border_color(if open { accent } else { border })
+                .rounded(px(3.0))
+                .flex()
+                .items_center()
+                .justify_between()
+                .cursor_pointer()
+                .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                    cx.stop_propagation();
+                    if let Some(e) = ent.upgrade() {
+                        e.update(cx, |this, cx| {
+                            this.toggle_create_pr_dropdown(dropdown, cx);
+                        });
+                    }
                 })
-                .overflow_hidden()
-                .text_ellipsis()
-                .child(label.to_string()),
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(if label == "Select..." {
+                            muted
+                        } else {
+                            text_color
+                        })
+                        .overflow_hidden()
+                        .text_ellipsis()
+                        .child(label.to_string()),
+                )
+                .child(div().text_xs().text_color(muted).child("▾"))
+                .child(
+                    canvas(
+                        move |bounds, _, cx| {
+                            if let Some(e) = bounds_ent.upgrade() {
+                                e.update(cx, |app, _cx| {
+                                    app.create_pr.trigger_bounds[bounds_slot] = Some(bounds);
+                                });
+                            }
+                        },
+                        |_, _, _, _| {},
+                    )
+                    .absolute()
+                    .size_full(),
+                ),
         )
-        .child(div().text_xs().text_color(muted).child("▾"))
 }
 
-fn render_open_dropdown(
+fn render_dropdown_menu(
     state: &CreatePrState,
     colors: &AppColors,
     entity: WeakEntity<GitForgeApp>,
-) -> Option<Anchored> {
-    let anchor = state.open_dropdown_anchor?;
-    let (items, dropdown) = match state.open_dropdown {
+    dropdown: CreatePrDropdown,
+) -> Option<Stateful<Div>> {
+    let (items, dropdown) = match dropdown {
         CreatePrDropdown::FromRepo => (
             state
                 .repos
@@ -544,7 +579,7 @@ fn render_open_dropdown(
             CreatePrDropdown::FromRepo | CreatePrDropdown::ToRepo
         )
     {
-        return Some(loading_dropdown(colors, anchor));
+        return Some(loading_dropdown_menu(colors));
     }
     if state.loading_branches
         && matches!(
@@ -552,33 +587,17 @@ fn render_open_dropdown(
             CreatePrDropdown::FromBranch | CreatePrDropdown::ToBranch
         )
     {
-        return Some(loading_dropdown(colors, anchor));
+        return Some(loading_dropdown_menu(colors));
     }
 
-    let surface = rgba_to_hsla(colors.surface);
-    let accent = rgba_to_hsla(colors.accent);
     let text_color = rgba_to_hsla(colors.text);
     let muted = rgba_to_hsla(colors.text_muted);
-    let hover_bg = rgba_to_hsla(colors.sidebar_hover);
 
-    let mut menu = div()
-        .id("create-pr-dropdown")
-        .occlude()
+    let mut menu = floating_menu("create-pr-dropdown", colors)
         .w(px(220.0))
         .max_h(px(180.0))
         .overflow_y_scroll()
-        .bg(surface)
-        .border_1()
-        .border_color(accent)
-        .rounded(px(4.0))
-        .py_1()
-        .shadow(vec![BoxShadow {
-            color: gpui::black().opacity(0.38),
-            offset: point(px(0.0), px(4.0)),
-            blur_radius: px(12.0),
-            spread_radius: px(0.0),
-        }])
-        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation());
+        .py_1();
 
     if items.is_empty() {
         menu = menu.child(
@@ -594,50 +613,38 @@ fn render_open_dropdown(
             let value = item.clone();
             let ent = entity.clone();
             menu = menu.child(
-                div()
-                    .id(ElementId::Name(format!("pr-dd-{idx}").into()))
-                    .px_3()
-                    .py_1()
-                    .text_xs()
-                    .text_color(text_color)
-                    .cursor_pointer()
-                    .hover(move |s| s.bg(hover_bg))
-                    .on_mouse_down(MouseButton::Left, move |_, _, cx| {
-                        cx.stop_propagation();
+                selectable_menu_row(
+                    ElementId::Name(format!("pr-dd-{idx}").into()),
+                    false,
+                    colors,
+                    move |_, _, cx| {
                         if let Some(e) = ent.upgrade() {
                             let v = value.clone();
                             e.update(cx, |this, cx| {
                                 this.select_create_pr_dropdown(dropdown, v, cx);
                             });
                         }
-                    })
-                    .child(item.clone()),
+                    },
+                )
+                .px_3()
+                .py_1()
+                .text_xs()
+                .text_color(text_color)
+                .child(item.clone()),
             );
         }
     }
 
-    Some(window_anchored_popover(anchor, menu))
+    Some(menu)
 }
 
-fn loading_dropdown(colors: &AppColors, anchor: Point<Pixels>) -> Anchored {
-    let surface = rgba_to_hsla(colors.surface);
-    let accent = rgba_to_hsla(colors.accent);
+fn loading_dropdown_menu(colors: &AppColors) -> Stateful<Div> {
     let muted = rgba_to_hsla(colors.text_muted);
-    window_anchored_popover(
-        anchor,
-        div()
-            .id("create-pr-dropdown-loading")
-            .occlude()
-            .w(px(220.0))
-            .bg(surface)
-            .border_1()
-            .border_color(accent)
-            .rounded(px(4.0))
-            .px_3()
-            .py_2()
-            .text_xs()
-            .text_color(muted)
-            .child("Loading...")
-            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation()),
-    )
+    floating_menu("create-pr-dropdown-loading", colors)
+        .w(px(220.0))
+        .px_3()
+        .py_2()
+        .text_xs()
+        .text_color(muted)
+        .child("Loading...")
 }
