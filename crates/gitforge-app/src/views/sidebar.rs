@@ -1181,16 +1181,22 @@ fn render_worktree_item(
                 let pos = ev.position;
                 let x: f32 = pos.x.into();
                 let y: f32 = pos.y.into();
-                let action = ContextMenuAction::Worktree(path_for_menu.clone());
-                if let Some(e) = ent_context.upgrade() {
-                    e.update(cx, |this, cx| {
-                        this.repo_session
-                            .sidebar_state
-                            .set_context_menu(action, (x, y));
-                        cx.notify();
-                    });
+                let action = if wt_is_current {
+                    ContextMenuAction::None
+                } else {
+                    ContextMenuAction::Worktree(path_for_menu.clone())
+                };
+                if action != ContextMenuAction::None {
+                    if let Some(e) = ent_context.upgrade() {
+                        e.update(cx, |this, cx| {
+                            this.repo_session
+                                .sidebar_state
+                                .set_context_menu(action, (x, y));
+                            cx.notify();
+                        });
+                    }
+                    cx.stop_propagation();
                 }
-                cx.stop_propagation();
             },
         )
         .child(
