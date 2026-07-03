@@ -27,6 +27,7 @@ pub enum ContextMenuAction {
     RemoveRemote(String),
     WorktreesHeader,
     PruneWorktrees,
+    Worktree(String),
     None,
 }
 
@@ -792,6 +793,9 @@ pub(super) fn render_context_menu_overlay(
         ContextMenuAction::WorktreesHeader => {
             vec![("Prune stale", ContextMenuAction::PruneWorktrees)]
         }
+        ContextMenuAction::Worktree(path) => {
+            vec![("Remove", ContextMenuAction::Worktree(path.clone()))]
+        }
         _ => vec![],
     };
 
@@ -832,7 +836,8 @@ pub(super) fn render_context_menu_overlay(
             ContextMenuAction::DeleteBranch(_)
             | ContextMenuAction::DeleteTag(_)
             | ContextMenuAction::RemoveRemote(_)
-            | ContextMenuAction::DeleteRemoteBranch(_) => warning,
+            | ContextMenuAction::DeleteRemoteBranch(_)
+            | ContextMenuAction::Worktree(_) => warning,
             _ => text_color,
         };
         let item_ent = entity.clone();
@@ -885,6 +890,9 @@ pub(super) fn render_context_menu_overlay(
                                     this.remove_remote(n.clone(), cx)
                                 }
                                 ContextMenuAction::PruneWorktrees => this.prune_worktrees(cx),
+                                ContextMenuAction::Worktree(p) => {
+                                    this.open_remove_worktree_dialog(p.clone(), cx)
+                                }
                                 _ => {}
                             }
                             this.repo_session.sidebar_state.dismiss_context_menu();
@@ -1118,7 +1126,6 @@ fn render_worktree_item(
         rgba_to_hsla(colors.text)
     };
     let muted = rgba_to_hsla(colors.text_muted);
-    let border = rgba_to_hsla(colors.border);
 
     let path_display = wt
         .path
@@ -1137,10 +1144,14 @@ fn render_worktree_item(
 
     let current_prefix = if wt.is_current { "● " } else { "  " };
     let wt_path = wt.path.clone();
-    let wt_path_remove = wt.path.clone();
     let wt_is_current = wt.is_current;
     let ent_switch = entity.clone();
-    let ent_remove = entity.clone();
+    let ent_context = entity.clone();
+    let path_for_menu = wt
+        .path
+        .to_str()
+        .unwrap_or("")
+        .to_string();
 
     let elem_id = format!("sidebar-worktree-{}", path_display);
 
@@ -1164,6 +1175,24 @@ fn render_worktree_item(
                 }
             }
         })
+        .on_mouse_down(
+            MouseButton::Right,
+            move |ev: &MouseDownEvent, _window, cx| {
+                let pos = ev.position;
+                let x: f32 = pos.x.into();
+                let y: f32 = pos.y.into();
+                let action = ContextMenuAction::Worktree(path_for_menu.clone());
+                if let Some(e) = ent_context.upgrade() {
+                    e.update(cx, |this, cx| {
+                        this.repo_session
+                            .sidebar_state
+                            .set_context_menu(action, (x, y));
+                        cx.notify();
+                    });
+                }
+                cx.stop_propagation();
+            },
+        )
         .child(
             div()
                 .text_xs()
@@ -1172,31 +1201,4 @@ fn render_worktree_item(
         )
         .child(div().flex_1())
         .child(div().text_xs().text_color(muted).child(branch_label))
-        .child({
-            let ent_rm = ent_remove.clone();
-            let rm_path = wt_path_remove.clone();
-            div()
-                .id(ElementId::Name(
-                    format!("wt-remove-{}", path_display).into(),
-                ))
-                .ml_1()
-                .px_1()
-                .py_0()
-                .rounded(px(2.0))
-                .border_1()
-                .border_color(border)
-                .text_xs()
-                .text_color(rgba_to_hsla(colors.warning))
-                .cursor_pointer()
-                .hover(|s| s.bg(rgba_to_hsla(colors.sidebar_hover)))
-                .child("×")
-                .on_click(move |_ev, _window, cx| {
-                    if let Some(e) = ent_rm.upgrade() {
-                        let p = rm_path.to_str().unwrap_or("").to_string();
-                        e.update(cx, |this, cx| {
-                            this.open_remove_worktree_dialog(p, cx);
-                        });
-                    }
-                })
-        })
 }
