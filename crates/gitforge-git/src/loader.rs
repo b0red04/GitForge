@@ -19,6 +19,7 @@ pub struct RepoState {
     pub conflicting_local_branches: HashSet<String>,
     pub status: RepoStatus,
     pub worktrees: Vec<WorktreeInfo>,
+    pub rebase_in_progress: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -76,6 +77,7 @@ impl RepoState {
             });
         let status = repo.status()?;
         let worktrees = repo.worktree_list().unwrap_or_default();
+        let rebase_in_progress = repo.is_rebase_in_progress();
         let remotes = repo.remote_list().unwrap_or_else(|e| {
             tracing::warn!("Failed to read remotes: {}", e);
             Vec::new()
@@ -99,6 +101,7 @@ impl RepoState {
             conflicting_local_branches,
             status,
             worktrees,
+            rebase_in_progress,
         })
     }
 

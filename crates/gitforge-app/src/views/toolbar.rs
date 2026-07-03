@@ -59,6 +59,7 @@ pub fn render_toolbar(
         let ent_pop = entity.clone();
         let ent_branch = entity.clone();
         let ent_create_pr = entity.clone();
+        let ent_squash = entity.clone();
 
         toolbar = toolbar
             .child(toolbar_button(
@@ -155,6 +156,20 @@ pub fn render_toolbar(
                     if let Some(e) = ent_create_pr.upgrade() {
                         e.update(cx, |this, cx| {
                             this.open_create_pr_dialog(cx);
+                        });
+                    }
+                },
+            ))
+            .child(toolbar_button(
+                "btn-squash",
+                "Squash",
+                border,
+                accent,
+                hover_bg,
+                move |_ev, _window, cx| {
+                    if let Some(e) = ent_squash.upgrade() {
+                        e.update(cx, |this, cx| {
+                            this.open_squash_wizard(cx);
                         });
                     }
                 },

@@ -229,7 +229,7 @@ impl Repository {
         Ok(!output.status.success())
     }
 
-    fn commit_info_from_gix(&self, commit: &gix::Commit<'_>) -> GitResult<CommitInfo> {
+    pub(crate) fn commit_info_from_gix(&self, commit: &gix::Commit<'_>) -> GitResult<CommitInfo> {
         let id = commit.id.to_hex().to_string();
         let short_id = id[..7].to_string();
         let message_ref = commit

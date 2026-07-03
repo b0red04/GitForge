@@ -973,6 +973,7 @@ mod active_repo_ready_tests {
             status: RepoStatus::default(),
             worktrees: vec![],
             remotes: vec![],
+            rebase_in_progress: false,
         }
     }
 
@@ -1121,6 +1122,7 @@ mod cascade_tests {
             status: gitforge_git::RepoStatus::default(),
             worktrees: vec![],
             remotes: vec![],
+            rebase_in_progress: false,
         }
     }
 

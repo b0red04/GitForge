@@ -1,6 +1,6 @@
 use gitforge_git::RefKind;
 use gitforge_hosting::{CreatePullRequestRequest, HostingAccount, PullRequest, urls};
-use gpui::Context;
+use gpui::{Context, Point, Pixels};
 
 use crate::views::app::{AppDialog, GitForgeApp};
 use crate::views::dialogs::CreatePrDropdown;
@@ -250,6 +250,7 @@ impl GitForgeApp {
         self.create_pr.description_input.clear();
         self.create_pr.draft = false;
         self.create_pr.open_dropdown = CreatePrDropdown::None;
+        self.create_pr.open_dropdown_anchor = None;
         self.create_pr.reset();
 
         self.populate_create_pr_branches();
@@ -268,15 +269,26 @@ impl GitForgeApp {
         cx.notify();
     }
 
+    pub fn close_create_pr_dropdown(&mut self, cx: &mut Context<Self>) {
+        if self.create_pr.open_dropdown != CreatePrDropdown::None {
+            self.create_pr.open_dropdown = CreatePrDropdown::None;
+            self.create_pr.open_dropdown_anchor = None;
+            cx.notify();
+        }
+    }
+
     pub fn toggle_create_pr_dropdown(
         &mut self,
         dropdown: CreatePrDropdown,
+        anchor: Point<Pixels>,
         cx: &mut Context<Self>,
     ) {
         if self.create_pr.open_dropdown == dropdown {
             self.create_pr.open_dropdown = CreatePrDropdown::None;
+            self.create_pr.open_dropdown_anchor = None;
         } else {
             self.create_pr.open_dropdown = dropdown;
+            self.create_pr.open_dropdown_anchor = Some(anchor);
         }
         cx.notify();
     }
@@ -304,6 +316,7 @@ impl GitForgeApp {
             CreatePrDropdown::None => {}
         }
         self.create_pr.open_dropdown = CreatePrDropdown::None;
+        self.create_pr.open_dropdown_anchor = None;
         cx.notify();
     }
 

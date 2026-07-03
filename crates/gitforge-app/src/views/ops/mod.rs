@@ -13,4 +13,5 @@ pub mod hosting_ops;
 pub mod pr_ops;
 pub mod settings_ops;
 pub mod ssh_ops;
+pub mod squash_ops;
 pub mod tab_ops;

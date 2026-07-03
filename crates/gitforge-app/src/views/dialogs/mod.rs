@@ -9,6 +9,8 @@ pub mod hosting_browse;
 pub mod init_repo;
 pub mod remove_worktree;
 pub mod simple_input;
+pub mod squash_wizard;
+pub mod update_remote_branch;
 pub mod worktree;
 
 use gitforge_ui::TextInput;
@@ -18,6 +20,7 @@ use crate::views::app::{AppDialog, CommitPushMode, GitForgeApp};
 
 pub use add_repo::AddRepoTab;
 pub use create_pr::{CreatePrDropdown, CreatePrState};
+pub use squash_wizard::SquashWizardState;
 
 pub fn confirm(
     app: &mut GitForgeApp,
@@ -28,7 +31,7 @@ pub fn confirm(
     cx: &mut Context<GitForgeApp>,
 ) {
     match &dialog {
-        AppDialog::None | AppDialog::CreatePullRequest | AppDialog::AddRepo => {}
+        AppDialog::None | AppDialog::CreatePullRequest | AppDialog::AddRepo | AppDialog::SquashWizard => {}
         AppDialog::CloneFromHosting { .. } => {}
         d if simple_input::is_simple(d) => simple_input::confirm(app, dialog, input, input_2, cx),
         AppDialog::CredentialAdd => credential_add::confirm(app, input, input_2, cx),
@@ -37,6 +40,9 @@ pub fn confirm(
         }
         AppDialog::DeleteRemoteBranch { .. } => {
             delete_remote_branch::confirm_from_dialog(app, dialog, cx)
+        }
+        AppDialog::UpdateRemoteBranch { .. } => {
+            update_remote_branch::confirm_from_dialog(app, dialog, cx)
         }
         AppDialog::ForkRepo { .. } => fork_confirm::confirm_from_dialog(app, dialog, cx),
         AppDialog::CreateWorktree => worktree::confirm_from_dialog(app, dialog, input, input_2, cx),
@@ -65,6 +71,7 @@ pub fn render(
     hosting_repos_loading: bool,
     add_repo_tab: &AddRepoTab,
     create_pr: &CreatePrState,
+    squash_wizard: Option<&SquashWizardState>,
 ) -> Stateful<Div> {
     match dialog {
         AppDialog::CommitAndPush {
@@ -78,6 +85,13 @@ pub fn render(
             entity,
         ),
         AppDialog::CreatePullRequest => create_pr::render(create_pr, colors, entity, window),
+        AppDialog::SquashWizard => {
+            if let Some(state) = squash_wizard {
+                squash_wizard::render(state, colors, entity, window)
+            } else {
+                dialog_overlay_empty(colors)
+            }
+        }
         AppDialog::DeleteBranch { name } => delete_branch::render(
             name,
             dialog_force,
@@ -86,6 +100,13 @@ pub fn render(
             dialog_input.focus_handle(),
         ),
         AppDialog::DeleteRemoteBranch { remote, branch } => delete_remote_branch::render(
+            remote,
+            branch,
+            colors,
+            entity,
+            dialog_input.focus_handle(),
+        ),
+        AppDialog::UpdateRemoteBranch { remote, branch } => update_remote_branch::render(
             remote,
             branch,
             colors,

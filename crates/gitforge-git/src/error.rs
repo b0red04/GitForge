@@ -42,6 +42,18 @@ pub enum GitError {
         value: String,
         reason: String,
     },
+
+    /// `git push` rejected because the remote has commits not in local history.
+    #[error("Push rejected: remote has different commits")]
+    NonFastForwardPush {
+        remote: String,
+        branch: String,
+        stderr: String,
+    },
+
+    /// `git pull` blocked because local and remote histories diverged.
+    #[error("Pull blocked: branches have diverged")]
+    DivergentBranches { stderr: String },
 }
 
 impl GitError {
@@ -92,6 +104,16 @@ impl GitError {
                 format!("Branch '{name}' is not fully merged")
             }
             GitError::InvalidReference { label, value, .. } => format!("Invalid {label} '{value}'"),
+            GitError::NonFastForwardPush { .. } => {
+                "The remote still has older commits. If you combined commits locally (squash), \
+                 update the remote to match your branch."
+                    .to_string()
+            }
+            GitError::DivergentBranches { .. } => {
+                "Your branch and the remote have different histories. If you combined commits \
+                 locally, update the remote with Push instead of Pull."
+                    .to_string()
+            }
             // Note: `reason` is omitted from toast (kept in full Display).
         }
     }
@@ -202,6 +224,19 @@ pub(crate) fn classify_git_failure(args: &[&str], output: &std::process::Output)
                 name: extract_branch_name(args).unwrap_or_default(),
             }
         }
+        "push" if is_non_fast_forward(stderr_trim) => GitError::NonFastForwardPush {
+            remote: extract_remote(args).unwrap_or_else(|| "origin".to_string()),
+            branch: extract_push_branch(args).unwrap_or_default(),
+            stderr: stderr_trim.to_string(),
+        },
+        "pull" if is_divergent_branches(stderr_trim) => GitError::DivergentBranches {
+            stderr: stderr_trim.to_string(),
+        },
+        "push" if is_unresolved_push_branch(stderr_trim) => GitError::OperationFailed(
+            "Can't push this ref — check out your local branch and try again. \
+             After combining commits, use Update remote when prompted."
+                .into(),
+        ),
         _ => GitError::OperationFailed(stderr_trim.to_string()),
     }
 }
@@ -347,6 +382,38 @@ fn is_not_fully_merged(stderr: &str) -> bool {
     stderr.contains("not fully merged")
 }
 
+fn is_non_fast_forward(stderr: &str) -> bool {
+    stderr.contains("non-fast-forward") || stderr.contains("failed to push some refs")
+}
+
+fn is_divergent_branches(stderr: &str) -> bool {
+    stderr.contains("Need to specify how to reconcile divergent branches")
+        || stderr.contains("have diverged")
+}
+
+fn is_unresolved_push_branch(stderr: &str) -> bool {
+    stderr.contains("cannot be resolved to branch")
+}
+
+fn extract_push_branch(args: &[&str]) -> Option<String> {
+    // `git push [-u] [--force...] <remote> <refspec>` — the refspec is the
+    // second positional arg after the subcommand. It may be a bare branch
+    // name or a `src:dst` refspec; derive the branch from the dst, stripping
+    // any `refs/heads/` prefix.
+    let positional: Vec<&&str> = args
+        .iter()
+        .skip(1)
+        .filter(|a| !a.starts_with('-'))
+        .collect();
+    let refspec = positional.get(1)?;
+    let dst = refspec.rsplit(':').next().unwrap_or(refspec);
+    let branch = dst.strip_prefix("refs/heads/").unwrap_or(dst);
+    if branch.is_empty() {
+        return None;
+    }
+    Some(branch.to_string())
+}
+
 fn is_branch_not_found(stderr: &str) -> bool {
     stderr.contains("did not match")
         || stderr.contains("not found")
@@ -473,6 +540,63 @@ mod tests {
         let msg = e.toast_message();
         assert!(msg.contains("commit or stash"), "toast: {msg}");
         assert!(msg.contains("2 file"), "toast: {msg}");
+    }
+
+    #[test]
+    fn classifies_non_fast_forward_push() {
+        let out = fail_output(
+            "To https://github.com/example/repo.git\n\
+             ! [rejected]        main -> main (non-fast-forward)\n\
+             error: failed to push some refs to 'https://github.com/example/repo.git'",
+        );
+        match classify_git_failure(&["push", "origin", "main"], &out) {
+            GitError::NonFastForwardPush { remote, branch, .. } => {
+                assert_eq!(remote, "origin");
+                assert_eq!(branch, "main");
+            }
+            other => panic!("expected NonFastForwardPush, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn extract_push_branch_handles_upstream_and_refspec_forms() {
+        // `["push", remote, branch]`
+        assert_eq!(extract_push_branch(&["push", "origin", "main"]), Some("main".into()));
+        // `["push", "-u", remote, refspec]` — must not return the remote.
+        assert_eq!(
+            extract_push_branch(&["push", "-u", "origin", "refs/heads/feature:refs/heads/feature"]),
+            Some("feature".into())
+        );
+        // `["push", "--force", remote, refspec]`
+        assert_eq!(
+            extract_push_branch(&["push", "--force", "origin", "HEAD:refs/heads/dev"]),
+            Some("dev".into())
+        );
+        // No refspec (push without explicit branch) → None.
+        assert_eq!(extract_push_branch(&["push", "origin"]), None);
+    }
+
+    #[test]
+    fn classifies_divergent_pull() {
+        let out = fail_output(
+            "hint: You have divergent branches and need to specify how to reconcile them.\n\
+             fatal: Need to specify how to reconcile divergent branches.",
+        );
+        match classify_git_failure(&["pull", "origin"], &out) {
+            GitError::DivergentBranches { .. } => {}
+            other => panic!("expected DivergentBranches, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn non_fast_forward_push_toast_is_actionable() {
+        let e = GitError::NonFastForwardPush {
+            remote: "origin".into(),
+            branch: "feature".into(),
+            stderr: String::new(),
+        };
+        let msg = e.toast_message();
+        assert!(msg.contains("squash") || msg.contains("combined"), "toast: {msg}");
     }
 
     #[test]
