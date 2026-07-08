@@ -384,7 +384,7 @@ impl GitForgeApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if let Some(tab_id) = self.repo_session.active_repo_tab_id {
+        if let Some(tab_id) = self.repo_session.tabs.active_repo_tab_id {
             self.close_repo_tab(tab_id, cx);
         }
     }

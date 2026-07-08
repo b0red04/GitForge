@@ -7,7 +7,7 @@ use crate::views::dialogs::CreatePrDropdown;
 use crate::views::ops::dispatch::{
     AppError, BusyFlag, ErrorChannel, OpEffects, RemoteError, spawn_blocking_ok, with_repo_blocking,
 };
-use crate::views::repo_session::OpenRepoTab;
+use crate::views::tab_session::OpenRepoTab;
 
 pub(crate) struct OriginHostingContext {
     pub provider_id: String,
@@ -118,7 +118,7 @@ impl GitForgeApp {
             return;
         };
 
-        let Some(tab_id) = self.repo_session.active_repo_tab_id else {
+        let Some(tab_id) = self.repo_session.tabs.active_repo_tab_id else {
             return;
         };
         let Some(tab_path) = self.repo_session.active_tab().map(|t| t.path.clone()) else {
@@ -670,7 +670,7 @@ mod tests {
     use super::{
         PullRequestRefreshMode, apply_pull_request_refresh, pull_request_refresh_mode_for_tab,
     };
-    use crate::views::repo_session::OpenRepoTab;
+    use crate::views::tab_session::OpenRepoTab;
     use gitforge_hosting::PullRequest;
 
     fn sample_pr(number: u64, title: &str) -> PullRequest {

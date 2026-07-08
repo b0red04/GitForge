@@ -4,7 +4,7 @@ use gpui::*;
 
 use super::app::GitForgeApp;
 use super::layout;
-use super::repo_session::{move_repo_tab_to_end, reorder_repo_tab};
+use super::tab_session::{move_repo_tab_to_end, reorder_repo_tab};
 
 /// Drag payload carrying the id of the repository tab being dragged. Used as
 /// the GPUI drag value (`on_drag`/`on_drop`/`on_drag_move` are keyed on this
@@ -153,7 +153,7 @@ pub fn render_repo_tab_bar(
             .on_drag(TabDragPayload(tab.id), move |_value, _pt, _window, cx| {
                 if let Some(e) = ent_drag.upgrade() {
                     e.update(cx, |app, _cx| {
-                        app.repo_session.tab_drag_source = Some(tab_id);
+                        app.repo_session.tabs.tab_drag_source = Some(tab_id);
                     });
                 }
                 cx.new(|_| TabDragPreview::new(name_for_preview.clone(), &colors_drag))
@@ -162,8 +162,8 @@ pub fn render_repo_tab_bar(
                 let before = ev.event.position.x < ev.bounds.center().x;
                 if let Some(e) = ent_drag_move.upgrade() {
                     e.update(cx, |app, cx| {
-                        if app.repo_session.tab_drop_target != Some((tab_id, before)) {
-                            app.repo_session.tab_drop_target = Some((tab_id, before));
+                        if app.repo_session.tabs.tab_drop_target != Some((tab_id, before)) {
+                            app.repo_session.tabs.tab_drop_target = Some((tab_id, before));
                             cx.notify();
                         }
                     });
@@ -174,11 +174,12 @@ pub fn render_repo_tab_bar(
                     e.update(cx, |app, cx| {
                         let before = app
                             .repo_session
+                            .tabs
                             .tab_drop_target
                             .map(|(_, b)| b)
                             .unwrap_or(false);
                         reorder_repo_tab(
-                            &mut app.repo_session.open_repo_tabs,
+                            &mut app.repo_session.tabs.open_repo_tabs,
                             payload.0,
                             tab_id,
                             before,
@@ -275,8 +276,8 @@ pub fn render_repo_tab_bar(
             .on_drag_move::<TabDragPayload>(move |_ev, _window, cx| {
                 if let Some(e) = ent_tail_move.upgrade() {
                     e.update(cx, |app, cx| {
-                        if app.repo_session.tab_drop_target.is_some() {
-                            app.repo_session.tab_drop_target = None;
+                        if app.repo_session.tabs.tab_drop_target.is_some() {
+                            app.repo_session.tabs.tab_drop_target = None;
                             cx.notify();
                         }
                     });
@@ -285,7 +286,7 @@ pub fn render_repo_tab_bar(
             .on_drop::<TabDragPayload>(move |payload, _window, cx| {
                 if let Some(e) = ent_tail_drop.upgrade() {
                     e.update(cx, |app, cx| {
-                        move_repo_tab_to_end(&mut app.repo_session.open_repo_tabs, payload.0);
+                        move_repo_tab_to_end(&mut app.repo_session.tabs.open_repo_tabs, payload.0);
                         app.repo_session.clear_tab_drag();
                         app.save_settings();
                         cx.notify();

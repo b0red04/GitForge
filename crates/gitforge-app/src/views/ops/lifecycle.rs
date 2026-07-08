@@ -55,6 +55,7 @@ impl BusyFlag {
             Self::PullRequests { tab_id, .. } => {
                 if let Some(tab) = app
                     .repo_session
+                    .tabs
                     .open_repo_tabs
                     .iter_mut()
                     .find(|t| t.id == *tab_id)
@@ -83,7 +84,7 @@ impl BusyFlag {
                 app.create_pr.provider == *provider && app.create_pr.to_repo == *to_repo
             }
             Self::PullRequests { tab_id, tab_path } => {
-                app.repo_session.active_repo_tab_id == Some(*tab_id)
+                app.repo_session.tabs.active_repo_tab_id == Some(*tab_id)
                     && app
                         .repo_session
                         .active_tab()
@@ -217,8 +218,8 @@ mod tests {
         cx.update(|app| {
             let mut git_app = GitForgeApp::new(app);
             let path = PathBuf::from("/tmp/repo");
-            git_app.repo_session.active_repo_tab_id = Some(42);
-            git_app.repo_session.open_repo_tabs.push(crate::views::repo_session::OpenRepoTab {
+            git_app.repo_session.tabs.active_repo_tab_id = Some(42);
+            git_app.repo_session.tabs.open_repo_tabs.push(crate::views::tab_session::OpenRepoTab {
                 id: 42,
                 path: path.clone(),
                 repo: std::sync::Arc::new(parking_lot::Mutex::new(None)),
@@ -237,7 +238,7 @@ mod tests {
             };
             assert!(flag.still_relevant(&git_app));
 
-            git_app.repo_session.active_repo_tab_id = Some(99);
+            git_app.repo_session.tabs.active_repo_tab_id = Some(99);
             assert!(!flag.still_relevant(&git_app));
         });
     }
@@ -247,8 +248,8 @@ mod tests {
         cx.update(|app| {
             let mut git_app = GitForgeApp::new(app);
             let path = PathBuf::from("/tmp/repo");
-            git_app.repo_session.active_repo_tab_id = Some(42);
-            git_app.repo_session.open_repo_tabs.push(crate::views::repo_session::OpenRepoTab {
+            git_app.repo_session.tabs.active_repo_tab_id = Some(42);
+            git_app.repo_session.tabs.open_repo_tabs.push(crate::views::tab_session::OpenRepoTab {
                 id: 42,
                 path: path.clone(),
                 repo: std::sync::Arc::new(parking_lot::Mutex::new(None)),
@@ -271,7 +272,7 @@ mod tests {
 
             // User switches to tab 99 → result no longer relevant, but cleanup
             // must still clear tab 42's spinner (it targets the captured tab).
-            git_app.repo_session.active_repo_tab_id = Some(99);
+            git_app.repo_session.tabs.active_repo_tab_id = Some(99);
             assert!(!flag.still_relevant(&git_app));
             assert!(flag.should_clear_on_complete(&git_app));
 
@@ -279,6 +280,7 @@ mod tests {
             flag.set(&mut git_app, false);
             let tab42 = git_app
                 .repo_session
+                .tabs
                 .open_repo_tabs
                 .iter()
                 .find(|t| t.id == 42)

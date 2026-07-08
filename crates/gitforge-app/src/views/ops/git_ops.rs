@@ -7,7 +7,7 @@ use crate::views::diff_panel::CommitDiffState;
 use crate::views::diff_viewer::file_diff_path_or_empty;
 use crate::views::graph_panel::GraphSelection;
 use crate::views::ops::dispatch::{AppError, OpEffects, Surface, plan_dispatch, with_repo_blocking};
-use crate::views::repo_session::{GitOpReadiness, SelectionEffect};
+use crate::views::repo_session::{GitOpReadiness, SelectionEffect, normalized_overlay_file_idx};
 use crate::views::status_panel::StatusFileSection;
 use crate::views::toasts::ToastKind;
 
@@ -30,7 +30,7 @@ impl GitForgeApp {
     /// Interpret the [`SelectionEffect`] returned by the Selection Cascade
     /// (ADR-0003). `RepoSession` is GPUI-free and cannot spawn, so it
     /// describes the async work needed and this helper performs it.
-    fn apply_selection_effect(&mut self, effect: SelectionEffect, cx: &mut Context<Self>) {
+    pub(crate) fn apply_selection_effect(&mut self, effect: SelectionEffect, cx: &mut Context<Self>) {
         match effect {
             SelectionEffect::ClearDiff => cx.notify(),
             SelectionEffect::LoadDiffForSelected => {
@@ -941,23 +941,9 @@ fn should_focus_fetch(
     }
 }
 
-fn normalized_overlay_file_idx(
-    selected_file_idx: Option<usize>,
-    file_count: usize,
-) -> Option<usize> {
-    if file_count == 0 {
-        return None;
-    }
-    Some(
-        selected_file_idx
-            .filter(|idx| *idx < file_count)
-            .unwrap_or(0),
-    )
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{normalized_overlay_file_idx, should_focus_fetch};
+    use super::should_focus_fetch;
 
     #[test]
     fn focus_fetch_fires_when_never_fetched() {
@@ -989,22 +975,5 @@ mod tests {
             now,
             cooldown,
         ));
-    }
-
-    #[test]
-    fn overlay_file_idx_none_when_commit_has_no_files() {
-        assert_eq!(normalized_overlay_file_idx(None, 0), None);
-        assert_eq!(normalized_overlay_file_idx(Some(3), 0), None);
-    }
-
-    #[test]
-    fn overlay_file_idx_keeps_valid_selection() {
-        assert_eq!(normalized_overlay_file_idx(Some(2), 3), Some(2));
-    }
-
-    #[test]
-    fn overlay_file_idx_falls_back_to_first_file() {
-        assert_eq!(normalized_overlay_file_idx(None, 3), Some(0));
-        assert_eq!(normalized_overlay_file_idx(Some(9), 3), Some(0));
     }
 }

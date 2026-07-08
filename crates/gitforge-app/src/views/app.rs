@@ -255,6 +255,7 @@ impl GitForgeApp {
         self.settings.right_panel_width = self.right_panel_width;
         self.settings.open_repo_paths = self
             .repo_session
+            .tabs
             .open_repo_tabs
             .iter()
             .map(|tab| tab.path.to_string_lossy().to_string())
@@ -833,6 +834,7 @@ impl Render for GitForgeApp {
         // (`on_drag`) or drop, and `has_active_drag` gates every read.
         let drag_source = self
             .repo_session
+            .tabs
             .tab_drag_source
             .filter(|_| cx.has_active_drag());
         // Derive the insertion-caret index from the live drop target. When
@@ -840,9 +842,9 @@ impl Render for GitForgeApp {
         // caret sits at the end. Positions immediately adjacent to the
         // dragged tab represent a no-op move and are collapsed to `None`.
         let drop_caret = drop_caret_index(
-            &self.repo_session.open_repo_tabs,
+            &self.repo_session.tabs.open_repo_tabs,
             drag_source,
-            self.repo_session.tab_drop_target,
+            self.repo_session.tabs.tab_drop_target,
         );
 
         // The bar always renders so the "+" add-repo affordance is visible
@@ -851,7 +853,7 @@ impl Render for GitForgeApp {
         // are drawn.
         inner = inner.child(super::repo_tabs::render_repo_tab_bar(
             &repo_tab_views,
-            self.repo_session.active_repo_tab_id,
+            self.repo_session.tabs.active_repo_tab_id,
             &self.colors,
             window,
             entity.clone(),
