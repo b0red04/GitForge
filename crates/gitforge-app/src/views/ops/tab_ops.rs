@@ -83,6 +83,7 @@ impl GitForgeApp {
             pull_requests_loading: false,
             pull_requests_loaded: false,
         });
+        self.repo_session.save_snapshot_to_active_tab();
         self.repo_session.tabs.active_repo_tab_id = Some(id);
         self.repo_session
             .apply_active_repo_tab_to_view(RefreshReselectPolicy::Reselect);
@@ -93,13 +94,7 @@ impl GitForgeApp {
     }
 
     pub(crate) fn start_loading_repo_tab(&mut self, tab_id: u64, cx: &mut Context<Self>) {
-        let Some(tab) = self
-            .repo_session
-            .tabs
-            .open_repo_tabs
-            .iter_mut()
-            .find(|tab| tab.id == tab_id)
-        else {
+        let Some(tab) = self.repo_session.tabs.tab_mut(tab_id) else {
             return;
         };
         let path = tab.path.clone();
@@ -138,20 +133,13 @@ impl GitForgeApp {
         let is_active = self.repo_session.tabs.is_active(tab_id);
         match result {
             Ok(repo_state) => {
-                if let Some(tab) = self
-                    .repo_session
-                    .tabs
-                    .open_repo_tabs
-                    .iter_mut()
-                    .find(|tab| tab.id == tab_id)
-                {
-                    tab.path = repo_state.path.clone();
-                    tab.repo_state = Some(repo_state.clone());
-                    tab.loading = false;
-                    tab.last_error = None;
-                } else {
+                let Some(tab) = self.repo_session.tabs.tab_mut(tab_id) else {
                     return;
-                }
+                };
+                tab.path = repo_state.path.clone();
+                tab.repo_state = Some(repo_state.clone());
+                tab.loading = false;
+                tab.last_error = None;
 
                 if is_active {
                     self.repo_session
@@ -165,18 +153,11 @@ impl GitForgeApp {
                 self.save_settings();
             }
             Err(error) => {
-                if let Some(tab) = self
-                    .repo_session
-                    .tabs
-                    .open_repo_tabs
-                    .iter_mut()
-                    .find(|tab| tab.id == tab_id)
-                {
-                    tab.loading = false;
-                    tab.last_error = Some(format!("Failed to load repository: {}", error));
-                } else {
+                let Some(tab) = self.repo_session.tabs.tab_mut(tab_id) else {
                     return;
-                }
+                };
+                tab.loading = false;
+                tab.last_error = Some(format!("Failed to load repository: {}", error));
 
                 if is_active {
                     self.repo_session

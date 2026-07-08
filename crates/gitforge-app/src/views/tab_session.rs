@@ -76,9 +76,11 @@ impl TabSession {
 
     pub(crate) fn active_tab_mut(&mut self) -> Option<&mut OpenRepoTab> {
         let active_id = self.active_repo_tab_id?;
-        self.open_repo_tabs
-            .iter_mut()
-            .find(|tab| tab.id == active_id)
+        self.tab_mut(active_id)
+    }
+
+    pub(crate) fn tab_mut(&mut self, id: u64) -> Option<&mut OpenRepoTab> {
+        self.open_repo_tabs.iter_mut().find(|tab| tab.id == id)
     }
 
     pub(crate) fn alloc_tab_id(&mut self) -> u64 {
