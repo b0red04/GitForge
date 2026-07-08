@@ -9,49 +9,13 @@ use parking_lot::Mutex;
 use super::app::MainViewMode;
 use super::commit_editor::CommitEditor;
 use super::diff_panel::{CommitDiffState, DiffPanel};
-use super::diff_viewer::DiffViewMode;
 use super::graph_panel::{GraphPanel, GraphSelection};
-use super::repo_tabs::RepoTabView;
 use super::sidebar::SidebarState;
-use super::status_panel::{StatusPanel, StatusSelection, StatusViewMode};
-
-pub(crate) const MAX_CLOSED_TABS: usize = 20;
-
-pub(crate) struct OpenRepoTab {
-    pub(crate) id: u64,
-    pub(crate) path: PathBuf,
-    pub(crate) repo: Arc<Mutex<Option<Repository>>>,
-    pub(crate) repo_state: Option<RepoState>,
-    pub(crate) loading: bool,
-    pub(crate) last_error: Option<String>,
-    pub(crate) panel_snapshot: Option<TabSnapshot>,
-    pub(crate) pull_requests: Vec<gitforge_hosting::PullRequest>,
-    pub(crate) pull_requests_loading: bool,
-    /// True after the first hosting API fetch for this tab completes.
-    pub(crate) pull_requests_loaded: bool,
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct TabSnapshot {
-    pub selected_commit_id: Option<String>,
-    pub graph_was_uncommitted: bool,
-    pub diff_state: Option<CommitDiffState>,
-    pub diff_view_mode: DiffViewMode,
-    pub diff_code_file: Option<String>,
-    pub diff_code_content: Option<String>,
-    pub status_selection: Option<StatusSelection>,
-    pub status_view_mode: StatusViewMode,
-    pub commit_message: String,
-    pub ai_alternatives: Vec<String>,
-    pub view_mode: MainViewMode,
-    pub diff_overlay_open: bool,
-    pub sidebar_expansion: super::sidebar::SidebarExpansion,
-}
+use super::status_panel::StatusPanel;
+pub(crate) use super::tab_session::{OpenRepoTab, TabSnapshot, TabSession, drop_caret_index};
 
 pub(crate) struct RepoSession {
-    pub(crate) open_repo_tabs: Vec<OpenRepoTab>,
-    pub(crate) active_repo_tab_id: Option<u64>,
-    pub(crate) next_repo_tab_id: u64,
+    pub(crate) tabs: TabSession,
     pub(crate) graph_panel: GraphPanel,
     pub(crate) diff_panel: DiffPanel,
     /// Cached, render-only mirror of `diff_panel`. It is embedded with
@@ -73,17 +37,6 @@ pub(crate) struct RepoSession {
     /// the dispatch shell via `OpEffects::remote_status` and cleared on
     /// completion.
     pub(crate) remote_status: String,
-    pub(crate) closed_repo_tabs: Vec<PathBuf>,
-    /// The id of the repository tab currently being dragged, or `None` when no
-    /// drag is in flight. Set when the drag begins (in the `on_drag`
-    /// constructor) and cleared on drop or drag cancel. Used only to dim the
-    /// source tab while dragging.
-    pub(crate) tab_drag_source: Option<u64>,
-    /// `(target tab id, insert_before)` describing where the dragged tab would
-    /// land if released right now, or `None` when the cursor is not over a tab.
-    /// Updated continuously by `on_drag_move`; read by the renderer to draw the
-    /// insertion caret and by `on_drop` to perform the move.
-    pub(crate) tab_drop_target: Option<(u64, bool)>,
 }
 
 /// The readiness of the active tab to run a git op — the single guard
@@ -108,9 +61,7 @@ pub(crate) enum GitOpReadiness {
 impl RepoSession {
     pub fn new(cx: &mut gpui::App) -> Self {
         Self {
-            open_repo_tabs: Vec::new(),
-            active_repo_tab_id: None,
-            next_repo_tab_id: 1,
+            tabs: TabSession::new(),
             graph_panel: GraphPanel::new(),
             diff_panel: DiffPanel::new(),
             diff_view: cx.new(|_| super::diff_panel::DiffViewMirror::new()),
@@ -122,22 +73,15 @@ impl RepoSession {
             loading: false,
             last_error: None,
             remote_status: String::new(),
-            closed_repo_tabs: Vec::new(),
-            tab_drag_source: None,
-            tab_drop_target: None,
         }
     }
 
     pub(crate) fn active_tab(&self) -> Option<&OpenRepoTab> {
-        let active_id = self.active_repo_tab_id?;
-        self.open_repo_tabs.iter().find(|tab| tab.id == active_id)
+        self.tabs.active_tab()
     }
 
     pub(crate) fn active_tab_mut(&mut self) -> Option<&mut OpenRepoTab> {
-        let active_id = self.active_repo_tab_id?;
-        self.open_repo_tabs
-            .iter_mut()
-            .find(|tab| tab.id == active_id)
+        self.tabs.active_tab_mut()
     }
 
     pub(crate) fn active_repo_state(&self) -> Option<&RepoState> {
@@ -175,33 +119,12 @@ impl RepoSession {
         GitOpReadiness::Ready(tab.repo.clone())
     }
 
-    pub(crate) fn repo_tab_views(&self) -> Vec<RepoTabView> {
-        self.open_repo_tabs
-            .iter()
-            .map(|tab| RepoTabView {
-                id: tab.id,
-                name: tab
-                    .path
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .unwrap_or("repository")
-                    .to_string(),
-                loading: tab.loading,
-                has_error: tab.last_error.is_some(),
-            })
-            .collect()
+    pub(crate) fn repo_tab_views(&self) -> Vec<super::repo_tabs::RepoTabView> {
+        self.tabs.repo_tab_views()
     }
 
     pub(crate) fn normalize_repo_path(path: &Path) -> PathBuf {
-        std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
-    }
-
-    pub(crate) fn find_tab_by_path(&self, path: &Path) -> Option<u64> {
-        let normalized = Self::normalize_repo_path(path);
-        self.open_repo_tabs
-            .iter()
-            .find(|tab| Self::normalize_repo_path(&tab.path) == normalized)
-            .map(|tab| tab.id)
+        TabSession::normalize_repo_path(path)
     }
 
     pub(crate) fn clear_repo_panels(&mut self) {
@@ -217,6 +140,24 @@ impl RepoSession {
         self.loading = false;
     }
 
+    /// Align `status_panel` graph-staging mode with `sel`, gated on
+    /// [`MainViewMode::CommitHistory`]. Does not touch `diff_panel`.
+    fn sync_status_for_selection(&mut self, sel: GraphSelection) {
+        match sel {
+            GraphSelection::Commit(_) => {
+                if self.view_mode == MainViewMode::CommitHistory {
+                    self.status_panel.exit_graph_staging();
+                }
+            }
+            GraphSelection::Uncommitted => {
+                if self.view_mode == MainViewMode::CommitHistory {
+                    self.status_panel.enter_graph_staging();
+                }
+            }
+            GraphSelection::None => {}
+        }
+    }
+
     /// THE Selection Cascade invariant enforcer (ADR-0003). Given a graph
     /// selection, makes `status_panel` (enter/exit graph-staging, gated on
     /// `view_mode`) and `diff_panel` (clear) consistent with it.
@@ -229,22 +170,13 @@ impl RepoSession {
     /// Returns the async work the caller must spawn (none / just notify /
     /// load the diff). See [`SelectionEffect`].
     fn cascade(&mut self, sel: GraphSelection) -> SelectionEffect {
+        self.sync_status_for_selection(sel);
         match sel {
             GraphSelection::Commit(_) => {
-                if self.view_mode == MainViewMode::CommitHistory {
-                    self.status_panel.exit_graph_staging();
-                }
                 self.diff_panel.clear();
                 SelectionEffect::LoadDiffForSelected
             }
-            GraphSelection::Uncommitted => {
-                if self.view_mode == MainViewMode::CommitHistory {
-                    self.status_panel.enter_graph_staging();
-                }
-                self.diff_panel.clear();
-                SelectionEffect::ClearDiff
-            }
-            GraphSelection::None => {
+            GraphSelection::Uncommitted | GraphSelection::None => {
                 self.diff_panel.clear();
                 SelectionEffect::ClearDiff
             }
@@ -274,7 +206,11 @@ impl RepoSession {
         self.cascade(sel)
     }
 
-    pub(crate) fn apply_repo_state_to_panels(&mut self, repo_state_data: &RepoState) {
+    pub(crate) fn apply_repo_state_to_panels(
+        &mut self,
+        repo_state_data: &RepoState,
+        reselect: RefreshReselectPolicy,
+    ) {
         use gitforge_graph::CommitEntry;
 
         let has_uncommitted = repo_state_data.status.has_changes();
@@ -286,13 +222,20 @@ impl RepoSession {
         // The borrow from `commit_id_at` ends immediately because we copy the
         // id into an owned `String`, leaving `graph_panel` free for the
         // mutable `set_data` call that follows.
-        let prev_selection = match self.graph_panel.selection() {
-            GraphSelection::Commit(idx) => self
-                .graph_panel
-                .commit_id_at(idx)
-                .map(|id| PriorSelection::Commit(id.to_string())),
-            GraphSelection::Uncommitted => Some(PriorSelection::Uncommitted),
-            GraphSelection::None => None,
+        //
+        // Tab switches defer re-selection to [`Self::restore_snapshot_from_tab`]
+        // so the outgoing tab's graph selection is not applied to the incoming
+        // tab's commit list.
+        let prev_selection = match reselect {
+            RefreshReselectPolicy::Reselect => match self.graph_panel.selection() {
+                GraphSelection::Commit(idx) => self
+                    .graph_panel
+                    .commit_id_at(idx)
+                    .map(|id| PriorSelection::Commit(id.to_string())),
+                GraphSelection::Uncommitted => Some(PriorSelection::Uncommitted),
+                GraphSelection::None => None,
+            },
+            RefreshReselectPolicy::DeferToSnapshot => None,
         };
 
         let commit_count = repo_state_data.commits.len();
@@ -324,10 +267,22 @@ impl RepoSession {
                 None
             },
         );
-        let in_history = self.view_mode == MainViewMode::CommitHistory;
-        let preserve_staging = in_history && self.status_panel.is_graph_staging();
+        let preserve_staging = match reselect {
+            RefreshReselectPolicy::Reselect => {
+                self.view_mode == MainViewMode::CommitHistory
+                    && self.status_panel.is_graph_staging()
+            }
+            // Tab switch: the outgoing tab's staging mode must not leak into the
+            // incoming tab's status data. Restore re-derives staging from graph
+            // selection via [`Self::sync_status_for_selection`].
+            RefreshReselectPolicy::DeferToSnapshot => false,
+        };
         self.status_panel
             .set_status(repo_state_data.status.clone(), preserve_staging);
+
+        if reselect == RefreshReselectPolicy::DeferToSnapshot {
+            return;
+        }
 
         // Decide what to do with selection after the rebuild, then route
         // through the Selection Cascade (`Self::cascade`) so the
@@ -373,7 +328,7 @@ impl RepoSession {
     }
 
     pub(crate) fn apply_repo_state(&mut self, repo_state_data: RepoState) {
-        self.apply_repo_state_to_panels(&repo_state_data);
+        self.apply_repo_state_to_panels(&repo_state_data, RefreshReselectPolicy::Reselect);
         if let Some(tab) = self.active_tab_mut() {
             tab.path = repo_state_data.path.clone();
             tab.repo_state = Some(repo_state_data.clone());
@@ -382,7 +337,7 @@ impl RepoSession {
         }
     }
 
-    pub(crate) fn apply_active_repo_tab_to_view(&mut self) {
+    pub(crate) fn apply_active_repo_tab_to_view(&mut self, reselect: RefreshReselectPolicy) {
         let Some((repo_state, loading, last_error)) = self
             .active_tab()
             .map(|tab| (tab.repo_state.clone(), tab.loading, tab.last_error.clone()))
@@ -394,12 +349,20 @@ impl RepoSession {
         if let Some(repo_state) = repo_state {
             self.loading = false;
             self.last_error = None;
-            self.apply_repo_state_to_panels(&repo_state);
+            self.apply_repo_state_to_panels(&repo_state, reselect);
         } else {
             self.clear_repo_panels();
             self.loading = loading;
             self.last_error = last_error;
         }
+    }
+
+    /// Tab-switch path: rebuild the incoming tab's graph/status data without
+    /// applying the outgoing tab's selection, then restore per-tab UI from
+    /// [`TabSnapshot`].
+    pub(crate) fn apply_incoming_tab_after_switch(&mut self) -> Option<SelectionEffect> {
+        self.apply_active_repo_tab_to_view(RefreshReselectPolicy::DeferToSnapshot);
+        self.restore_snapshot_from_tab()
     }
 
     pub fn take_commit_message(&mut self) -> String {
@@ -409,19 +372,13 @@ impl RepoSession {
     }
 
     pub(crate) fn push_closed_tab(&mut self, path: PathBuf) {
-        let normalized = Self::normalize_repo_path(&path);
-        self.closed_repo_tabs.retain(|p| p != &normalized);
-        self.closed_repo_tabs.push(normalized);
-        while self.closed_repo_tabs.len() > MAX_CLOSED_TABS {
-            self.closed_repo_tabs.remove(0);
-        }
+        self.tabs.push_closed_tab(path);
     }
 
     /// Reset all in-flight tab-drag state. Called by the tab bar's drop
     /// handlers after a drop completes (whether on a tab or the tail).
     pub(crate) fn clear_tab_drag(&mut self) {
-        self.tab_drag_source = None;
-        self.tab_drop_target = None;
+        self.tabs.clear_tab_drag();
     }
 
     pub(crate) fn save_snapshot_to_active_tab(&mut self) {
@@ -434,29 +391,18 @@ impl RepoSession {
         let diff_view_mode = self.diff_panel.view_mode();
         let diff_code_file = self.diff_panel.code_view_file().map(String::from);
         let diff_code_content = self.diff_panel.code_view_content().map(String::from);
-        let status_selection = self.status_panel.status_selection().cloned();
-        let status_view_mode = self.status_panel.view_mode();
         let (commit_message, ai_alternatives) = self.commit_editor.snapshot_data();
         let view_mode = self.view_mode.clone();
         let diff_overlay_open = self.diff_overlay_open;
         let sidebar_expansion = self.sidebar_state.expansion();
 
-        let active_id = match self.active_repo_tab_id {
-            Some(id) => id,
-            None => return,
-        };
-        let Some(tab) = self.open_repo_tabs.iter_mut().find(|t| t.id == active_id) else {
-            return;
-        };
-        tab.panel_snapshot = Some(TabSnapshot {
+        self.tabs.store_active_panel_snapshot(TabSnapshot {
             selected_commit_id,
             graph_was_uncommitted,
             diff_state,
             diff_view_mode,
             diff_code_file,
             diff_code_content,
-            status_selection,
-            status_view_mode,
             commit_message,
             ai_alternatives,
             view_mode,
@@ -465,125 +411,142 @@ impl RepoSession {
         });
     }
 
-    pub(crate) fn restore_snapshot_from_tab(&mut self) {
-        let snapshot = self.active_tab().and_then(|tab| tab.panel_snapshot.clone());
+    /// Restore per-tab UI state saved by [`Self::save_snapshot_to_active_tab`].
+    ///
+    /// When the snapshot's cached diff still matches the restored graph
+    /// selection ([`preserved_tab_diff`], the tab-switch analogue of
+    /// `PreservedCommit`), diff is restored from the snapshot, graph-staging
+    /// mode is derived via [`Self::sync_status_for_selection`], and the
+    /// cascade is skipped so ADR-0001's diff cache stays valid. Otherwise the
+    /// Selection Cascade re-derives status and diff from the restored graph
+    /// selection and returns the async work the caller must spawn.
+    pub(crate) fn restore_snapshot_from_tab(&mut self) -> Option<SelectionEffect> {
+        let snapshot = self.tabs.active_panel_snapshot();
 
-        let Some(snap) = snapshot else { return };
+        let Some(snap) = snapshot else { return None };
 
-        self.view_mode = snap.view_mode;
-        self.diff_overlay_open = snap.diff_overlay_open;
-        self.sidebar_state.apply_expansion(&snap.sidebar_expansion);
+        let TabSnapshot {
+            selected_commit_id,
+            graph_was_uncommitted,
+            diff_state,
+            diff_view_mode,
+            diff_code_file,
+            diff_code_content,
+            commit_message,
+            ai_alternatives,
+            view_mode,
+            diff_overlay_open,
+            sidebar_expansion,
+        } = snap;
+
+        self.view_mode = view_mode;
+        self.diff_overlay_open = diff_overlay_open;
+        self.sidebar_state.apply_expansion(&sidebar_expansion);
+
+        self.restore_graph_selection_from_snapshot(
+            selected_commit_id.as_deref(),
+            graph_was_uncommitted,
+        );
+        let sel = self.graph_panel.selection();
+        let commit_id_at = match sel {
+            GraphSelection::Commit(idx) => self.graph_panel.commit_id_at(idx).map(str::to_string),
+            GraphSelection::Uncommitted | GraphSelection::None => None,
+        };
+        let preserved = preserved_tab_diff(
+            diff_state.as_ref(),
+            sel,
+            commit_id_at.as_deref(),
+        );
 
         self.commit_editor
-            .restore_from_snapshot(snap.commit_message, snap.ai_alternatives);
-        self.status_panel
-            .restore_from_snapshot(snap.status_selection, snap.status_view_mode);
+            .restore_from_snapshot(commit_message, ai_alternatives);
 
-        self.diff_panel.restore_from_snapshot(
-            snap.diff_state,
-            snap.diff_view_mode,
-            snap.diff_code_file,
-            snap.diff_code_content,
-        );
-        if self.diff_overlay_open {
-            self.diff_panel.set_diff_mode();
-            let (selected_file_idx, file_count) = self
-                .diff_panel
-                .diff_state()
-                .map(|d| (d.selected_file_idx, d.file_diffs.len()))
-                .unwrap_or((None, 0));
-            if let Some(file_idx) = selected_file_idx
-                .filter(|idx| *idx < file_count)
-                .or_else(|| (file_count > 0).then_some(0))
-            {
-                self.diff_panel.select_file(file_idx);
-            }
+        if preserved {
+            self.sync_status_for_selection(sel);
+            self.diff_panel.restore_from_snapshot(
+                diff_state,
+                diff_view_mode,
+                diff_code_file,
+                diff_code_content,
+            );
+            self.apply_overlay_file_selection();
+            None
+        } else {
+            Some(self.cascade(sel))
         }
+    }
 
-        if let Some(ref commit_id) = snap.selected_commit_id {
+    fn restore_graph_selection_from_snapshot(
+        &mut self,
+        selected_commit_id: Option<&str>,
+        graph_was_uncommitted: bool,
+    ) {
+        if let Some(commit_id) = selected_commit_id {
             if let Some(idx) = self.graph_panel.find_commit_idx(commit_id) {
                 self.graph_panel.select_commit(idx);
             }
-        } else if snap.graph_was_uncommitted {
+        } else if graph_was_uncommitted {
             self.graph_panel.select_uncommitted();
         }
     }
-}
 
-/// Pure, GPUI-free tab reordering: move the tab `dragged_id` so it sits
-/// immediately before (when `before` is true) or after `target_id` in `tabs`.
-///
-/// No-op if `dragged_id == target_id` or either id is not present. The target's
-/// position is recomputed after the dragged tab is removed, so the result is
-/// correct regardless of whether the dragged tab was originally to the left or
-/// right of the target.
-pub(crate) fn reorder_repo_tab(
-    tabs: &mut Vec<OpenRepoTab>,
-    dragged_id: u64,
-    target_id: u64,
-    before: bool,
-) {
-    if dragged_id == target_id {
-        return;
-    }
-    let Some(from) = tabs.iter().position(|t| t.id == dragged_id) else {
-        return;
-    };
-    if !tabs.iter().any(|t| t.id == target_id) {
-        return;
-    }
-    let tab = tabs.remove(from);
-    let target_after = tabs
-        .iter()
-        .position(|t| t.id == target_id)
-        .expect("target id present (checked above)");
-    let dest = if before {
-        target_after
-    } else {
-        target_after + 1
-    };
-    tabs.insert(dest, tab);
-}
-
-/// Pure, GPUI-free tab reordering: move `dragged_id` to the very end of `tabs`.
-/// No-op if it is absent or already last.
-pub(crate) fn move_repo_tab_to_end(tabs: &mut Vec<OpenRepoTab>, dragged_id: u64) {
-    let Some(from) = tabs.iter().position(|t| t.id == dragged_id) else {
-        return;
-    };
-    if from == tabs.len() - 1 {
-        return;
-    }
-    let tab = tabs.remove(from);
-    tabs.push(tab);
-}
-
-/// Pure, GPUI-free computation of the insertion-caret index to render in the
-/// tab bar while a reorder drag is in flight.
-///
-/// Returns `None` when no drag is active, when the dragged tab is not present,
-/// when the recorded drop target id is not present, or when the computed
-/// position would be a no-op move (immediately adjacent to the source). When
-/// `drop_target` is `None` the caret sits at the end of the bar.
-pub(crate) fn drop_caret_index(
-    tabs: &[OpenRepoTab],
-    drag_source: Option<u64>,
-    drop_target: Option<(u64, bool)>,
-) -> Option<usize> {
-    let source = drag_source?;
-    let src_idx = tabs.iter().position(|t| t.id == source)?;
-    let caret = match drop_target {
-        Some((tid, before)) => {
-            let idx = tabs.iter().position(|t| t.id == tid)?;
-            if before { idx } else { idx + 1 }
+    fn apply_overlay_file_selection(&mut self) {
+        if !self.diff_overlay_open {
+            return;
         }
-        None => tabs.len(),
-    };
-    if caret == src_idx || caret == src_idx + 1 {
-        None
-    } else {
-        Some(caret)
+        self.diff_panel.set_diff_mode();
+        let (selected_file_idx, file_count) = self
+            .diff_panel
+            .diff_state()
+            .map(|d| (d.selected_file_idx, d.file_diffs.len()))
+            .unwrap_or((None, 0));
+        if let Some(file_idx) = normalized_overlay_file_idx(selected_file_idx, file_count) {
+            self.diff_panel.select_file(file_idx);
+        }
     }
+}
+
+/// Whether [`RepoSession::apply_repo_state_to_panels`] should re-select the
+/// graph after rebuilding commit data.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RefreshReselectPolicy {
+    /// Fetch/refresh path: preserve or fall back using the current graph
+    /// selection captured before the rebuild.
+    Reselect,
+    /// Tab-switch path: rebuild graph data only; selection is restored from
+    /// [`TabSnapshot`] by [`RepoSession::restore_snapshot_from_tab`].
+    DeferToSnapshot,
+}
+
+/// Tab-switch analogue of `PreservedCommit` (ADR-0003): the snapshot's cached
+/// diff is still valid for the restored graph selection, so restore may skip
+/// the cascade and keep ADR-0001's diff cache intact.
+pub(crate) fn preserved_tab_diff(
+    diff_state: Option<&CommitDiffState>,
+    sel: GraphSelection,
+    selected_commit_id: Option<&str>,
+) -> bool {
+    match sel {
+        GraphSelection::Commit(_) => diff_state
+            .zip(selected_commit_id)
+            .is_some_and(|(diff, id)| diff.commit_id == id),
+        GraphSelection::Uncommitted | GraphSelection::None => false,
+    }
+}
+
+/// Normalize the overlay's selected file index against the current file list.
+pub(crate) fn normalized_overlay_file_idx(
+    selected_file_idx: Option<usize>,
+    file_count: usize,
+) -> Option<usize> {
+    if file_count == 0 {
+        return None;
+    }
+    Some(
+        selected_file_idx
+            .filter(|idx| *idx < file_count)
+            .unwrap_or(0),
+    )
 }
 
 /// What the caller (`GitForgeApp`) must do asynchronously after a
@@ -665,179 +628,6 @@ pub(crate) fn reselect_after_refresh(
     }
 }
 
-#[cfg(test)]
-mod reorder_tests {
-    use super::*;
-
-    fn fake_tab(id: u64) -> OpenRepoTab {
-        OpenRepoTab {
-            id,
-            path: PathBuf::from(format!("/repo/{id}")),
-            repo: Arc::new(Mutex::new(None)),
-            repo_state: None,
-            loading: false,
-            last_error: None,
-            panel_snapshot: None,
-            pull_requests: Vec::new(),
-            pull_requests_loading: false,
-            pull_requests_loaded: false,
-        }
-    }
-
-    fn ids(tabs: &[OpenRepoTab]) -> Vec<u64> {
-        tabs.iter().map(|t| t.id).collect()
-    }
-
-    fn tabs(ids: &[u64]) -> Vec<OpenRepoTab> {
-        ids.iter().map(|id| fake_tab(*id)).collect()
-    }
-
-    #[test]
-    fn move_last_to_front() {
-        let mut t = tabs(&[10, 20, 30]);
-        reorder_repo_tab(&mut t, 30, 10, true);
-        assert_eq!(ids(&t), vec![30, 10, 20]);
-    }
-
-    #[test]
-    fn move_first_to_end_after_last() {
-        let mut t = tabs(&[10, 20, 30]);
-        reorder_repo_tab(&mut t, 10, 30, false);
-        assert_eq!(ids(&t), vec![20, 30, 10]);
-    }
-
-    #[test]
-    fn move_first_after_second() {
-        let mut t = tabs(&[10, 20, 30]);
-        reorder_repo_tab(&mut t, 10, 20, false);
-        assert_eq!(ids(&t), vec![20, 10, 30]);
-    }
-
-    #[test]
-    fn move_second_before_first() {
-        let mut t = tabs(&[10, 20, 30]);
-        reorder_repo_tab(&mut t, 20, 10, true);
-        assert_eq!(ids(&t), vec![20, 10, 30]);
-    }
-
-    #[test]
-    fn move_middle_before_last() {
-        let mut t = tabs(&[10, 20, 30]);
-        reorder_repo_tab(&mut t, 20, 30, true);
-        assert_eq!(ids(&t), vec![10, 20, 30]);
-    }
-
-    #[test]
-    fn drop_on_self_is_noop() {
-        let mut t = tabs(&[10, 20, 30]);
-        reorder_repo_tab(&mut t, 20, 20, true);
-        reorder_repo_tab(&mut t, 20, 20, false);
-        assert_eq!(ids(&t), vec![10, 20, 30]);
-    }
-
-    #[test]
-    fn missing_dragged_or_target_is_noop() {
-        let mut t = tabs(&[10, 20, 30]);
-        reorder_repo_tab(&mut t, 99, 10, true);
-        reorder_repo_tab(&mut t, 10, 99, false);
-        assert_eq!(ids(&t), vec![10, 20, 30]);
-    }
-
-    #[test]
-    fn single_tab_before_itself_is_noop() {
-        let mut t = tabs(&[10]);
-        reorder_repo_tab(&mut t, 10, 10, true);
-        assert_eq!(ids(&t), vec![10]);
-    }
-
-    #[test]
-    fn move_to_end_from_front() {
-        let mut t = tabs(&[10, 20, 30]);
-        move_repo_tab_to_end(&mut t, 10);
-        assert_eq!(ids(&t), vec![20, 30, 10]);
-    }
-
-    #[test]
-    fn move_to_end_from_middle() {
-        let mut t = tabs(&[10, 20, 30]);
-        move_repo_tab_to_end(&mut t, 20);
-        assert_eq!(ids(&t), vec![10, 30, 20]);
-    }
-
-    #[test]
-    fn move_to_end_already_last_is_noop() {
-        let mut t = tabs(&[10, 20, 30]);
-        move_repo_tab_to_end(&mut t, 30);
-        assert_eq!(ids(&t), vec![10, 20, 30]);
-    }
-
-    #[test]
-    fn move_to_end_missing_is_noop() {
-        let mut t = tabs(&[10, 20, 30]);
-        move_repo_tab_to_end(&mut t, 99);
-        assert_eq!(ids(&t), vec![10, 20, 30]);
-    }
-
-    #[test]
-    fn drop_caret_none_when_no_source() {
-        let t = tabs(&[10, 20, 30]);
-        assert_eq!(drop_caret_index(&t, None, None), None);
-        assert_eq!(drop_caret_index(&t, None, Some((30, true))), None);
-    }
-
-    #[test]
-    fn drop_caret_none_when_source_absent() {
-        let t = tabs(&[10, 20, 30]);
-        assert_eq!(drop_caret_index(&t, Some(99), None), None);
-    }
-
-    #[test]
-    fn drop_caret_none_when_target_absent() {
-        let t = tabs(&[10, 20, 30]);
-        assert_eq!(drop_caret_index(&t, Some(10), Some((99, true))), None);
-    }
-
-    #[test]
-    fn drop_caret_at_tail() {
-        let t = tabs(&[10, 20, 30]);
-        // Dragging tab 10 (idx 0) to the tail lands at index 3.
-        assert_eq!(drop_caret_index(&t, Some(10), None), Some(3));
-    }
-
-    #[test]
-    fn drop_caret_tail_is_noop_when_source_already_last() {
-        let t = tabs(&[10, 20, 30]);
-        // Tab 30 is already at the end; tail caret (3) == src_idx (2) + 1.
-        assert_eq!(drop_caret_index(&t, Some(30), None), None);
-    }
-
-    #[test]
-    fn drop_caret_before_target() {
-        let t = tabs(&[10, 20, 30]);
-        // Drag 10 before 30 (idx 2) -> caret 2.
-        assert_eq!(drop_caret_index(&t, Some(10), Some((30, true))), Some(2));
-    }
-
-    #[test]
-    fn drop_caret_after_target() {
-        let t = tabs(&[10, 20, 30]);
-        // Drag 10 after 30 (idx 2) -> caret 3.
-        assert_eq!(drop_caret_index(&t, Some(10), Some((30, false))), Some(3));
-    }
-
-    #[test]
-    fn drop_caret_skips_positions_adjacent_to_source() {
-        let t = tabs(&[10, 20, 30]);
-        // Source 20 (idx 1). Before-self adjacent: before 20 -> caret 1 == src.
-        assert_eq!(drop_caret_index(&t, Some(20), Some((20, true))), None);
-        // After-self adjacent: after 20 -> caret 2 == src + 1.
-        assert_eq!(drop_caret_index(&t, Some(20), Some((20, false))), None);
-        // After the tab just before source: after 10 -> caret 1 == src.
-        assert_eq!(drop_caret_index(&t, Some(20), Some((10, false))), None);
-        // Before the tab just after source: before 30 -> caret 2 == src + 1.
-        assert_eq!(drop_caret_index(&t, Some(20), Some((30, true))), None);
-    }
-}
 
 #[cfg(test)]
 mod refresh_selection_tests {
@@ -995,8 +785,8 @@ mod active_repo_ready_tests {
     fn session_with_tab(cx: &mut gpui::App, tab: OpenRepoTab) -> RepoSession {
         let id = tab.id;
         let mut session = RepoSession::new(cx);
-        session.open_repo_tabs.push(tab);
-        session.active_repo_tab_id = Some(id);
+        session.tabs.open_repo_tabs.push(tab);
+        session.tabs.active_repo_tab_id = Some(id);
         session
     }
 
@@ -1044,8 +834,8 @@ mod active_repo_ready_tests {
     fn git_op_readiness_no_repo_when_no_active_tab(cx: &mut TestAppContext) {
         cx.update(|app| {
             let mut session = RepoSession::new(app);
-            session.open_repo_tabs.push(fake_tab(1, false, true));
-            session.active_repo_tab_id = None;
+            session.tabs.open_repo_tabs.push(fake_tab(1, false, true));
+            session.tabs.active_repo_tab_id = None;
             assert!(matches!(session.git_op_readiness(), GitOpReadiness::NoRepo));
         });
     }
@@ -1239,7 +1029,7 @@ mod cascade_tests {
             assert!(s.diff_panel.diff_state().is_some());
 
             let repo_state = repo_state_with_commits(vec![sample_commit(SAMPLE_COMMIT_ID)]);
-            s.apply_repo_state_to_panels(&repo_state);
+            s.apply_repo_state_to_panels(&repo_state, RefreshReselectPolicy::Reselect);
 
             let diff = s
                 .diff_panel
@@ -1249,5 +1039,253 @@ mod cascade_tests {
             assert_eq!(s.graph_panel.selection(), GraphSelection::Commit(0));
             assert!(!s.status_panel.is_graph_staging());
         });
+    }
+
+    #[gpui::test]
+    fn tab_restore_preserves_cached_diff_when_preserved(cx: &mut TestAppContext) {
+        use std::sync::Arc;
+        use parking_lot::Mutex;
+
+        cx.update(|app| {
+            let mut s = one_commit_session(app);
+            s.view_mode = MainViewMode::CommitHistory;
+            s.graph_panel.select_commit(0);
+            s.diff_panel
+                .set_diff(CommitDiffState::new(SAMPLE_COMMIT_ID.into(), vec![], None));
+
+            let snapshot = TabSnapshot {
+                selected_commit_id: Some(SAMPLE_COMMIT_ID.into()),
+                graph_was_uncommitted: false,
+                diff_state: s.diff_panel.diff_state().cloned(),
+                diff_view_mode: s.diff_panel.view_mode(),
+                diff_code_file: None,
+                diff_code_content: None,
+                commit_message: String::new(),
+                ai_alternatives: vec![],
+                view_mode: MainViewMode::CommitHistory,
+                diff_overlay_open: false,
+                sidebar_expansion: s.sidebar_state.expansion(),
+            };
+
+            // Simulate defer-reselect leaving panels without selection/diff.
+            s.diff_panel.clear();
+            s.graph_panel.clear_selection();
+
+            s.tabs.open_repo_tabs.push(OpenRepoTab {
+                id: 1,
+                path: PathBuf::from("/tmp/test-repo"),
+                repo: Arc::new(Mutex::new(None)),
+                repo_state: None,
+                loading: false,
+                last_error: None,
+                panel_snapshot: Some(snapshot),
+                pull_requests: vec![],
+                pull_requests_loading: false,
+                pull_requests_loaded: false,
+            });
+            s.tabs.active_repo_tab_id = Some(1);
+            s.tabs.next_repo_tab_id = 2;
+
+            let effect = s.restore_snapshot_from_tab();
+            assert_eq!(effect, None);
+            let diff = s
+                .diff_panel
+                .diff_state()
+                .expect("PreservedTab must keep the cached diff intact");
+            assert_eq!(diff.commit_id, SAMPLE_COMMIT_ID);
+            assert_eq!(s.graph_panel.selection(), GraphSelection::Commit(0));
+            assert!(!s.status_panel.is_graph_staging());
+        });
+    }
+
+    #[gpui::test]
+    fn tab_restore_derives_graph_staging_for_uncommitted(cx: &mut TestAppContext) {
+        use std::sync::Arc;
+        use parking_lot::Mutex;
+
+        cx.update(|app| {
+            let mut s = one_commit_session(app);
+            let snapshot = TabSnapshot {
+                selected_commit_id: None,
+                graph_was_uncommitted: true,
+                diff_state: None,
+                diff_view_mode: s.diff_panel.view_mode(),
+                diff_code_file: None,
+                diff_code_content: None,
+                commit_message: String::new(),
+                ai_alternatives: vec![],
+                view_mode: MainViewMode::CommitHistory,
+                diff_overlay_open: false,
+                sidebar_expansion: s.sidebar_state.expansion(),
+            };
+
+            s.tabs.open_repo_tabs.push(OpenRepoTab {
+                id: 1,
+                path: PathBuf::from("/tmp/test-repo"),
+                repo: Arc::new(Mutex::new(None)),
+                repo_state: None,
+                loading: false,
+                last_error: None,
+                panel_snapshot: Some(snapshot),
+                pull_requests: vec![],
+                pull_requests_loading: false,
+                pull_requests_loaded: false,
+            });
+            s.tabs.active_repo_tab_id = Some(1);
+
+            let effect = s.restore_snapshot_from_tab();
+            assert_eq!(effect, Some(SelectionEffect::ClearDiff));
+            assert_eq!(s.graph_panel.selection(), GraphSelection::Uncommitted);
+            assert!(s.status_panel.is_graph_staging());
+        });
+    }
+
+    #[gpui::test]
+    fn defer_reselect_does_not_leak_outgoing_graph_staging(cx: &mut TestAppContext) {
+        cx.update(|app| {
+            let mut s = one_commit_session(app);
+            s.view_mode = MainViewMode::CommitHistory;
+            s.status_panel.enter_graph_staging();
+            assert!(s.status_panel.is_graph_staging());
+
+            let repo_state = repo_state_with_commits(vec![sample_commit(SAMPLE_COMMIT_ID)]);
+            s.apply_repo_state_to_panels(&repo_state, RefreshReselectPolicy::DeferToSnapshot);
+
+            assert_eq!(s.graph_panel.selection(), GraphSelection::None);
+            assert!(!s.status_panel.is_graph_staging());
+        });
+    }
+
+    #[gpui::test]
+    fn tab_restore_cascades_when_diff_not_preserved(cx: &mut TestAppContext) {
+        use std::sync::Arc;
+        use parking_lot::Mutex;
+
+        cx.update(|app| {
+            let mut s = one_commit_session(app);
+            s.view_mode = MainViewMode::CommitHistory;
+            s.graph_panel.select_commit(0);
+            s.diff_panel
+                .set_diff(CommitDiffState::new(SAMPLE_COMMIT_ID.into(), vec![], None));
+
+            let snapshot = TabSnapshot {
+                selected_commit_id: Some(SAMPLE_COMMIT_ID.into()),
+                graph_was_uncommitted: false,
+                diff_state: None,
+                diff_view_mode: s.diff_panel.view_mode(),
+                diff_code_file: None,
+                diff_code_content: None,
+                commit_message: String::new(),
+                ai_alternatives: vec![],
+                view_mode: MainViewMode::CommitHistory,
+                diff_overlay_open: false,
+                sidebar_expansion: s.sidebar_state.expansion(),
+            };
+
+            s.tabs.open_repo_tabs.push(OpenRepoTab {
+                id: 1,
+                path: PathBuf::from("/tmp/test-repo"),
+                repo: Arc::new(Mutex::new(None)),
+                repo_state: None,
+                loading: false,
+                last_error: None,
+                panel_snapshot: Some(snapshot),
+                pull_requests: vec![],
+                pull_requests_loading: false,
+                pull_requests_loaded: false,
+            });
+            s.tabs.active_repo_tab_id = Some(1);
+
+            let effect = s.restore_snapshot_from_tab();
+            assert_eq!(effect, Some(SelectionEffect::LoadDiffForSelected));
+            assert!(s.diff_panel.diff_state().is_none());
+        });
+    }
+}
+
+#[cfg(test)]
+mod snapshot_tests {
+    use std::collections::HashSet;
+
+    use super::{
+        GraphSelection, TabSnapshot, normalized_overlay_file_idx, preserved_tab_diff,
+    };
+    use super::super::app::MainViewMode;
+    use super::super::diff_panel::CommitDiffState;
+    use super::super::diff_viewer::DiffViewMode;
+    use super::super::sidebar::SidebarExpansion;
+
+    fn empty_snapshot(diff_state: Option<CommitDiffState>) -> TabSnapshot {
+        TabSnapshot {
+            selected_commit_id: None,
+            graph_was_uncommitted: false,
+            diff_state,
+            diff_view_mode: DiffViewMode::Diff,
+            diff_code_file: None,
+            diff_code_content: None,
+            commit_message: String::new(),
+            ai_alternatives: vec![],
+            view_mode: MainViewMode::CommitHistory,
+            diff_overlay_open: false,
+            sidebar_expansion: SidebarExpansion {
+                branches: true,
+                remotes: true,
+                tags: true,
+                worktrees: true,
+                pull_requests: true,
+                expanded_remotes: HashSet::new(),
+            },
+        }
+    }
+
+    #[test]
+    fn preserved_tab_diff_true_when_commit_and_diff_match() {
+        let snap = empty_snapshot(Some(CommitDiffState::new(
+            "abc".into(),
+            vec![],
+            None,
+        )));
+        assert!(preserved_tab_diff(
+            snap.diff_state.as_ref(),
+            GraphSelection::Commit(0),
+            Some("abc"),
+        ));
+    }
+
+    #[test]
+    fn preserved_tab_diff_false_when_diff_missing_or_mismatched() {
+        let snap = empty_snapshot(Some(CommitDiffState::new(
+            "abc".into(),
+            vec![],
+            None,
+        )));
+        assert!(!preserved_tab_diff(snap.diff_state.as_ref(), GraphSelection::Commit(0), Some("def")));
+        assert!(!preserved_tab_diff(
+            empty_snapshot(None).diff_state.as_ref(),
+            GraphSelection::Commit(0),
+            Some("abc"),
+        ));
+        assert!(!preserved_tab_diff(
+            snap.diff_state.as_ref(),
+            GraphSelection::Uncommitted,
+            None,
+        ));
+    }
+
+    #[test]
+    fn overlay_file_idx_none_when_commit_has_no_files() {
+        assert_eq!(normalized_overlay_file_idx(None, 0), None);
+        assert_eq!(normalized_overlay_file_idx(Some(3), 0), None);
+    }
+
+    #[test]
+    fn overlay_file_idx_keeps_valid_selection() {
+        assert_eq!(normalized_overlay_file_idx(Some(2), 3), Some(2));
+    }
+
+    #[test]
+    fn overlay_file_idx_falls_back_to_first_file() {
+        assert_eq!(normalized_overlay_file_idx(None, 3), Some(0));
+        assert_eq!(normalized_overlay_file_idx(Some(9), 3), Some(0));
     }
 }
