@@ -1,8 +1,9 @@
 use gitforge_git::{CommitInfo, RefInfo, RefKind, RepoState, WorktreeInfo};
 use gitforge_ui::{
     AppColors, TextInput, TextInputEvent, TextInputRenderOpts, WidgetColors, collapsible_header,
-    entity_on_click, entity_on_click_stop_propagation, ghost_button, parse_key_event,
-    render_text_input, rgba_to_hsla,
+    entity_on_click, entity_on_click_stop_propagation, floating_menu, ghost_button,
+    parse_key_event, render_text_input, rgba_to_hsla, selectable_menu_row,
+    window_anchored_popover,
 };
 use gpui::*;
 use std::collections::{HashMap, HashSet};
@@ -750,10 +751,7 @@ pub(super) fn render_context_menu_overlay(
     colors: &AppColors,
     entity: WeakEntity<super::app::GitForgeApp>,
 ) -> Stateful<Div> {
-    let surface = rgba_to_hsla(colors.surface);
-    let accent = rgba_to_hsla(colors.accent);
     let text_color = rgba_to_hsla(colors.text);
-    let _muted = rgba_to_hsla(colors.text_muted);
     let warning = rgba_to_hsla(colors.warning);
 
     let items = match action {
@@ -799,37 +797,14 @@ pub(super) fn render_context_menu_overlay(
         _ => vec![],
     };
 
-    let menu_dismiss_ent = entity.clone();
-    let mut menu = div()
-        .id("context-menu")
-        .occlude()
-        .bg(surface)
-        .border_1()
-        .border_color(accent)
-        .rounded(px(4.0))
+    let mut menu = floating_menu("context-menu", colors)
         .min_w(px(160.0))
-        .shadow(vec![BoxShadow {
-            color: black().opacity(0.35),
-            offset: point(px(0.0), px(4.0)),
-            blur_radius: px(12.0),
-            spread_radius: px(0.0),
-        }])
         .on_mouse_move(|_, _, cx| cx.stop_propagation())
-        .on_mouse_down(MouseButton::Left, |_ev, _window, cx| {
-            cx.stop_propagation();
-        })
-        .on_mouse_down(MouseButton::Right, |_ev, _window, cx| {
-            cx.stop_propagation();
-        })
-        .on_click(move |_ev, _window, cx| {
-            cx.stop_propagation();
-            if let Some(e) = menu_dismiss_ent.upgrade() {
-                e.update(cx, |this, cx| {
-                    this.repo_session.sidebar_state.dismiss_context_menu();
-                    cx.notify();
-                });
-            }
-        });
+        .on_mouse_down(MouseButton::Right, |_, _, cx| cx.stop_propagation())
+        .on_click(entity_on_click_stop_propagation(entity.clone(), |this, cx| {
+            this.repo_session.sidebar_state.dismiss_context_menu();
+            cx.notify();
+        }));
 
     for (idx, (label, menu_action)) in items.into_iter().enumerate() {
         let item_color = match &menu_action {
@@ -843,18 +818,11 @@ pub(super) fn render_context_menu_overlay(
         let item_ent = entity.clone();
         let item_id = format!("ctx-menu-item-{}", idx);
         menu = menu.child(
-            div()
-                .id(ElementId::Name(item_id.into()))
-                .px_3()
-                .py_1()
-                .cursor_pointer()
-                .text_xs()
-                .text_color(item_color)
-                .hover(|s| s.bg(rgba_to_hsla(colors.sidebar_hover)))
-                .on_mouse_move(|_, _, cx| cx.stop_propagation())
-                .child(label.to_string())
-                .on_click(move |_ev, _window, cx| {
-                    cx.stop_propagation();
+            selectable_menu_row(
+                ElementId::Name(item_id.into()),
+                false,
+                colors,
+                move |_ev, _window, cx| {
                     if let Some(e) = item_ent.upgrade() {
                         e.update(cx, |this, cx| {
                             match &menu_action {
@@ -899,11 +867,16 @@ pub(super) fn render_context_menu_overlay(
                             cx.notify();
                         });
                     }
-                }),
+                },
+            )
+            .px_3()
+            .py_1()
+            .text_xs()
+            .text_color(item_color)
+            .child(label.to_string()),
         );
     }
 
-    let overlay_dismiss_ent = entity;
     div()
         .id("context-menu-overlay")
         .absolute()
@@ -914,21 +887,14 @@ pub(super) fn render_context_menu_overlay(
         .on_mouse_move(|_, _, cx| cx.stop_propagation())
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .on_mouse_down(MouseButton::Right, |_, _, cx| cx.stop_propagation())
-        .on_click(move |_ev, _window, cx| {
-            cx.stop_propagation();
-            if let Some(e) = overlay_dismiss_ent.upgrade() {
-                e.update(cx, |this, cx| {
-                    this.repo_session.sidebar_state.dismiss_context_menu();
-                    cx.notify();
-                });
-            }
-        })
-        .child(
-            anchored()
-                .position(point(px(pos.0), px(pos.1)))
-                .position_mode(AnchoredPositionMode::Window)
-                .child(menu),
-        )
+        .on_click(entity_on_click_stop_propagation(entity, |this, cx| {
+            this.repo_session.sidebar_state.dismiss_context_menu();
+            cx.notify();
+        }))
+        .child(window_anchored_popover(
+            point(px(pos.0), px(pos.1)),
+            menu,
+        ))
 }
 
 fn render_remote_group_header(

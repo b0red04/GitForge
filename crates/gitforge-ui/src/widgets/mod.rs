@@ -1,6 +1,7 @@
 mod button;
 mod colors;
 mod list;
+mod menu;
 mod section;
 mod shell;
 mod state;
@@ -19,6 +20,8 @@ pub use colors::WidgetColors;
 pub use list::RowPadding;
 pub use list::list_row;
 pub use list::virtual_list;
+pub use menu::floating_menu;
+pub use menu::selectable_menu_row;
 pub use section::HeaderBorder;
 pub use section::HeaderPadding;
 pub use section::collapsible_header;

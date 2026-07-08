@@ -1,10 +1,15 @@
 use gitforge_git::{RefKind, RepoState};
 use gitforge_hosting::{HostingAccount, PullRequest};
-use gitforge_ui::{AppColors, rgba_to_hsla, window_control_button};
+use gitforge_ui::{
+    AppColors, content_anchored_popover, floating_menu, rgba_to_hsla, selectable_menu_row,
+    window_control_button,
+};
 use gpui::*;
 
 use super::branch_status_badges;
-use super::commands::{MenuEntries, MenuEntry, TitlebarMenu, titlebar_menu_entries};
+use super::commands::{
+    CommandEntry, MenuEntries, MenuEntry, TitlebarMenu, titlebar_menu_entries,
+};
 use super::layout::{TITLEBAR_HEIGHT, WINDOW_CORNER_RADIUS};
 use super::ops::pr_ops::pull_request_for_branch;
 use super::window_chrome::{apply_top_corner_radius, seal_rounded_corners};
@@ -396,35 +401,44 @@ pub fn render_titlebar_menu_dropdown(
     colors: &AppColors,
     entity: WeakEntity<super::app::GitForgeApp>,
 ) -> Stateful<Div> {
-    let surface = rgba_to_hsla(colors.surface);
     let border = rgba_to_hsla(colors.border);
-    let accent = rgba_to_hsla(colors.accent);
     let text_color = rgba_to_hsla(colors.text);
     let muted = rgba_to_hsla(colors.text_muted);
-    let hover_bg = rgba_to_hsla(colors.sidebar_hover);
 
-    let mut dropdown = div()
-        .id("titlebar-menu-dropdown")
-        .absolute()
-        .top(px(TITLEBAR_HEIGHT))
-        .left(px(menu.dropdown_left()))
+    let mut dropdown = floating_menu("titlebar-menu-dropdown", colors)
         .min_w(px(280.0))
         .max_h(px(480.0))
         .overflow_y_scroll()
-        .bg(surface)
-        .border_1()
-        .border_color(accent)
-        .rounded(px(4.0))
         .py_1()
-        .shadow(vec![BoxShadow {
-            color: black().opacity(0.35),
-            offset: point(px(0.0), px(4.0)),
-            blur_radius: px(12.0),
-            spread_radius: px(0.0),
-        }])
         .on_mouse_move(|_, _, cx| cx.stop_propagation())
-        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .on_click(|_, _, cx| cx.stop_propagation());
+
+    let render_item = |idx: usize, item: CommandEntry| {
+        let item_ent = entity.clone();
+        let action = item.action;
+        let label = item.label;
+        let keybinding = item.keybinding.unwrap_or_default();
+        selectable_menu_row(
+            ElementId::Name(format!("titlebar-menu-item-{idx}").into()),
+            false,
+            colors,
+            move |_ev, window, cx| {
+                if let Some(e) = item_ent.upgrade() {
+                    e.update(cx, |app, cx| {
+                        app.close_titlebar_menu(cx);
+                    });
+                }
+                window.dispatch_action(action.boxed_action(), cx);
+            },
+        )
+        .h(px(28.0))
+        .px_3()
+        .flex()
+        .items_center()
+        .gap_3()
+        .child(div().flex_1().text_sm().text_color(text_color).child(label))
+        .child(div().text_xs().text_color(muted).child(keybinding))
+    };
 
     match titlebar_menu_entries(menu) {
         MenuEntries::WithSeparators(entries) => {
@@ -441,69 +455,24 @@ pub fn render_titlebar_menu_dropdown(
                         );
                     }
                     MenuEntry::Item(item) => {
-                        let item_ent = entity.clone();
-                        let action = item.action;
-                        let label = item.label;
-                        let keybinding = item.keybinding.unwrap_or_default();
-
-                        dropdown = dropdown.child(
-                            div()
-                                .id(ElementId::Name(format!("titlebar-menu-item-{idx}").into()))
-                                .h(px(28.0))
-                                .px_3()
-                                .flex()
-                                .items_center()
-                                .gap_3()
-                                .cursor_pointer()
-                                .hover(move |s| s.bg(hover_bg))
-                                .on_click(move |_ev, window, cx| {
-                                    if let Some(e) = item_ent.upgrade() {
-                                        e.update(cx, |app, cx| {
-                                            app.close_titlebar_menu(cx);
-                                        });
-                                    }
-                                    window.dispatch_action(action.boxed_action(), cx);
-                                })
-                                .child(div().flex_1().text_sm().text_color(text_color).child(label))
-                                .child(div().text_xs().text_color(muted).child(keybinding)),
-                        );
+                        dropdown = dropdown.child(render_item(idx, *item));
                     }
                 }
             }
         }
         MenuEntries::Flat(entries) => {
             for (idx, entry) in entries.iter().enumerate() {
-                let item_ent = entity.clone();
-                let action = entry.action;
-                let label = entry.label;
-                let keybinding = entry.keybinding.unwrap_or_default();
-
-                dropdown = dropdown.child(
-                    div()
-                        .id(ElementId::Name(format!("titlebar-menu-item-{idx}").into()))
-                        .h(px(28.0))
-                        .px_3()
-                        .flex()
-                        .items_center()
-                        .gap_3()
-                        .cursor_pointer()
-                        .hover(move |s| s.bg(hover_bg))
-                        .on_click(move |_ev, window, cx| {
-                            if let Some(e) = item_ent.upgrade() {
-                                e.update(cx, |app, cx| {
-                                    app.close_titlebar_menu(cx);
-                                });
-                            }
-                            window.dispatch_action(action.boxed_action(), cx);
-                        })
-                        .child(div().flex_1().text_sm().text_color(text_color).child(label))
-                        .child(div().text_xs().text_color(muted).child(keybinding)),
-                );
+                dropdown = dropdown.child(render_item(idx, *entry));
             }
         }
     }
 
-    dropdown
+    div()
+        .id("titlebar-menu-dropdown-host")
+        .absolute()
+        .top(px(TITLEBAR_HEIGHT))
+        .left(px(menu.dropdown_left()))
+        .child(content_anchored_popover(dropdown))
 }
 
 pub fn render_local_branch_dropdown(
@@ -511,36 +480,25 @@ pub fn render_local_branch_dropdown(
     colors: &AppColors,
     entity: WeakEntity<super::app::GitForgeApp>,
 ) -> Stateful<Div> {
-    let surface = rgba_to_hsla(colors.surface);
     let text_color = rgba_to_hsla(colors.text);
     let muted = rgba_to_hsla(colors.text_muted);
-    let hover_bg = rgba_to_hsla(colors.sidebar_hover);
-    let selected_bg = rgba_to_hsla(colors.selection_bg);
     let warning = rgba_to_hsla(colors.warning);
     let accent = rgba_to_hsla(colors.accent);
 
-    let mut dropdown = div()
-        .id("titlebar-local-branch-dropdown")
-        .absolute()
-        .top(px(TITLEBAR_HEIGHT))
-        .left(px(230.0))
+    let mut dropdown = floating_menu("titlebar-local-branch-dropdown", colors)
         .min_w(px(320.0))
         .max_w(px(420.0))
         .max_h(px(460.0))
         .overflow_y_scroll()
-        .bg(surface)
-        .border_1()
-        .border_color(accent)
         .rounded(px(6.0))
-        .py_2()
         .shadow(vec![BoxShadow {
             color: black().opacity(0.38),
             offset: point(px(0.0), px(6.0)),
             blur_radius: px(16.0),
             spread_radius: px(0.0),
         }])
+        .py_2()
         .on_mouse_move(|_, _, cx| cx.stop_propagation())
-        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .on_click(|_, _, cx| cx.stop_propagation());
 
     dropdown = dropdown.child(
@@ -553,14 +511,19 @@ pub fn render_local_branch_dropdown(
     );
 
     let Some(repo) = repo_state else {
-        return dropdown.child(
-            div()
-                .px_3()
-                .py_2()
-                .text_sm()
-                .text_color(muted)
-                .child("No repository open"),
-        );
+        return div()
+            .id("titlebar-local-branch-dropdown-host")
+            .absolute()
+            .top(px(TITLEBAR_HEIGHT))
+            .left(px(230.0))
+            .child(content_anchored_popover(dropdown.child(
+                div()
+                    .px_3()
+                    .py_2()
+                    .text_sm()
+                    .text_color(muted)
+                    .child("No repository open"),
+            )));
     };
 
     let mut branches = repo
@@ -571,14 +534,19 @@ pub fn render_local_branch_dropdown(
     branches.sort_by(|a, b| b.is_head.cmp(&a.is_head).then_with(|| a.name.cmp(&b.name)));
 
     if branches.is_empty() {
-        return dropdown.child(
-            div()
-                .px_3()
-                .py_2()
-                .text_sm()
-                .text_color(muted)
-                .child("No local branches"),
-        );
+        return div()
+            .id("titlebar-local-branch-dropdown-host")
+            .absolute()
+            .top(px(TITLEBAR_HEIGHT))
+            .left(px(230.0))
+            .child(content_anchored_popover(dropdown.child(
+                div()
+                    .px_3()
+                    .py_2()
+                    .text_sm()
+                    .text_color(muted)
+                    .child("No local branches"),
+            )));
     }
 
     for (idx, branch) in branches.into_iter().enumerate() {
@@ -586,25 +554,12 @@ pub fn render_local_branch_dropdown(
         let is_head = branch.is_head;
         let has_conflict = repo.conflicting_local_branches.contains(&branch_name);
         let row_entity = entity.clone();
-        let row_bg = if is_head {
-            selected_bg
-        } else {
-            gpui::transparent_black()
-        };
 
-        let mut row = div()
-            .id(ElementId::Name(format!("local-branch-row-{idx}").into()))
-            .mx_1()
-            .h(px(30.0))
-            .px_2()
-            .flex()
-            .items_center()
-            .gap_2()
-            .rounded(px(4.0))
-            .bg(row_bg)
-            .cursor_pointer()
-            .hover(move |s| s.bg(hover_bg))
-            .on_click(move |_ev, _window, cx| {
+        let mut row = selectable_menu_row(
+            ElementId::Name(format!("local-branch-row-{idx}").into()),
+            is_head,
+            colors,
+            move |_ev, _window, cx| {
                 if let Some(e) = row_entity.upgrade() {
                     let name = branch_name.clone();
                     e.update(cx, |app, cx| {
@@ -614,24 +569,32 @@ pub fn render_local_branch_dropdown(
                         }
                     });
                 }
-            })
-            .child(
-                svg()
-                    .flex_none()
-                    .size(px(14.0))
-                    .path("icons/git-branch.svg")
-                    .text_color(if is_head { accent } else { muted }),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .min_w(px(0.0))
-                    .overflow_hidden()
-                    .text_ellipsis()
-                    .text_sm()
-                    .text_color(text_color)
-                    .child(branch.name.clone()),
-            );
+            },
+        )
+        .mx_1()
+        .h(px(30.0))
+        .px_2()
+        .flex()
+        .items_center()
+        .gap_2()
+        .rounded(px(4.0))
+        .child(
+            svg()
+                .flex_none()
+                .size(px(14.0))
+                .path("icons/git-branch.svg")
+                .text_color(if is_head { accent } else { muted }),
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_w(px(0.0))
+                .overflow_hidden()
+                .text_ellipsis()
+                .text_sm()
+                .text_color(text_color)
+                .child(branch.name.clone()),
+        );
 
         if branch.commits_ahead > 0 || branch.commits_behind > 0 {
             let sync_color = if is_head { accent } else { muted };
@@ -665,7 +628,12 @@ pub fn render_local_branch_dropdown(
         dropdown = dropdown.child(row);
     }
 
-    dropdown
+    div()
+        .id("titlebar-local-branch-dropdown-host")
+        .absolute()
+        .top(px(TITLEBAR_HEIGHT))
+        .left(px(230.0))
+        .child(content_anchored_popover(dropdown))
 }
 
 struct AccountTooltip {

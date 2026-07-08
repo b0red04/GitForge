@@ -1,6 +1,6 @@
 use gitforge_git::RefKind;
 use gitforge_hosting::{CreatePullRequestRequest, HostingAccount, PullRequest, urls};
-use gpui::{Context, Point, Pixels};
+use gpui::Context;
 
 use crate::views::app::{AppDialog, GitForgeApp};
 use crate::views::dialogs::CreatePrDropdown;
@@ -250,7 +250,6 @@ impl GitForgeApp {
         self.create_pr.description_input.clear();
         self.create_pr.draft = false;
         self.create_pr.open_dropdown = CreatePrDropdown::None;
-        self.create_pr.open_dropdown_anchor = None;
         self.create_pr.reset();
 
         self.populate_create_pr_branches();
@@ -272,7 +271,7 @@ impl GitForgeApp {
     pub fn close_create_pr_dropdown(&mut self, cx: &mut Context<Self>) {
         if self.create_pr.open_dropdown != CreatePrDropdown::None {
             self.create_pr.open_dropdown = CreatePrDropdown::None;
-            self.create_pr.open_dropdown_anchor = None;
+            self.create_pr.open_dropdown_bounds = None;
             cx.notify();
         }
     }
@@ -280,15 +279,15 @@ impl GitForgeApp {
     pub fn toggle_create_pr_dropdown(
         &mut self,
         dropdown: CreatePrDropdown,
-        anchor: Point<Pixels>,
         cx: &mut Context<Self>,
     ) {
         if self.create_pr.open_dropdown == dropdown {
             self.create_pr.open_dropdown = CreatePrDropdown::None;
-            self.create_pr.open_dropdown_anchor = None;
+            self.create_pr.open_dropdown_bounds = None;
         } else {
+            let slot = crate::views::dialogs::create_pr::dropdown_bounds_slot(dropdown);
             self.create_pr.open_dropdown = dropdown;
-            self.create_pr.open_dropdown_anchor = Some(anchor);
+            self.create_pr.open_dropdown_bounds = self.create_pr.trigger_bounds[slot];
         }
         cx.notify();
     }
@@ -316,7 +315,7 @@ impl GitForgeApp {
             CreatePrDropdown::None => {}
         }
         self.create_pr.open_dropdown = CreatePrDropdown::None;
-        self.create_pr.open_dropdown_anchor = None;
+        self.create_pr.open_dropdown_bounds = None;
         cx.notify();
     }
 

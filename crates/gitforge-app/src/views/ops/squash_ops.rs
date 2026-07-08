@@ -1,5 +1,5 @@
 use gitforge_git::{GitError, RebaseAction, RebasePlan, RebasePlanEntry};
-use gpui::{Context, Point, Pixels};
+use gpui::Context;
 
 use crate::views::app::{AppDialog, GitForgeApp};
 use crate::views::dialogs::squash_wizard::{SquashWizardEntry, SquashWizardState, SquashWizardStep};
@@ -98,7 +98,7 @@ impl GitForgeApp {
             };
         }
         wizard.open_action_dropdown = None;
-        wizard.open_action_anchor = None;
+        wizard.open_action_bounds = None;
         let msg = wizard
             .entries
             .last()
@@ -114,26 +114,24 @@ impl GitForgeApp {
             && wizard.open_action_dropdown.is_some()
         {
             wizard.open_action_dropdown = None;
-            wizard.open_action_anchor = None;
+            wizard.open_action_bounds = None;
             cx.notify();
         }
     }
 
-    pub fn toggle_squash_action_dropdown(
-        &mut self,
-        idx: usize,
-        anchor: Point<Pixels>,
-        cx: &mut Context<Self>,
-    ) {
+    pub fn toggle_squash_action_dropdown(&mut self, idx: usize, cx: &mut Context<Self>) {
         let Some(wizard) = self.squash_wizard.as_mut() else {
             return;
         };
         if wizard.open_action_dropdown == Some(idx) {
             wizard.open_action_dropdown = None;
-            wizard.open_action_anchor = None;
+            wizard.open_action_bounds = None;
         } else {
             wizard.open_action_dropdown = Some(idx);
-            wizard.open_action_anchor = Some(anchor);
+            wizard.open_action_bounds = wizard
+                .action_trigger_bounds
+                .get(idx)
+                .and_then(|b| *b);
         }
         cx.notify();
     }
@@ -152,7 +150,7 @@ impl GitForgeApp {
         {
             entry.action = action;
             wizard.open_action_dropdown = None;
-            wizard.open_action_anchor = None;
+            wizard.open_action_bounds = None;
             cx.notify();
         }
     }
@@ -197,7 +195,7 @@ impl GitForgeApp {
         }
         wizard.entries.swap(idx, target);
         wizard.open_action_dropdown = None;
-        wizard.open_action_anchor = None;
+        wizard.open_action_bounds = None;
         cx.notify();
     }
 
