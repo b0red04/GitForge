@@ -793,20 +793,14 @@ pub(super) fn render_context_menu_overlay(
         _ => vec![],
     };
 
-    let menu_dismiss_ent = entity.clone();
     let mut menu = floating_menu("context-menu", colors)
         .min_w(px(160.0))
         .on_mouse_move(|_, _, cx| cx.stop_propagation())
         .on_mouse_down(MouseButton::Right, |_, _, cx| cx.stop_propagation())
-        .on_click(move |_ev, _window, cx| {
-            cx.stop_propagation();
-            if let Some(e) = menu_dismiss_ent.upgrade() {
-                e.update(cx, |this, cx| {
-                    this.repo_session.sidebar_state.dismiss_context_menu();
-                    cx.notify();
-                });
-            }
-        });
+        .on_click(entity_on_click_stop_propagation(entity.clone(), |this, cx| {
+            this.repo_session.sidebar_state.dismiss_context_menu();
+            cx.notify();
+        }));
 
     for (idx, (label, menu_action)) in items.into_iter().enumerate() {
         let item_color = match &menu_action {
@@ -875,7 +869,6 @@ pub(super) fn render_context_menu_overlay(
         );
     }
 
-    let overlay_dismiss_ent = entity;
     div()
         .id("context-menu-overlay")
         .absolute()
@@ -886,15 +879,10 @@ pub(super) fn render_context_menu_overlay(
         .on_mouse_move(|_, _, cx| cx.stop_propagation())
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .on_mouse_down(MouseButton::Right, |_, _, cx| cx.stop_propagation())
-        .on_click(move |_ev, _window, cx| {
-            cx.stop_propagation();
-            if let Some(e) = overlay_dismiss_ent.upgrade() {
-                e.update(cx, |this, cx| {
-                    this.repo_session.sidebar_state.dismiss_context_menu();
-                    cx.notify();
-                });
-            }
-        })
+        .on_click(entity_on_click_stop_propagation(entity, |this, cx| {
+            this.repo_session.sidebar_state.dismiss_context_menu();
+            cx.notify();
+        }))
         .child(window_anchored_popover(
             point(px(pos.0), px(pos.1)),
             menu,

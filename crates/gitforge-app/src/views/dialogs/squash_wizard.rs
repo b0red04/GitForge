@@ -526,13 +526,14 @@ fn render_action_trigger(
                         move |bounds, _, cx| {
                             if let Some(e) = bounds_ent.upgrade() {
                                 e.update(cx, |app, _cx| {
-                                    let wizard = &mut app.squash_wizard.as_mut().unwrap();
-                                    if wizard.action_trigger_bounds.len() <= idx {
-                                        wizard
-                                            .action_trigger_bounds
-                                            .resize(idx + 1, None);
+                                    if let Some(wizard) = app.squash_wizard.as_mut() {
+                                        if wizard.action_trigger_bounds.len() <= idx {
+                                            wizard
+                                                .action_trigger_bounds
+                                                .resize(idx + 1, None);
+                                        }
+                                        wizard.action_trigger_bounds[idx] = Some(bounds);
                                     }
-                                    wizard.action_trigger_bounds[idx] = Some(bounds);
                                 });
                             }
                         },
@@ -563,7 +564,8 @@ fn render_action_menu(
         .flex_col()
         .gap_1()
         .rounded(px(6.0))
-        .p_1();
+        .p_1()
+        .on_click(|_, _, cx| cx.stop_propagation());
 
     for (ix, action) in actions.iter().enumerate() {
         let selected = current == *action;
