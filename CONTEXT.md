@@ -28,7 +28,7 @@ GitForge is a Linux-first Git GUI client built with GPUI (Zed's GPU-accelerated 
 
 **Toolbar** — the top bar showing the app name and current repository path.
 
-**Graph Panel** — a state-owning panel struct (`GraphPanel`) that holds commits, references, the Graph, selection state, and scroll handle. Renders the commit graph with virtual scrolling.
+**Graph Panel** — a state-owning panel struct (`GraphPanel`) that holds commits, references, the Graph, selection state, and scroll handle. Renders the commit graph with virtual scrolling. GPUI-free view state lives in `GraphPanelModel` (`graph_panel/model.rs`); GPUI rendering lives in `graph_panel/render.rs`. The public `GraphPanel` wrapper delegates state mutations to the model and owns the scroll handle.
 
 **Diff Panel** — a state-owning panel struct (`DiffPanel`) that holds diff state and scroll handle. Renders commit metadata, file list, and line-level diff content.
 
