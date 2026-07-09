@@ -6,6 +6,12 @@ pub struct EmbeddedAssets {
     files: HashMap<&'static str, &'static [u8]>,
 }
 
+impl Default for EmbeddedAssets {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl EmbeddedAssets {
     pub fn new() -> Self {
         let mut files = HashMap::new();

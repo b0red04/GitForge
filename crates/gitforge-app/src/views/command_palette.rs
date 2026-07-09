@@ -36,7 +36,7 @@ impl CommandPalette {
         self.query_input.clear();
         self.filtered = (0..self.entries.len()).collect();
         self.selected = 0;
-        window.focus(&self.query_input.focus_handle());
+        window.focus(self.query_input.focus_handle());
         cx.notify();
     }
 

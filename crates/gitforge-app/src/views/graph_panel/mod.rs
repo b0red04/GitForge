@@ -15,6 +15,12 @@ pub struct GraphPanel {
     pub(crate) scroll_handle: UniformListScrollHandle,
 }
 
+impl Default for GraphPanel {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GraphPanel {
     pub fn new() -> Self {
         Self {

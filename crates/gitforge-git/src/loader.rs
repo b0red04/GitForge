@@ -57,12 +57,11 @@ impl RepoState {
             std::collections::HashMap::new()
         });
         for rf in &mut references {
-            if rf.kind == crate::reference::RefKind::Branch {
-                if let Some(&(ahead, behind)) = branch_tracking.get(&rf.name) {
+            if rf.kind == crate::reference::RefKind::Branch
+                && let Some(&(ahead, behind)) = branch_tracking.get(&rf.name) {
                     rf.commits_ahead = ahead;
                     rf.commits_behind = behind;
                 }
-            }
         }
         let local_branches = references
             .iter()

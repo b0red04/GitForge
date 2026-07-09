@@ -4,6 +4,7 @@ use gpui::*;
 use crate::views::app::{AppDialog, CommitPushMode, GitForgeApp};
 use crate::views::dialogs::{self, AddRepoTab, CreatePrState, SquashWizardState};
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn render_dialog_overlay(
     dialog: &AppDialog,
     dialog_input: &TextInput,

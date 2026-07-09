@@ -423,7 +423,7 @@ impl RepoSession {
     pub(crate) fn restore_snapshot_from_tab(&mut self) -> Option<SelectionEffect> {
         let snapshot = self.tabs.active_panel_snapshot();
 
-        let Some(snap) = snapshot else { return None };
+        let snap = snapshot?;
 
         let TabSnapshot {
             selected_commit_id,

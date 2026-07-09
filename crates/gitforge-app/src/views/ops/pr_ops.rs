@@ -169,12 +169,11 @@ impl GitForgeApp {
                 }
             },
             Some(Box::new(move |this, _detail, _cx| {
-                if guard_err.still_relevant(this) && mode_err == PullRequestRefreshMode::Initial {
-                    if let Some(tab) = this.repo_session.active_tab_mut() {
+                if guard_err.still_relevant(this) && mode_err == PullRequestRefreshMode::Initial
+                    && let Some(tab) = this.repo_session.active_tab_mut() {
                         tab.pull_requests.clear();
                         tab.pull_requests_loaded = true;
                     }
-                }
             })),
             None,
         );

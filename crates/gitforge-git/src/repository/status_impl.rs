@@ -20,10 +20,11 @@ fn file_entry(
 
 impl Repository {
     pub fn status(&self) -> GitResult<RepoStatus> {
-        let mut result = RepoStatus::default();
-
-        result.head_branch = self.head_branch()?;
-        result.head_commit = self.head_commit()?.map(|c| c.short_id);
+        let mut result = RepoStatus {
+            head_branch: self.head_branch()?,
+            head_commit: self.head_commit()?.map(|c| c.short_id),
+            ..Default::default()
+        };
 
         let platform = self
             .repo
@@ -31,11 +32,11 @@ impl Repository {
             .map_err(|e| GitError::OperationFailed(e.to_string()))?
             .untracked_files(gix::status::UntrackedFiles::Files);
 
-        let mut iter = platform
+        let iter = platform
             .into_iter(vec![])
             .map_err(|e| GitError::OperationFailed(e.to_string()))?;
 
-        while let Some(item) = iter.next() {
+        for item in iter {
             let item = item.map_err(|e| GitError::OperationFailed(e.to_string()))?;
             match &item {
                 gix::status::Item::TreeIndex(change) => {

@@ -83,6 +83,7 @@ fn no_repo_prompt(muted: Hsla) -> Div {
         .child("Press Ctrl+O to open a repository")
 }
 
+#[allow(clippy::too_many_arguments)]
 fn branch_selector_button(
     repo: &TitlebarRepoContext,
     has_conflict: bool,
@@ -149,6 +150,7 @@ fn branch_selector_button(
     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn repo_breadcrumb_with_selector(
     repo: TitlebarRepoContext,
     repo_state: &RepoState,
@@ -274,6 +276,7 @@ fn render_window_controls(
     Some(row)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn hamburger_button(
     icon_color: Hsla,
     icon_hover: Hsla,
@@ -341,11 +344,10 @@ fn hamburger_button(
         })
         .on_mouse_move(move |_, _, cx| {
             cx.stop_propagation();
-            if menus_visible {
-                if let Some(e) = hover_entity.upgrade() {
+            if menus_visible
+                && let Some(e) = hover_entity.upgrade() {
                     e.update(cx, |app, cx| app.open_titlebar_menu(TitlebarMenu::App, cx));
                 }
-            }
         })
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
 }
@@ -780,6 +782,7 @@ pub fn render_titlebar_accounts(
     row.into_any_element()
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn render_titlebar(
     repo_state: Option<&RepoState>,
     pull_requests: &[PullRequest],
@@ -900,11 +903,10 @@ pub fn render_titlebar(
         entity.clone(),
     ));
 
-    if !window.is_fullscreen() {
-        if let Some(controls) = render_window_controls(window, icon_color, icon_hover, hover_bg) {
+    if !window.is_fullscreen()
+        && let Some(controls) = render_window_controls(window, icon_color, icon_hover, hover_bg) {
             bar = bar.child(controls);
         }
-    }
 
     bar
 }

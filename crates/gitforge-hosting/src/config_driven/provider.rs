@@ -21,7 +21,7 @@ pub struct ConfigDrivenProvider {
 
 impl ConfigDrivenProvider {
     pub fn from_id(id: &str) -> Option<Self> {
-        config_for_id(id).map(|cfg| Self::new(cfg))
+        config_for_id(id).map(Self::new)
     }
 
     pub fn with_url_from_id(id: &str, base_url: String) -> Option<Self> {

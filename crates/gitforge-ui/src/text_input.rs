@@ -503,17 +503,18 @@ pub fn render_text_input(
 }
 
 /// Render a text field whose value is owned elsewhere (e.g. settings draft fields).
+///
+/// Pass `placeholder`, `configured`, and `force_focused` via [`TextInputRenderOpts`].
 pub fn render_static_text_input(
     value: &str,
-    placeholder: &str,
     focus_handle: &FocusHandle,
-    show_cursor: bool,
     display: TextInputDisplay,
-    configured: bool,
     colors: &AppColors,
     opts: TextInputRenderOpts,
     on_click: impl Fn(&mut Window) + 'static,
 ) -> Stateful<Div> {
+    let show_cursor = opts.force_focused.unwrap_or(false);
+    let placeholder = opts.placeholder.as_deref().unwrap_or("");
     let temp = TextInput {
         text: value.to_string(),
         focus_handle: focus_handle.clone(),
@@ -521,10 +522,6 @@ pub fn render_static_text_input(
         mode: TextInputMode::SingleLine,
         display,
     };
-    let opts = opts
-        .placeholder(placeholder)
-        .configured(configured)
-        .force_focused(show_cursor);
     let border = rgba_to_hsla(colors.border);
     let muted = rgba_to_hsla(colors.text_muted);
     let text_color = rgba_to_hsla(colors.text);
@@ -534,9 +531,8 @@ pub fn render_static_text_input(
         .unwrap_or_else(|| rgba_to_hsla(colors.background));
 
     let border_color = if show_cursor { accent } else { border };
-    let placeholder_text = opts.placeholder.as_deref().unwrap_or(placeholder);
     let (display_text, show_placeholder) =
-        temp.display_parts_with_placeholder(show_cursor, opts.configured, placeholder_text);
+        temp.display_parts_with_placeholder(show_cursor, opts.configured, placeholder);
     let display_color = if show_placeholder { muted } else { text_color };
 
     let fh = focus_handle.clone();

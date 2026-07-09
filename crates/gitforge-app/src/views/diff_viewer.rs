@@ -7,7 +7,6 @@ use gitforge_ui::{
 use gpui::*;
 use std::ops::Range;
 use std::rc::Rc;
-use std::sync::Arc;
 
 use super::diff_view::{
     DIFF_LINE_HEIGHT, DIFF_LINE_NUM_WIDTH, DiffLineSelection, SharedHighlightState,
@@ -91,7 +90,7 @@ pub struct DiffViewer {
     selection: DiffLineSelection,
     scroll_handle: UniformListScrollHandle,
     code_scroll_handle: UniformListScrollHandle,
-    highlight: Arc<SharedHighlightState>,
+    highlight: Rc<SharedHighlightState>,
     current_diff: Option<FileDiff>,
     code_view_file: Option<String>,
     code_view_content: Option<String>,
@@ -103,11 +102,17 @@ pub struct DiffViewerRenderCtx {
     pub view_mode: DiffViewMode,
     pub scroll_handle: UniformListScrollHandle,
     pub code_scroll_handle: UniformListScrollHandle,
-    pub highlight: Arc<SharedHighlightState>,
+    pub highlight: Rc<SharedHighlightState>,
     pub code_view_file: Option<String>,
     pub code_view_content: Option<String>,
     pub blame: Option<DiffBlameSnapshot>,
     pub selection: Option<Range<usize>>,
+}
+
+impl Default for DiffViewer {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl DiffViewer {
@@ -117,7 +122,7 @@ impl DiffViewer {
             selection: DiffLineSelection::new(),
             scroll_handle: UniformListScrollHandle::default(),
             code_scroll_handle: UniformListScrollHandle::default(),
-            highlight: Arc::new(SharedHighlightState::new()),
+            highlight: Rc::new(SharedHighlightState::new()),
             current_diff: None,
             code_view_file: None,
             code_view_content: None,
@@ -409,6 +414,7 @@ fn append_working_tree_header_actions(
     header.child(div().text_xs().text_color(muted).child(section_label))
 }
 
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub fn render_diff_viewer(
     ctx: &DiffViewerRenderCtx,
     diff: Option<&FileDiff>,
@@ -462,6 +468,7 @@ pub fn render_diff_viewer(
     }
 }
 
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn render_diff_mode(
     diff: &FileDiff,
     ctx: &DiffViewerRenderCtx,
@@ -539,7 +546,7 @@ fn render_code_view(
     path: Option<&str>,
     colors: &AppColors,
     scroll_handle: UniformListScrollHandle,
-    highlight: Arc<SharedHighlightState>,
+    highlight: Rc<SharedHighlightState>,
     entity: WeakEntity<super::app::GitForgeApp>,
 ) -> Div {
     let border = rgba_to_hsla(colors.border);

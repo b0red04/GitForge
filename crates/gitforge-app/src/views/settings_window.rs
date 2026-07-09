@@ -850,11 +850,10 @@ impl SettingsWindow {
                 "backspace" => self.edit_pat_field(None, cx),
                 "escape" => self.cancel_add_account(cx),
                 _ => {
-                    if let Some(ch) = typed_character(ev) {
-                        if !modifier_keys_prevent_typing(&ev.keystroke.modifiers) {
+                    if let Some(ch) = typed_character(ev)
+                        && !modifier_keys_prevent_typing(&ev.keystroke.modifiers) {
                             self.edit_pat_field(Some(&ch), cx);
                         }
-                    }
                 }
             }
             return;
@@ -874,11 +873,10 @@ impl SettingsWindow {
                     cx.notify();
                 }
                 _ => {
-                    if let Some(ch) = typed_character(ev) {
-                        if !modifier_keys_prevent_typing(&ev.keystroke.modifiers) {
+                    if let Some(ch) = typed_character(ev)
+                        && !modifier_keys_prevent_typing(&ev.keystroke.modifiers) {
                             self.edit_api_key_field(Some(&ch), cx);
                         }
-                    }
                 }
             }
             return;
@@ -892,11 +890,10 @@ impl SettingsWindow {
             match ev.keystroke.key.as_str() {
                 "backspace" => self.edit_search(None, cx),
                 _ => {
-                    if let Some(ch) = typed_character(ev) {
-                        if !modifier_keys_prevent_typing(&ev.keystroke.modifiers) {
+                    if let Some(ch) = typed_character(ev)
+                        && !modifier_keys_prevent_typing(&ev.keystroke.modifiers) {
                             self.edit_search(Some(&ch), cx);
                         }
-                    }
                 }
             }
             return;
@@ -905,11 +902,10 @@ impl SettingsWindow {
         match ev.keystroke.key.as_str() {
             "backspace" => self.edit_focused_field(None, cx),
             _ => {
-                if let Some(ch) = typed_character(ev) {
-                    if !modifier_keys_prevent_typing(&ev.keystroke.modifiers) {
+                if let Some(ch) = typed_character(ev)
+                    && !modifier_keys_prevent_typing(&ev.keystroke.modifiers) {
                         self.edit_focused_field(Some(&ch), cx);
                     }
-                }
             }
         }
     }
@@ -1068,12 +1064,11 @@ fn render_settings_titlebar(colors: &AppColors, window: &Window) -> impl IntoEle
 
     bar = bar.pl(px(8.0)).child(title.flex_1().min_w(px(0.0)));
 
-    if !window.is_fullscreen() {
-        if let Some(controls) = render_settings_window_controls(window, muted, icon_hover, hover_bg)
+    if !window.is_fullscreen()
+        && let Some(controls) = render_settings_window_controls(window, muted, icon_hover, hover_bg)
         {
             bar = bar.child(controls);
         }
-    }
 
     bar
 }
@@ -1086,7 +1081,7 @@ impl Render for SettingsWindow {
             .filter(|s| s.matches_search(&query))
             .collect();
 
-        let display_section = if visible_sections.iter().any(|s| *s == self.active_section) {
+        let display_section = if visible_sections.contains(&self.active_section) {
             self.active_section
         } else {
             visible_sections
@@ -1229,6 +1224,7 @@ impl Render for SettingsWindow {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_sidebar(
     sections: &[SettingsSection],
     active: SettingsSection,
@@ -1343,6 +1339,7 @@ pub struct SettingsRepoData {
     pub closed_paths: Vec<PathBuf>,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_content(
     section: SettingsSection,
     draft: &SettingsDraft,
@@ -1674,11 +1671,10 @@ fn pill_toggle(
                             "repo-auto-push" => {
                                 draft.repo_auto_push_on_commit = !draft.repo_auto_push_on_commit
                             }
-                            "auto-update" => {
-                                if gitforge_update::auto_update_supported() {
+                            "auto-update"
+                                if gitforge_update::auto_update_supported() => {
                                     draft.auto_update = !draft.auto_update;
                                 }
-                            }
                             _ => {}
                         },
                         cx,
@@ -1702,13 +1698,11 @@ fn text_field_control(
 
     render_static_text_input(
         value,
-        placeholder,
         input_focus,
-        is_active,
         TextInputDisplay::Plain,
-        false,
         colors,
         TextInputRenderOpts::new(ElementId::Name(format!("settings-field-{field:?}").into()))
+            .placeholder(placeholder)
             .text_xs()
             .width(px(200.0))
             .text_ellipsis()
@@ -2548,6 +2542,7 @@ fn render_graph_section(
     ))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_ai_section(
     mut body: Stateful<Div>,
     draft: &SettingsDraft,
@@ -2968,6 +2963,7 @@ fn render_ai_section(
     ))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_repositories_section(
     mut body: Stateful<Div>,
     data: SettingsRepoData,
@@ -3266,6 +3262,7 @@ fn render_repositories_section(
     body
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_accounts_section(
     mut body: Stateful<Div>,
     accounts: Vec<gitforge_hosting::HostingAccount>,

@@ -52,7 +52,7 @@ pub fn render_pr_link(
         .on_mouse_move(|_, _, cx| cx.stop_propagation())
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation());
 
-    if let Some(provider) = provider_id.and_then(|id| provider_icon_path(id)) {
+    if let Some(provider) = provider_id.and_then(provider_icon_path) {
         link = link.child(
             svg()
                 .flex_none()

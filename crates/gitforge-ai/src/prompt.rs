@@ -157,12 +157,11 @@ pub fn sanitize_commit_message(raw: &str) -> String {
         lines.remove(0);
     }
 
-    if let Some(first) = lines.first_mut() {
-        if let Some(rest) = first.trim().strip_prefix("```") {
+    if let Some(first) = lines.first_mut()
+        && let Some(rest) = first.trim().strip_prefix("```") {
             *first = rest.trim().to_string();
             stripped_leading_fence = true;
         }
-    }
 
     if stripped_leading_fence {
         while lines.last().is_some_and(|line| is_ignorable_boundary_line(line)) {
@@ -190,7 +189,7 @@ fn is_ignorable_boundary_line(line: &str) -> bool {
 /// Normalize an AI-generated or user-entered branch name into a valid git ref.
 pub fn sanitize_branch_name(raw: &str) -> String {
     let mut name = raw.trim().trim_matches('"').trim_matches('\'').to_lowercase();
-    name = name.replace(' ', "-").replace('_', "-");
+    name = name.replace([' ', '_'], "-");
     name = name
         .chars()
         .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '/')

@@ -496,6 +496,7 @@ fn graph_row_to_list_row(graph_row: usize, uncommitted_offset: usize) -> usize {
     graph_row + uncommitted_offset
 }
 
+#[allow(clippy::too_many_arguments)]
 fn paint_graph_overlay(
     bounds: Bounds<Pixels>,
     graph: &Graph,
@@ -515,11 +516,13 @@ fn paint_graph_overlay(
 
     if use_filtered {
         for list_row in visible_list_rows.clone() {
-            if has_uncommitted && list_row == 0 {
-                continue;
-            }
-            let display_idx = list_row.saturating_sub(uncommitted_offset);
-            let Some(&commit_idx) = visible_indices.get(display_idx) else {
+            let Some(commit_idx) = commit_idx_for_list_row_with(
+                has_uncommitted,
+                use_filtered,
+                visible_indices,
+                graph.nodes().len(),
+                list_row,
+            ) else {
                 continue;
             };
             let Some(node) = graph.nodes().get(commit_idx) else {
@@ -803,6 +806,7 @@ fn render_resize_event_listener(entity: WeakEntity<GitForgeApp>) -> impl IntoEle
     .size_full()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_column_headers(
     border: Hsla,
     muted: Hsla,

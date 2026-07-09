@@ -69,6 +69,12 @@ pub struct GraphPanelModel {
     active_resize: Option<HistoryColumnResize>,
 }
 
+impl Default for GraphPanelModel {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GraphPanelModel {
     pub fn new() -> Self {
         Self {
@@ -152,13 +158,12 @@ impl GraphPanelModel {
                 continue;
             }
             reachable.insert(id.clone());
-            if let Some(&idx) = self.commit_index.get(&id) {
-                if let Some(commit) = self.commits.get(idx) {
+            if let Some(&idx) = self.commit_index.get(&id)
+                && let Some(commit) = self.commits.get(idx) {
                     for pid in &commit.parent_ids {
                         queue.push(pid.clone());
                     }
                 }
-            }
         }
 
         for (idx, commit) in self.commits.iter().enumerate() {
@@ -466,8 +471,7 @@ pub(crate) fn auto_graph_col_width(graph: &Graph) -> f32 {
 
     required_width
         .max(layout::GRAPH_LANE_WIDTH)
-        .max(GRAPH_COL_MIN)
-        .min(GRAPH_COL_MAX)
+        .clamp(GRAPH_COL_MIN, GRAPH_COL_MAX)
 }
 
 fn format_relative_time(dt: &chrono::DateTime<chrono::Utc>) -> String {
@@ -555,10 +559,11 @@ mod tests {
         let c2 = sample_commit("ccc", vec!["bbb"]);
         let commits = vec![c0, c1, c2];
         let graph = build_graph(&commits);
+        // Branch tip at bbb — ccc is not reachable, so filtering must shrink the set.
         let refs = vec![RefInfo {
             name: "main".into(),
             kind: RefKind::Branch,
-            target_commit_id: "ccc".into(),
+            target_commit_id: "bbb".into(),
             is_head: true,
             remote_name: None,
             commits_ahead: 0,
@@ -570,14 +575,19 @@ mod tests {
         assert_eq!(model.visible_commit_count(), 3);
 
         model.set_branch_filter(Some("main".into()));
-        assert_eq!(model.visible_commit_count(), 3);
+        assert_eq!(model.visible_commit_count(), 2);
+        assert_eq!(model.visible_indices, vec![0, 1]);
         assert_eq!(
             commit_idx_for_list_row_with(false, model.use_filtered, &model.visible_indices, model.commits.len(), 0),
             Some(0)
         );
         assert_eq!(
+            commit_idx_for_list_row_with(false, model.use_filtered, &model.visible_indices, model.commits.len(), 1),
+            Some(1)
+        );
+        assert_eq!(
             commit_idx_for_list_row_with(false, model.use_filtered, &model.visible_indices, model.commits.len(), 2),
-            Some(2)
+            None
         );
 
         model.set_branch_filter(Some("missing".into()));

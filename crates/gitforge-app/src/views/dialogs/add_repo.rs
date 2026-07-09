@@ -29,6 +29,7 @@ fn account_tab_label(provider: &str, username: &str) -> String {
     format!("{name} — {username}")
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn render(
     colors: &AppColors,
     entity: WeakEntity<GitForgeApp>,

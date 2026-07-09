@@ -173,6 +173,7 @@ impl SidebarState {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn render_sidebar(
     repo_state: Option<&RepoState>,
     colors: &AppColors,
@@ -452,7 +453,7 @@ pub(crate) fn render_sidebar(
     sidebar
 }
 
-fn sort_tags_newest_first<'a>(tags: &mut Vec<&'a RefInfo>, commits: &[CommitInfo]) {
+fn sort_tags_newest_first(tags: &mut Vec<&RefInfo>, commits: &[CommitInfo]) {
     let dates: HashMap<&str, chrono::DateTime<chrono::Utc>> = commits
         .iter()
         .map(|c| (c.id.as_str(), c.author_date))
@@ -537,6 +538,7 @@ fn render_collapsible_section(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_collapsible_section_with_action(
     title: String,
     expanded: bool,
@@ -1132,14 +1134,13 @@ fn render_worktree_item(
         .cursor_pointer()
         .hover(|s| s.bg(rgba_to_hsla(colors.sidebar_hover)))
         .on_click(move |_ev, _window, cx| {
-            if let Some(e) = ent_switch.upgrade() {
-                if !wt_is_current {
+            if let Some(e) = ent_switch.upgrade()
+                && !wt_is_current {
                     let p = wt_path.clone();
                     e.update(cx, |this, cx| {
                         this.switch_worktree(p, cx);
                     });
                 }
-            }
         })
         .on_mouse_down(
             MouseButton::Right,

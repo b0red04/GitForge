@@ -57,6 +57,7 @@ pub fn confirm(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn render(
     dialog: &AppDialog,
     dialog_input: &TextInput,

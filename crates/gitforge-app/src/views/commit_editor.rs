@@ -53,7 +53,7 @@ impl CommitEditor {
     }
 
     pub fn accept_ai_suggestion(&mut self, idx: usize) {
-        let msg = self.ai_alternatives.get(idx).map(String::clone);
+        let msg = self.ai_alternatives.get(idx).cloned();
         if let Some(msg) = msg {
             self.set_message(&msg);
         }
