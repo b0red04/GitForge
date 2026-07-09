@@ -109,8 +109,8 @@ impl GitForgeApp {
                 cx.update(|_cx| rfd::AsyncFileDialog::new().set_title("Open Git Repository"));
             let folder = match path {
                 Ok(dialog) => {
-                    let result = dialog.pick_folder().await;
-                    result
+                    
+                    dialog.pick_folder().await
                 }
                 Err(_) => None,
             };

@@ -43,8 +43,8 @@ fn parse_blame_porcelain(output: &str) -> GitResult<Vec<BlameLine>> {
     let mut current_line_num: usize = 0;
 
     for raw_line in output.lines() {
-        if raw_line.starts_with('\t') {
-            let content = raw_line[1..].to_string();
+        if let Some(content) = raw_line.strip_prefix('\t') {
+            let content = content.to_string();
             if let Some(commit_id) = &current_commit_id {
                 let info = commits
                     .get(commit_id)
@@ -93,21 +93,20 @@ fn parse_blame_porcelain(output: &str) -> GitResult<Vec<BlameLine>> {
             if let Some(cid) = &current_commit_id {
                 commits.entry(cid.clone()).or_default().is_boundary = true;
             }
-        } else if let Some(first_word) = raw_line.split_whitespace().next() {
-            if first_word.len() >= 7 && first_word.chars().all(|c| c.is_ascii_hexdigit()) {
+        } else if let Some(first_word) = raw_line.split_whitespace().next()
+            && first_word.len() >= 7 && first_word.chars().all(|c| c.is_ascii_hexdigit()) {
                 let parts: Vec<&str> = raw_line.split_whitespace().collect();
                 if parts.len() >= 3 {
                     current_commit_id = Some(first_word.to_string());
                     current_line_num = parts[2].parse().unwrap_or(0);
                 }
             }
-        }
     }
 
     Ok(lines)
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 struct BlameCommitInfo {
     author: String,
     author_mail: String,
@@ -116,14 +115,3 @@ struct BlameCommitInfo {
     is_boundary: bool,
 }
 
-impl Default for BlameCommitInfo {
-    fn default() -> Self {
-        Self {
-            author: String::new(),
-            author_mail: String::new(),
-            author_time: String::new(),
-            summary: String::new(),
-            is_boundary: false,
-        }
-    }
-}

@@ -1,4 +1,4 @@
-use gitforge_git::{CommitInfo, RefInfo, RefKind};
+use gitforge_git::{RefInfo, RefKind};
 use gitforge_graph::{CommitLineSegment, CurveKind, Graph};
 use gitforge_ui::{AppColors, ShellWidth, panel_shell, rgba_to_hsla};
 use gpui::*;
@@ -6,54 +6,19 @@ use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 use std::sync::Arc;
 
-use super::layout::{self, AUTHOR_COL, HASH_COL, ROW_HEIGHT, TIME_COL};
+use crate::views::layout::{self, ROW_HEIGHT};
+use crate::views::app::GitForgeApp;
+use super::model::{commit_idx_for_list_row_with, GraphSelection, HistoryColumn};
+use super::GraphPanel;
 
 const LEFT_PADDING: f32 = 12.0;
 const LANE_WIDTH: f32 = 16.0;
 const COMMIT_CIRCLE_RADIUS: f32 = 3.5;
 const COMMIT_CIRCLE_STROKE_WIDTH: f32 = 1.5;
 const LINE_WIDTH: f32 = 1.5;
-const GRAPH_COL_MIN: f32 = 80.0;
-const GRAPH_COL_MAX: f32 = 1200.0;
-const HASH_COL_MIN: f32 = 48.0;
-const HASH_COL_MAX: f32 = 140.0;
-const TIME_COL_MIN: f32 = 70.0;
-const TIME_COL_MAX: f32 = 160.0;
-const AUTHOR_COL_MIN: f32 = 60.0;
-const AUTHOR_COL_MAX: f32 = 200.0;
 const VISIBLE_REF_PILLS: usize = 4;
 const RESIZE_HANDLE_WIDTH: f32 = 6.0;
 const ROW_SEPARATOR_ALPHA: f32 = 0.9;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum HistoryColumn {
-    Graph,
-    Sha,
-    Time,
-    Author,
-}
-
-#[derive(Debug, Clone, Copy)]
-struct HistoryColumnResize {
-    column: HistoryColumn,
-    start_x: f32,
-    start_width: f32,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GraphSelection {
-    None,
-    Uncommitted,
-    Commit(usize),
-}
-
-#[derive(Clone)]
-struct CommitRowRenderData {
-    summary: SharedString,
-    short_id: SharedString,
-    author_name: SharedString,
-    relative_time: SharedString,
-}
 
 struct CommitMessageTooltip {
     message: SharedString,
@@ -117,317 +82,42 @@ struct CommitGraphDecoration {
     graph: Arc<Graph>,
     graph_col_width: f32,
     has_uncommitted: bool,
+    use_filtered: bool,
+    visible_indices: Arc<[usize]>,
     colors: AppColors,
 }
 
-pub struct GraphPanel {
-    commits: Arc<[CommitInfo]>,
-    row_render_data: Arc<[CommitRowRenderData]>,
-    references: Arc<[RefInfo]>,
-    graph: Arc<Graph>,
-    selection: GraphSelection,
-    has_uncommitted: bool,
-    scroll_handle: UniformListScrollHandle,
-    branch_filter: Option<String>,
-    filtered_indices: Vec<usize>,
-    use_filtered: bool,
-    commit_index: HashMap<String, usize>,
-    refs_by_commit: Arc<HashMap<String, Arc<[RefInfo]>>>,
-    detached_head_commit: Option<String>,
-    graph_col_width: f32,
-    graph_col_user_resized: bool,
-    hash_col_width: f32,
-    time_col_width: f32,
-    author_col_width: f32,
-    active_resize: Option<HistoryColumnResize>,
-}
-
-impl GraphPanel {
-    pub fn new() -> Self {
-        Self {
-            commits: Arc::from([]),
-            row_render_data: Arc::from([]),
-            references: Arc::from([]),
-            graph: Arc::new(Graph::new()),
-            selection: GraphSelection::None,
-            has_uncommitted: false,
-            scroll_handle: UniformListScrollHandle::default(),
-            branch_filter: None,
-            filtered_indices: Vec::new(),
-            use_filtered: false,
-            commit_index: HashMap::new(),
-            refs_by_commit: Arc::new(HashMap::new()),
-            detached_head_commit: None,
-            graph_col_width: layout::GRAPH_LANE_WIDTH,
-            graph_col_user_resized: false,
-            hash_col_width: HASH_COL,
-            time_col_width: TIME_COL,
-            author_col_width: AUTHOR_COL,
-            active_resize: None,
-        }
-    }
-
-    pub fn set_data(
-        &mut self,
-        commits: Vec<CommitInfo>,
-        references: Vec<RefInfo>,
-        graph: Graph,
-        has_uncommitted: bool,
-        detached_head_commit: Option<String>,
-    ) {
-        self.commit_index.clear();
-        for (i, c) in commits.iter().enumerate() {
-            self.commit_index.insert(c.id.clone(), i);
-            self.commit_index.insert(c.short_id.clone(), i);
-        }
-        self.row_render_data = commits
-            .iter()
-            .map(|commit| CommitRowRenderData {
-                summary: commit.summary.clone().into(),
-                short_id: commit.short_id.clone().into(),
-                author_name: commit.author_name.clone().into(),
-                relative_time: format_relative_time(&commit.author_date).into(),
-            })
-            .collect::<Vec<_>>()
-            .into();
-        self.refs_by_commit = Arc::new(build_refs_by_commit(&references));
-        if !self.graph_col_user_resized {
-            self.graph_col_width = auto_graph_col_width(&graph);
-        }
-
-        self.commits = commits.into();
-        self.references = references.into();
-        self.graph = Arc::new(graph);
-        self.has_uncommitted = has_uncommitted;
-        self.detached_head_commit = detached_head_commit;
-        self.selection = GraphSelection::None;
-        self.update_filtered_indices();
-    }
-
-    fn update_filtered_indices(&mut self) {
-        self.filtered_indices.clear();
-        self.use_filtered = false;
-
-        let Some(ref branch_name) = self.branch_filter else {
-            return;
-        };
-
-        let target_ref = self.references.iter().find(|r| r.name == *branch_name);
-
-        let Some(target) = target_ref else { return };
-
-        let target_id = &target.target_commit_id;
-        let mut reachable = std::collections::HashSet::new();
-        let mut queue = vec![target_id.clone()];
-
-        while let Some(id) = queue.pop() {
-            if reachable.contains(&id) {
-                continue;
-            }
-            reachable.insert(id.clone());
-            if let Some(&idx) = self.commit_index.get(&id) {
-                if let Some(commit) = self.commits.get(idx) {
-                    for pid in &commit.parent_ids {
-                        queue.push(pid.clone());
-                    }
-                }
-            }
-        }
-
-        for (idx, commit) in self.commits.iter().enumerate() {
-            if reachable.contains(&commit.id) {
-                self.filtered_indices.push(idx);
-            }
-        }
-
-        self.use_filtered = !self.filtered_indices.is_empty();
-    }
-
-    pub fn set_branch_filter(&mut self, branch: Option<String>) {
-        self.branch_filter = branch;
-        self.clear_selection();
-        self.update_filtered_indices();
-    }
-
-    pub fn selection(&self) -> GraphSelection {
-        self.selection
-    }
-
-    pub fn is_uncommitted_selected(&self) -> bool {
-        self.selection == GraphSelection::Uncommitted
-    }
-
-    pub fn selected_commit_idx(&self) -> Option<usize> {
-        match self.selection {
-            GraphSelection::Commit(idx) => Some(idx),
-            _ => None,
-        }
-    }
-
-    /// Alias for [`Self::selected_commit_idx`].
-    pub fn selected_idx(&self) -> Option<usize> {
-        self.selected_commit_idx()
-    }
-
-    pub fn clear_selection(&mut self) {
-        self.selection = GraphSelection::None;
-    }
-
-    pub fn select_uncommitted(&mut self) {
-        if self.has_uncommitted {
-            self.selection = GraphSelection::Uncommitted;
-        }
-    }
-
-    pub fn select_commit(&mut self, idx: usize) {
-        if idx < self.commits.len() {
-            self.selection = GraphSelection::Commit(idx);
-        }
-    }
-
-    pub fn select_prev(&mut self) -> bool {
-        self.select_delta(-1)
-    }
-
-    pub fn select_next(&mut self) -> bool {
-        self.select_delta(1)
-    }
-
-    fn select_delta(&mut self, delta: isize) -> bool {
-        if self.commits.is_empty() && !self.has_uncommitted {
-            return false;
-        }
-
-        let new_selection = match (self.selection, delta) {
-            (GraphSelection::None, 1) => {
-                if self.has_uncommitted {
-                    GraphSelection::Uncommitted
-                } else if !self.commits.is_empty() {
-                    GraphSelection::Commit(0)
-                } else {
-                    return false;
-                }
-            }
-            (GraphSelection::None, -1) => return false,
-            (GraphSelection::Uncommitted, 1) => {
-                if self.commits.is_empty() {
-                    return false;
-                }
-                GraphSelection::Commit(0)
-            }
-            (GraphSelection::Uncommitted, -1) => return false,
-            (GraphSelection::Commit(0), -1) => {
-                if self.has_uncommitted {
-                    GraphSelection::Uncommitted
-                } else {
-                    return false;
-                }
-            }
-            (GraphSelection::Commit(idx), d) => {
-                let candidate = idx as isize + d;
-                if candidate < 0 || candidate as usize >= self.commits.len() {
-                    return false;
-                }
-                GraphSelection::Commit(candidate as usize)
-            }
-            _ => return false,
-        };
-
-        self.selection = new_selection;
-        true
-    }
-
-    pub fn commit_id_at(&self, idx: usize) -> Option<&str> {
-        self.commits.get(idx).map(|c| c.id.as_str())
-    }
-
-    pub fn find_commit_idx(&self, commit_id: &str) -> Option<usize> {
-        self.commits.iter().position(|c| c.id == commit_id)
-    }
-
-    fn start_column_resize(&mut self, column: HistoryColumn, start_x: f32) {
-        let start_width = match column {
-            HistoryColumn::Graph => self.graph_col_width,
-            HistoryColumn::Sha => self.hash_col_width,
-            HistoryColumn::Time => self.time_col_width,
-            HistoryColumn::Author => self.author_col_width,
-        };
-        self.active_resize = Some(HistoryColumnResize {
-            column,
-            start_x,
-            start_width,
-        });
-    }
-
-    fn update_column_resize(&mut self, current_x: f32) -> bool {
-        let Some(active_resize) = self.active_resize else {
-            return false;
-        };
-
-        let delta = current_x - active_resize.start_x;
-        let (target, min, max) = match active_resize.column {
-            HistoryColumn::Graph => (
-                &mut self.graph_col_width,
-                GRAPH_COL_MIN,
-                GRAPH_COL_MAX.max(active_resize.start_width),
-            ),
-            HistoryColumn::Sha => (&mut self.hash_col_width, HASH_COL_MIN, HASH_COL_MAX),
-            HistoryColumn::Time => (&mut self.time_col_width, TIME_COL_MIN, TIME_COL_MAX),
-            HistoryColumn::Author => (&mut self.author_col_width, AUTHOR_COL_MIN, AUTHOR_COL_MAX),
-        };
-        let signed_delta = match active_resize.column {
-            HistoryColumn::Time | HistoryColumn::Author => -delta,
-            HistoryColumn::Graph | HistoryColumn::Sha => delta,
-        };
-        let next_width = (active_resize.start_width + signed_delta).clamp(min, max);
-
-        if (*target - next_width).abs() < f32::EPSILON {
-            return false;
-        }
-
-        if active_resize.column == HistoryColumn::Graph {
-            self.graph_col_user_resized = true;
-        }
-
-        *target = next_width;
-        true
-    }
-
-    fn finish_column_resize(&mut self) -> bool {
-        self.active_resize.take().is_some()
-    }
-
-    pub fn render(
-        &self,
+pub(super) fn render_panel(
+    panel: &GraphPanel,
         colors: &AppColors,
         show_graph_col: bool,
         show_sha_col: bool,
         show_time_col: bool,
         show_author_col: bool,
-        entity: WeakEntity<super::app::GitForgeApp>,
-    ) -> Div {
+    entity: WeakEntity<GitForgeApp>,
+) -> Div {
         let bg = rgba_to_hsla(colors.background);
         let border = rgba_to_hsla(colors.border);
         let muted = rgba_to_hsla(colors.text_muted);
         let accent = rgba_to_hsla(colors.accent);
 
         let graph_col_width = if show_graph_col {
-            self.graph_col_width
+            panel.model().graph_col_width
         } else {
             0.0
         };
         let hash_col_width = if show_sha_col {
-            self.hash_col_width
+            panel.model().hash_col_width
         } else {
             0.0
         };
         let time_col_width = if show_time_col {
-            self.time_col_width
+            panel.model().time_col_width
         } else {
             0.0
         };
         let author_col_width = if show_author_col {
-            self.author_col_width
+            panel.model().author_col_width
         } else {
             0.0
         };
@@ -446,7 +136,7 @@ impl GraphPanel {
             time_col_width,
         );
 
-        if self.commits.is_empty() {
+        if panel.model().commits.is_empty() {
             return history_panel_shell(bg, border)
                 .child(column_headers)
                 .child(
@@ -460,17 +150,25 @@ impl GraphPanel {
                 .child(resize_events);
         }
 
-        let total_items = self.commits.len() + if self.has_uncommitted { 1 } else { 0 };
-        let commits = Arc::clone(&self.commits);
-        let row_render_data = Arc::clone(&self.row_render_data);
-        let refs_by_commit = Arc::clone(&self.refs_by_commit);
-        let graph = Arc::clone(&self.graph);
-        let selection = self.selection;
-        let has_uncommitted = self.has_uncommitted;
-        let detached_head_commit = self.detached_head_commit.clone();
+        let total_items = panel.model().total_list_items();
+        let commits = Arc::clone(&panel.model().commits);
+        let row_render_data = Arc::clone(&panel.model().row_render_data);
+        let refs_by_commit = Arc::clone(&panel.model().refs_by_commit);
+        let graph = Arc::clone(&panel.model().graph);
+        let selection = panel.model().selection();
+        let has_uncommitted = panel.model().has_uncommitted;
+        let detached_head_commit = panel.model().detached_head_commit.clone();
         let cl = colors.clone();
-        let scroll_handle = self.scroll_handle.clone();
+        let scroll_handle = panel.scroll_handle.clone();
         let list_entity = entity.clone();
+        let use_filtered = panel.model().use_filtered;
+        let visible_indices: Arc<[usize]> = if use_filtered {
+            panel.model().visible_indices.clone().into()
+        } else {
+            Arc::from([])
+        };
+        let visible_indices_for_decoration = visible_indices.clone();
+        let commit_count = panel.model().visible_commit_count();
 
         let mut list = uniform_list(
             "commit-list",
@@ -553,7 +251,15 @@ impl GraphPanel {
                         continue;
                     }
 
-                    let commit_idx = if has_uncommitted { item_i - 1 } else { item_i };
+                    let Some(commit_idx) = commit_idx_for_list_row_with(
+                        has_uncommitted,
+                        use_filtered,
+                        &visible_indices,
+                        commit_count,
+                        item_i,
+                    ) else {
+                        continue;
+                    };
                     let commit = &commits[commit_idx];
                     let row_data = &row_render_data[commit_idx];
                     let is_selected = selection == GraphSelection::Commit(commit_idx);
@@ -565,10 +271,10 @@ impl GraphPanel {
 
                     let refs_for_commit = refs_by_commit.get(&commit.id);
 
-                    let summary = row_data.summary.clone();
-                    let short_id = row_data.short_id.clone();
-                    let author_name = row_data.author_name.clone();
-                    let time_label = row_data.relative_time.clone();
+                    let summary: SharedString = row_data.summary.clone().into();
+                    let short_id: SharedString = row_data.short_id.clone().into();
+                    let author_name: SharedString = row_data.author_name.clone().into();
+                    let time_label: SharedString = row_data.relative_time.clone().into();
 
                     let click_entity = list_entity.clone();
                     let ref_pills = render_ref_pills(
@@ -705,6 +411,8 @@ impl GraphPanel {
                 graph,
                 graph_col_width,
                 has_uncommitted,
+                use_filtered,
+                visible_indices: visible_indices_for_decoration.clone(),
                 colors: colors.clone(),
             });
         }
@@ -721,7 +429,6 @@ impl GraphPanel {
             .child(content_area)
             .child(resize_events)
     }
-}
 
 impl UniformListDecoration for CommitGraphDecoration {
     fn compute(
@@ -736,6 +443,8 @@ impl UniformListDecoration for CommitGraphDecoration {
     ) -> AnyElement {
         let graph = Arc::clone(&self.graph);
         let has_uncommitted = self.has_uncommitted;
+        let use_filtered = self.use_filtered;
+        let visible_indices = self.visible_indices.clone();
         let colors = self.colors.clone();
         let content_height = item_height * item_count;
 
@@ -746,6 +455,8 @@ impl UniformListDecoration for CommitGraphDecoration {
                     bounds,
                     &graph,
                     has_uncommitted,
+                    use_filtered,
+                    &visible_indices,
                     visible_range.clone(),
                     item_height,
                     &colors,
@@ -767,51 +478,11 @@ fn snapped_graph_row_height(window: &Window) -> Pixels {
     layout::snap_px(ROW_HEIGHT, window.scale_factor())
 }
 
-fn build_refs_by_commit(references: &[RefInfo]) -> HashMap<String, Arc<[RefInfo]>> {
-    let mut grouped: HashMap<String, Vec<RefInfo>> = HashMap::new();
-    for rf in references {
-        grouped
-            .entry(rf.target_commit_id.clone())
-            .or_default()
-            .push(rf.clone());
-    }
-
-    grouped
-        .into_iter()
-        .map(|(commit_id, refs)| (commit_id, Arc::from(refs)))
-        .collect()
-}
 
 fn resize_spacer() -> Div {
     div().w(px(RESIZE_HANDLE_WIDTH)).flex_shrink_0()
 }
 
-fn auto_graph_col_width(graph: &Graph) -> f32 {
-    let max_node_lane = graph.nodes().iter().map(|node| node.lane).max();
-    let max_line_lane = graph.lines().iter().fold(None, |max_lane, line| {
-        let line_max = line.segments.iter().fold(
-            line.child_column.max(line.color_lane),
-            |segment_max, segment| match segment {
-                CommitLineSegment::Straight { .. } => segment_max,
-                CommitLineSegment::Curve { to_column, .. } => segment_max.max(*to_column),
-            },
-        );
-
-        Some(max_lane.map_or(line_max, |lane: usize| lane.max(line_max)))
-    });
-
-    let max_lane = max_node_lane
-        .into_iter()
-        .chain(max_line_lane)
-        .max()
-        .unwrap_or(0);
-    let required_width = LEFT_PADDING + (max_lane as f32 + 1.0) * LANE_WIDTH + LEFT_PADDING;
-
-    required_width
-        .max(layout::GRAPH_LANE_WIDTH)
-        .max(GRAPH_COL_MIN)
-        .min(GRAPH_COL_MAX)
-}
 
 fn lane_center_x(bounds: Bounds<Pixels>, lane: f32) -> Pixels {
     bounds.origin.x + px(LEFT_PADDING) + px(lane * LANE_WIDTH) + px(LANE_WIDTH / 2.0)
@@ -825,10 +496,13 @@ fn graph_row_to_list_row(graph_row: usize, uncommitted_offset: usize) -> usize {
     graph_row + uncommitted_offset
 }
 
+#[allow(clippy::too_many_arguments)]
 fn paint_graph_overlay(
     bounds: Bounds<Pixels>,
     graph: &Graph,
     has_uncommitted: bool,
+    use_filtered: bool,
+    visible_indices: &[usize],
     visible_list_rows: Range<usize>,
     row_height: Pixels,
     colors: &AppColors,
@@ -839,22 +513,44 @@ fn paint_graph_overlay(
     }
 
     let uncommitted_offset = usize::from(has_uncommitted);
-    let first_visible_graph_row = visible_list_rows.start.saturating_sub(uncommitted_offset);
-    let last_visible_graph_row_exclusive = visible_list_rows.end.saturating_sub(uncommitted_offset);
 
-    // Commit dots for visible graph rows.
-    let visible_node_start = first_visible_graph_row.min(graph.nodes().len());
-    let visible_node_end = last_visible_graph_row_exclusive.min(graph.nodes().len());
-    for (graph_row, node) in graph.nodes()[visible_node_start..visible_node_end]
-        .iter()
-        .enumerate()
-    {
-        let graph_row = visible_node_start + graph_row;
-        let list_row = graph_row_to_list_row(graph_row, uncommitted_offset);
-        let x = lane_center_x(bounds, node.lane as f32);
-        let y = list_row_center_y(list_row, row_height, bounds);
-        let color = rgba_to_hsla(colors.graph_lane_color(node.lane));
-        draw_commit_circle(x, y, color, node.is_merge, colors, window);
+    if use_filtered {
+        for list_row in visible_list_rows.clone() {
+            let Some(commit_idx) = commit_idx_for_list_row_with(
+                has_uncommitted,
+                use_filtered,
+                visible_indices,
+                graph.nodes().len(),
+                list_row,
+            ) else {
+                continue;
+            };
+            let Some(node) = graph.nodes().get(commit_idx) else {
+                continue;
+            };
+            let x = lane_center_x(bounds, node.lane as f32);
+            let y = list_row_center_y(list_row, row_height, bounds);
+            let color = rgba_to_hsla(colors.graph_lane_color(node.lane));
+            draw_commit_circle(x, y, color, node.is_merge, colors, window);
+        }
+    } else {
+        let first_visible_graph_row = visible_list_rows.start.saturating_sub(uncommitted_offset);
+        let last_visible_graph_row_exclusive =
+            visible_list_rows.end.saturating_sub(uncommitted_offset);
+
+        let visible_node_start = first_visible_graph_row.min(graph.nodes().len());
+        let visible_node_end = last_visible_graph_row_exclusive.min(graph.nodes().len());
+        for (graph_row, node) in graph.nodes()[visible_node_start..visible_node_end]
+            .iter()
+            .enumerate()
+        {
+            let graph_row = visible_node_start + graph_row;
+            let list_row = graph_row_to_list_row(graph_row, uncommitted_offset);
+            let x = lane_center_x(bounds, node.lane as f32);
+            let y = list_row_center_y(list_row, row_height, bounds);
+            let color = rgba_to_hsla(colors.graph_lane_color(node.lane));
+            draw_commit_circle(x, y, color, node.is_merge, colors, window);
+        }
     }
 
     // Uncommitted changes indicator.
@@ -870,6 +566,14 @@ fn paint_graph_overlay(
             .corner_radii(r),
         );
     }
+
+    if use_filtered {
+        return;
+    }
+
+    let first_visible_graph_row = visible_list_rows.start.saturating_sub(uncommitted_offset);
+    let last_visible_graph_row_exclusive =
+        visible_list_rows.end.saturating_sub(uncommitted_offset);
 
     let desired_curve_height = row_height / 3.0;
     let desired_curve_width = px(LANE_WIDTH / 3.0);
@@ -1058,7 +762,7 @@ fn render_row_separator(colors: &AppColors, left_offset: f32) -> Div {
         .bg(row_separator_color(colors))
 }
 
-fn render_resize_event_listener(entity: WeakEntity<super::app::GitForgeApp>) -> impl IntoElement {
+fn render_resize_event_listener(entity: WeakEntity<GitForgeApp>) -> impl IntoElement {
     canvas(
         |_bounds, _window, _cx| {},
         move |_bounds, _: (), window: &mut Window, _cx: &mut App| {
@@ -1102,10 +806,11 @@ fn render_resize_event_listener(entity: WeakEntity<super::app::GitForgeApp>) -> 
     .size_full()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_column_headers(
     border: Hsla,
     muted: Hsla,
-    entity: WeakEntity<super::app::GitForgeApp>,
+    entity: WeakEntity<GitForgeApp>,
     show_graph_col: bool,
     graph_col_width: f32,
     show_sha_col: bool,
@@ -1191,7 +896,7 @@ fn render_column_headers(
 
 fn render_resize_handle(
     column: HistoryColumn,
-    entity: WeakEntity<super::app::GitForgeApp>,
+    entity: WeakEntity<GitForgeApp>,
     border: Hsla,
 ) -> impl IntoElement {
     div()
@@ -1537,20 +1242,3 @@ fn contrast_text_for(bg: Rgba) -> Hsla {
     }
 }
 
-fn format_relative_time(dt: &chrono::DateTime<chrono::Utc>) -> String {
-    let now = chrono::Utc::now();
-    let diff = now.signed_duration_since(*dt);
-    if diff.num_seconds() < 60 {
-        "just now".into()
-    } else if diff.num_minutes() < 60 {
-        format!("{}m ago", diff.num_minutes())
-    } else if diff.num_hours() < 24 {
-        format!("{}h ago", diff.num_hours())
-    } else if diff.num_days() < 30 {
-        format!("{}d ago", diff.num_days())
-    } else if diff.num_days() < 365 {
-        format!("{}mo ago", diff.num_days() / 30)
-    } else {
-        format!("{}y ago", diff.num_days() / 365)
-    }
-}

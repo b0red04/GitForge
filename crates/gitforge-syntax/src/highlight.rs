@@ -15,7 +15,7 @@ pub enum HighlightScope {
 }
 
 thread_local! {
-    static PARSER_POOL: RefCell<Option<tree_sitter::Parser>> = RefCell::new(None);
+    static PARSER_POOL: RefCell<Option<tree_sitter::Parser>> = const { RefCell::new(None) };
 }
 
 #[derive(Debug, Clone)]

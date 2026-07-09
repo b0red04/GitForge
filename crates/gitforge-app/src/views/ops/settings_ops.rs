@@ -21,7 +21,7 @@ impl GitForgeApp {
     }
 
     pub(crate) fn push_settings_window_theme(&mut self, cx: &mut Context<Self>) {
-        let Some(handle) = self.settings_window.clone() else {
+        let Some(handle) = self.settings_window else {
             return;
         };
         let colors = self.colors.clone();
@@ -62,7 +62,7 @@ impl GitForgeApp {
     }
 
     pub(crate) fn notify_settings_window(&mut self, cx: &mut Context<Self>) {
-        let Some(handle) = self.settings_window.clone() else {
+        let Some(handle) = self.settings_window else {
             return;
         };
         let repo_data = self.settings_repo_data();
@@ -92,7 +92,7 @@ impl GitForgeApp {
     ) {
         let initial_section = section.unwrap_or(SettingsSection::General);
 
-        if let Some(handle) = self.settings_window.clone() {
+        if let Some(handle) = self.settings_window {
             let draft = SettingsDraft::from_settings(&self.settings);
             let colors = self.colors.clone();
             let repo_data = self.settings_repo_data();

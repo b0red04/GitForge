@@ -45,11 +45,10 @@ impl Repository {
                 if let Some(ref mut wt) = current_wt {
                     wt.is_detached = true;
                 }
-            } else if line == "bare" {
-                if let Some(ref mut wt) = current_wt {
+            } else if line == "bare"
+                && let Some(ref mut wt) = current_wt {
                     wt.is_bare = true;
                 }
-            }
         }
 
         if let Some(wt) = current_wt.take() {

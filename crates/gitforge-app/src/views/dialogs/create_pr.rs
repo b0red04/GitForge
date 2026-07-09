@@ -476,6 +476,7 @@ pub fn render(
     overlay
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_dropdown_trigger(
     id: &str,
     label: &str,

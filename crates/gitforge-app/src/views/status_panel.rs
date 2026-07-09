@@ -47,6 +47,12 @@ pub enum StatusViewMode {
 }
 
 #[allow(dead_code)]
+impl Default for StatusPanel {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl StatusPanel {
     pub fn new() -> Self {
         Self {
@@ -195,7 +201,9 @@ impl StatusPanel {
                     .child("CHANGES"),
             );
 
-        let panel = match &self.status {
+        
+
+        match &self.status {
             Some(status)
                 if status.has_changes()
                     || self.view_mode == StatusViewMode::Commit
@@ -246,9 +254,7 @@ impl StatusPanel {
             _ => status_panel_shell(surface)
                 .child(header)
                 .child(empty_state("No uncommitted changes", wc)),
-        };
-
-        panel
+        }
     }
 
     pub fn render_graph_staging(
@@ -536,13 +542,12 @@ impl StatusPanel {
                     .font_weight(FontWeight::SEMIBOLD)
                     .child("Commit")
                     .on_click(move |_ev, _window, cx| {
-                        if can_commit {
-                            if let Some(e) = commit_ent2.upgrade() {
+                        if can_commit
+                            && let Some(e) = commit_ent2.upgrade() {
                                 e.update(cx, |this, cx| {
                                     this.show_commit_dialog(cx);
                                 });
                             }
-                        }
                     })
             }));
         }
@@ -652,11 +657,7 @@ fn render_status_file_entry(
     let surface = rgba_to_hsla(colors.surface);
     let selected_bg = rgba_to_hsla(colors.sidebar_selected);
     let bg = if is_selected { selected_bg } else { surface };
-    let text_color = if is_selected {
-        rgba_to_hsla(colors.text)
-    } else {
-        rgba_to_hsla(colors.text)
-    };
+    let text_color = rgba_to_hsla(colors.text);
     let path_muted = rgba_to_hsla(colors.text_muted);
     let is_deleted = entry.status == FileStatus::Deleted;
 

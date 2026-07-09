@@ -120,13 +120,13 @@ pub fn parse_unified_diff(raw: &str) -> Vec<FileDiff> {
             None => continue,
         };
 
-        if line.starts_with("--- ") {
-            file.old_path = normalize_diff_path(&line[4..]);
+        if let Some(path) = line.strip_prefix("--- ") {
+            file.old_path = normalize_diff_path(path);
             continue;
         }
 
-        if line.starts_with("+++ ") {
-            file.new_path = normalize_diff_path(&line[4..]);
+        if let Some(path) = line.strip_prefix("+++ ") {
+            file.new_path = normalize_diff_path(path);
             continue;
         }
 
@@ -162,31 +162,29 @@ pub fn parse_unified_diff(raw: &str) -> Vec<FileDiff> {
             continue;
         }
 
-        if line.starts_with('+') {
+        if let Some(content) = line.strip_prefix('+') {
             if hunk_start.is_none() {
                 continue;
             }
-            let content = line[1..].to_string();
             file.lines.push(DiffLine {
                 line_type: DiffLineType::Added,
                 old_line: None,
                 new_line: Some(new_line),
-                content,
+                content: content.to_string(),
             });
             new_line += 1;
-        } else if line.starts_with('-') {
+        } else if let Some(content) = line.strip_prefix('-') {
             if hunk_start.is_none() {
                 continue;
             }
-            let content = line[1..].to_string();
             file.lines.push(DiffLine {
                 line_type: DiffLineType::Removed,
                 old_line: Some(old_line),
                 new_line: None,
-                content,
+                content: content.to_string(),
             });
             old_line += 1;
-        } else if line.starts_with('\\') {
+        } else if let Some(content) = line.strip_prefix('\\') {
             if hunk_start.is_none() {
                 continue;
             }
@@ -194,7 +192,7 @@ pub fn parse_unified_diff(raw: &str) -> Vec<FileDiff> {
                 line_type: DiffLineType::NoNewlineAtEof,
                 old_line: None,
                 new_line: None,
-                content: line[1..].to_string(),
+                content: content.to_string(),
             });
         } else {
             if hunk_start.is_none() {

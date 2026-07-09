@@ -520,11 +520,10 @@ impl GitForgeApp {
                 if clear_status {
                     this.repo_session.remote_status.clear();
                 }
-                if let Some(ref b) = busy {
-                    if b.should_clear_on_complete(this) {
+                if let Some(ref b) = busy
+                    && b.should_clear_on_complete(this) {
                         b.set(this, false);
                     }
-                }
                 if let Some(fin) = finally {
                     fin(this, cx);
                 }

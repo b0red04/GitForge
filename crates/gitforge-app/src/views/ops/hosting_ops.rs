@@ -25,13 +25,11 @@ impl GitForgeApp {
             .join("gitforge")
             .join("hosting_accounts.json");
 
-        if path.exists() {
-            if let Ok(data) = std::fs::read_to_string(&path) {
-                if let Ok(accounts) = serde_json::from_str(&data) {
+        if path.exists()
+            && let Ok(data) = std::fs::read_to_string(&path)
+                && let Ok(accounts) = serde_json::from_str(&data) {
                     self.hosting_accounts = accounts;
                 }
-            }
-        }
     }
 
     pub(crate) fn backfill_avatar_caches(&mut self, cx: &mut Context<Self>) {

@@ -35,13 +35,11 @@ impl Repository {
         let mut remotes = Vec::new();
         let mut seen = std::collections::HashSet::new();
         for line in text.lines() {
-            if let Some((name, rest)) = line.split_once('\t') {
-                if let Some(url) = rest.split_whitespace().next() {
-                    if seen.insert(name.to_string()) {
+            if let Some((name, rest)) = line.split_once('\t')
+                && let Some(url) = rest.split_whitespace().next()
+                    && seen.insert(name.to_string()) {
                         remotes.push((name.to_string(), url.to_string()));
                     }
-                }
-            }
         }
         Ok(remotes)
     }

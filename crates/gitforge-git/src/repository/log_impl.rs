@@ -117,13 +117,11 @@ impl Repository {
             }
         }
 
-        if tips.is_empty() {
-            if let Ok(mut head) = self.repo.head() {
-                if let Ok(Some(id)) = head.try_peel_to_id_in_place() {
+        if tips.is_empty()
+            && let Ok(mut head) = self.repo.head()
+                && let Ok(Some(id)) = head.try_peel_to_id_in_place() {
                     tips.push(id.detach());
                 }
-            }
-        }
 
         Ok(tips)
     }

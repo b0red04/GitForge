@@ -415,6 +415,7 @@ pub fn render(
     overlay
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_commit_row(
     idx: usize,
     entry: &SquashWizardEntry,
@@ -472,6 +473,7 @@ fn render_commit_row(
     row
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_action_trigger(
     idx: usize,
     current: RebaseAction,

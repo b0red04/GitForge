@@ -23,6 +23,12 @@ pub struct SharedHighlightState {
     pub cache: RefCell<HashMap<HighlightCacheKey, HighlightedLine>>,
 }
 
+impl Default for SharedHighlightState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SharedHighlightState {
     pub fn new() -> Self {
         Self {
@@ -73,6 +79,12 @@ impl SharedHighlightState {
 pub struct DiffLineSelection {
     anchor: Option<usize>,
     end: Option<usize>,
+}
+
+impl Default for DiffLineSelection {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl DiffLineSelection {
@@ -154,13 +166,14 @@ pub fn render_diff_empty_state(colors: &AppColors) -> Div {
     .h_full()
 }
 
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub fn render_diff_lines(
     lines: Arc<[DiffLine]>,
     file_path: &str,
     colors: &AppColors,
     scroll_handle: UniformListScrollHandle,
     selection: Option<Range<usize>>,
-    highlight: Option<Arc<SharedHighlightState>>,
+    highlight: Option<Rc<SharedHighlightState>>,
     list_id: &'static str,
     line_id_prefix: &'static str,
     on_click: Rc<dyn Fn(usize, bool, &mut App)>,
@@ -211,7 +224,7 @@ pub fn render_diff_lines(
                     }
                 };
 
-                let is_selected = selection.as_ref().map_or(false, |r| r.contains(&line_i));
+                let is_selected = selection.as_ref().is_some_and(|r| r.contains(&line_i));
                 let line_bg = if is_selected { selection_bg } else { base_bg };
 
                 let line_fg = if is_conflict_marker {

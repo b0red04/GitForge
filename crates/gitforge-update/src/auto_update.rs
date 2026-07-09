@@ -102,13 +102,8 @@ struct GlobalAutoUpdate(Option<Entity<AutoUpdater>>);
 
 impl Global for GlobalAutoUpdate {}
 
+#[derive(Default)]
 struct GlobalUpdateState(std::collections::HashMap<String, String>);
-
-impl Default for GlobalUpdateState {
-    fn default() -> Self {
-        Self(std::collections::HashMap::new())
-    }
-}
 
 impl Global for GlobalUpdateState {}
 

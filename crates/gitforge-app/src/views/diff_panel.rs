@@ -95,7 +95,7 @@ pub struct DiffSnapshot {
     pub code_view_content: Option<String>,
     pub blame: Option<DiffBlameSnapshot>,
     pub selection: Option<Range<usize>>,
-    pub highlight: Arc<SharedHighlightState>,
+    pub highlight: Rc<SharedHighlightState>,
     pub scroll_handle: UniformListScrollHandle,
     pub code_scroll_handle: UniformListScrollHandle,
     /// Whether the large diff overlay is open. Drives the active state of the
@@ -161,6 +161,12 @@ pub struct DiffViewMirror {
     key: DiffViewKey,
 }
 
+impl Default for DiffViewMirror {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DiffViewMirror {
     pub fn new() -> Self {
         Self {
@@ -189,6 +195,12 @@ impl Render for DiffViewMirror {
 }
 
 #[allow(dead_code)]
+impl Default for DiffPanel {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DiffPanel {
     pub fn new() -> Self {
         Self {
@@ -426,7 +438,7 @@ fn render_diff_panel(snap: &DiffSnapshot) -> Div {
                         .child(commit_detail)
                         .child(empty_state(
                             "No changes in this commit",
-                            WidgetColors::from_app(&colors),
+                            WidgetColors::from_app(colors),
                         ));
                 }
 

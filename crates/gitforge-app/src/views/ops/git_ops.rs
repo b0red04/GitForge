@@ -691,8 +691,8 @@ impl GitForgeApp {
             );
             return;
         }
-        if let Some(branch) = head_branch {
-            if let Some((ahead, behind)) = self.branch_sync_status(&branch)
+        if let Some(branch) = head_branch
+            && let Some((ahead, behind)) = self.branch_sync_status(&branch)
                 && ahead > 0
                 && behind > 0
             {
@@ -709,7 +709,6 @@ impl GitForgeApp {
                 cx.notify();
                 return;
             }
-        }
         // No dirty-tree pre-flight: `git pull` itself performs the authoritative
         // "Your local changes ... would be overwritten" check and aborts only
         // when local edits actually conflict with incoming changes. That abort
@@ -764,8 +763,8 @@ impl GitForgeApp {
             })
             .await;
 
-            if offer_update_remote_dialog && !force {
-                if let Err(AppError::Git(GitError::NonFastForwardPush {
+            if offer_update_remote_dialog && !force
+                && let Err(AppError::Git(GitError::NonFastForwardPush {
                     remote,
                     branch,
                     ..
@@ -782,7 +781,6 @@ impl GitForgeApp {
                     .ok();
                     return;
                 }
-            }
 
             let action = plan_dispatch("Push", result, &fx);
             this.update(cx, |this, cx| {

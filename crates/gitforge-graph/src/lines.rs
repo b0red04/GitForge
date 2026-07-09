@@ -254,8 +254,7 @@ impl LineGraphBuilder {
                         segments,
                         ..
                     } = state
-                    {
-                        if let Some(CommitLineSegment::Curve {
+                        && let Some(CommitLineSegment::Curve {
                             to_column,
                             curve_kind: CurveKind::Merge,
                             ..
@@ -271,7 +270,6 @@ impl LineGraphBuilder {
                                 *to_column = lane_column;
                             }
                         }
-                    }
 
                     if let Some(line) = state.finalize(commit_row, lane_column, commit_lane) {
                         self.lines.push(line);
