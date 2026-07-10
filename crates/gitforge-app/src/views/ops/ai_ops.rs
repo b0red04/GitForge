@@ -4,7 +4,6 @@ use crate::views::app::GitForgeApp;
 use crate::views::ops::dispatch::{
     AppError, BusyFlag, OpEffects, RemoteError, spawn_blocking_ok, with_repo_blocking,
 };
-use crate::views::repo_session::GitOpReadiness;
 
 impl GitForgeApp {
     pub fn generate_commit_message(&mut self, cx: &mut Context<Self>) {
@@ -23,14 +22,8 @@ impl GitForgeApp {
             return;
         }
         provider_config.model = model.clone();
-        let handle = match self.repo_session.git_op_readiness() {
-            GitOpReadiness::Ready(handle) => handle,
-            GitOpReadiness::NoRepo => {
-                self.repo_session.last_error = Some("No repository open".into());
-                cx.notify();
-                return;
-            }
-            GitOpReadiness::Loading => return,
+        let Some(handle) = self.git_op_handle(cx, true) else {
+            return;
         };
 
         self.run_op_full(

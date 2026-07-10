@@ -270,13 +270,8 @@ impl GitForgeApp {
         let expect_onto = onto.clone();
         let expect_token = wizard.generation_token;
 
-        let handle = match self.repo_session.git_op_readiness() {
-            crate::views::repo_session::GitOpReadiness::Ready(handle) => handle,
-            crate::views::repo_session::GitOpReadiness::NoRepo => {
-                self.repo_session.last_error = Some("No repository open".into());
-                return;
-            }
-            crate::views::repo_session::GitOpReadiness::Loading => return,
+        let Some(handle) = self.git_op_handle(cx, false) else {
+            return;
         };
 
         self.run_op_full(

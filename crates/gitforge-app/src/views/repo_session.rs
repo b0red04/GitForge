@@ -88,10 +88,6 @@ impl RepoSession {
         self.active_tab().and_then(|tab| tab.repo_state.as_ref())
     }
 
-    pub(crate) fn active_repo_handle(&self) -> Option<Arc<Mutex<Option<Repository>>>> {
-        self.active_tab().map(|tab| tab.repo.clone())
-    }
-
     /// Whether the active tab has finished discovery and can run git ops.
     pub(crate) fn active_repo_ready(&self) -> bool {
         self.active_tab()
