@@ -117,7 +117,7 @@ impl GitForgeApp {
 
             let Some(folder) = folder else {
                 this.update(cx, |this, cx| {
-                    this.repo_session.loading = false;
+                    this.repo_session.pending_file_dialog = false;
                     cx.notify();
                 })
                 .ok();
@@ -140,7 +140,7 @@ impl GitForgeApp {
         cx: &mut Context<Self>,
     ) {
         tracing::info!("OpenRepository action fired");
-        self.repo_session.loading = true;
+        self.repo_session.pending_file_dialog = true;
         cx.notify();
 
         cx.spawn(async move |this, cx| {
@@ -164,7 +164,7 @@ impl GitForgeApp {
 
             let Some(folder) = folder else {
                 this.update(cx, |this, cx| {
-                    this.repo_session.loading = false;
+                    this.repo_session.pending_file_dialog = false;
                     cx.notify();
                 })
                 .ok();
@@ -373,7 +373,7 @@ impl GitForgeApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.repo_session.loading = true;
+        self.repo_session.pending_file_dialog = true;
         cx.notify();
         self.spawn_open_dialog(cx);
     }

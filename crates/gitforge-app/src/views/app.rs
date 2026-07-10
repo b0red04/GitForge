@@ -295,7 +295,7 @@ impl GitForgeApp {
         app: WeakEntity<Self>,
         cx: &mut Context<Self>,
     ) {
-        let loading = self.repo_session.loading;
+        let loading = self.repo_session.is_loading();
         let sel_idx = self.repo_session.graph_panel.selected_commit_idx();
         let selected_commit = repo_state
             .and_then(|rs| sel_idx.and_then(|i| rs.commits.get(i)))
@@ -684,7 +684,7 @@ impl Render for GitForgeApp {
             super::sidebar::render_sidebar(
                 active_repo_state,
                 &self.colors,
-                self.repo_session.loading,
+                self.repo_session.is_loading(),
                 &self.repo_session.sidebar_state,
                 self.sidebar_width,
                 entity.clone(),
