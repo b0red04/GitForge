@@ -437,6 +437,8 @@ pub use super::lifecycle::BusyFlag;
 
 pub(crate) type ErrorHandler =
     Box<dyn FnOnce(&mut GitForgeApp, String, &mut Context<GitForgeApp>) + Send>;
+pub(crate) type SurfaceHandler =
+    Box<dyn FnOnce(&mut GitForgeApp, Surface, &mut Context<GitForgeApp>) + Send>;
 type FinallyHandler = Box<dyn FnOnce(&mut GitForgeApp, &mut Context<GitForgeApp>) + Send>;
 
 impl GitForgeApp {
@@ -467,6 +469,8 @@ impl GitForgeApp {
     /// need a custom [`OpEffects`] (including [`OpEffects::busy`] /
     /// [`OpEffects::remote_status`]), a Silent-channel `on_error`, or caller
     /// `finally` cleanup beyond shell-owned lifecycle.
+    /// `on_surface` — when `Some`, replaces the default surface→toast mapping
+    /// (used by commit-push to morph a progress toast instead of pushing new ones).
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn run_op_full<T, Fut, Op, FOk>(
         &mut self,
@@ -476,6 +480,7 @@ impl GitForgeApp {
         op: Op,
         on_success: FOk,
         on_error: Option<ErrorHandler>,
+        on_surface: Option<SurfaceHandler>,
         finally: Option<FinallyHandler>,
     ) where
         Op: FnOnce() -> Fut + Send + 'static,
@@ -498,40 +503,73 @@ impl GitForgeApp {
             let result = op().await;
             let action = plan_dispatch(&label, result, &fx);
             this.update(cx, |this, cx| {
-                if action.refresh_repo {
-                    this.refresh_repository(cx);
-                }
-                if action.refresh_prs {
-                    this.refresh_pull_requests(cx, PullRequestRefreshMode::Initial);
-                }
-                if let Some(detail) = action.error_detail
-                    && let Some(handler) = on_error
-                {
-                    handler(this, detail, cx);
-                }
-                match action.surface {
-                    Surface::Silent => {}
-                    Surface::Info(msg) => this.push_toast(ToastKind::Info, msg, cx),
-                    Surface::Error(msg) => this.push_toast(ToastKind::Error, msg, cx),
-                }
-                if let Some(value) = action.value {
-                    on_success(this, value, cx);
-                }
-                if clear_status {
-                    this.repo_session.remote_status.clear();
-                }
-                if let Some(ref b) = busy
-                    && b.should_clear_on_complete(this) {
-                        b.set(this, false);
-                    }
-                if let Some(fin) = finally {
-                    fin(this, cx);
-                }
-                cx.notify();
+                this.apply_dispatch_action(
+                    action,
+                    clear_status,
+                    busy.as_ref(),
+                    on_success,
+                    on_error,
+                    on_surface,
+                    finally,
+                    cx,
+                );
             })
             .ok();
         })
         .detach();
+    }
+
+    /// Execute a [`DispatchAction`] on the UI thread — shared by [`Self::run_op_full`]
+    /// and bespoke staged ops (commit-push) that need mid-flight progress updates.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn apply_dispatch_action<T, FOk>(
+        &mut self,
+        action: DispatchAction<T>,
+        clear_status: bool,
+        busy: Option<&BusyFlag>,
+        on_success: FOk,
+        on_error: Option<ErrorHandler>,
+        on_surface: Option<SurfaceHandler>,
+        finally: Option<FinallyHandler>,
+        cx: &mut Context<Self>,
+    ) where
+        FOk: FnOnce(&mut Self, T, &mut Context<Self>),
+    {
+        if action.refresh_repo {
+            self.refresh_repository(cx);
+        }
+        if action.refresh_prs {
+            self.refresh_pull_requests(cx, PullRequestRefreshMode::Initial);
+        }
+        if let Some(detail) = action.error_detail
+            && let Some(handler) = on_error
+        {
+            handler(self, detail, cx);
+        }
+        if let Some(handler) = on_surface {
+            handler(self, action.surface, cx);
+        } else {
+            match action.surface {
+                Surface::Silent => {}
+                Surface::Info(msg) => self.push_toast(ToastKind::Info, msg, cx),
+                Surface::Error(msg) => self.push_toast(ToastKind::Error, msg, cx),
+            }
+        }
+        if let Some(value) = action.value {
+            on_success(self, value, cx);
+        }
+        if clear_status {
+            self.repo_session.remote_status.clear();
+        }
+        if let Some(b) = busy
+            && b.should_clear_on_complete(self)
+        {
+            b.set(self, false);
+        }
+        if let Some(fin) = finally {
+            fin(self, cx);
+        }
+        cx.notify();
     }
 
     /// Sugar for the common blocking-git op: the single readiness guard
@@ -576,6 +614,7 @@ impl GitForgeApp {
             fx,
             move || with_repo_blocking(handle, op),
             on_success,
+            None,
             None,
             None,
         );

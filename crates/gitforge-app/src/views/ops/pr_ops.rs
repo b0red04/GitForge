@@ -176,6 +176,7 @@ impl GitForgeApp {
                     }
             })),
             None,
+            None,
         );
     }
 
@@ -523,6 +524,7 @@ impl GitForgeApp {
                     cx.notify();
                 }
             },
+            None,
             None,
             None,
         );
