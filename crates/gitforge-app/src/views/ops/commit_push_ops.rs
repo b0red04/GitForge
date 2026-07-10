@@ -5,6 +5,7 @@ use crate::views::ops::dispatch::{
     AppError, OpEffects, RemoteError, Surface, plan_dispatch, spawn_blocking_ok,
     with_repo_blocking,
 };
+use crate::views::repo_session::GitOpReadiness;
 use crate::views::ops::pr_ops::PullRequestRefreshMode;
 use crate::views::toasts::ToastKind;
 
@@ -117,9 +118,14 @@ impl GitForgeApp {
             .and_then(|state| state.head_branch.clone())
             .unwrap_or_else(|| "HEAD".to_string());
 
-        let Some(handle) = self.repo_session.require_active_repo_handle() else {
-            cx.notify();
-            return;
+        let handle = match self.repo_session.git_op_readiness() {
+            GitOpReadiness::Ready(handle) => handle,
+            GitOpReadiness::NoRepo => {
+                self.repo_session.last_error = Some("No repository open".into());
+                cx.notify();
+                return;
+            }
+            GitOpReadiness::Loading => return,
         };
 
         let fx = OpEffects {
