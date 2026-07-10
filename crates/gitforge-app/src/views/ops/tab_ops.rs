@@ -148,6 +148,7 @@ impl GitForgeApp {
                     self.repo_session
                         .apply_active_repo_tab_to_view(RefreshReselectPolicy::Reselect);
                     self.refresh_pull_requests(cx, PullRequestRefreshMode::Initial);
+                    self.fetch_on_activate(cx);
                 }
                 self.record_recent_repo(&repo_state.path);
                 self.save_settings();
