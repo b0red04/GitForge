@@ -183,11 +183,10 @@ impl RepoSession {
         }
     }
 
-    /// Selection entry for clicks and programmatic selection. Writes
-    /// `graph_panel` to the given selection, forces `view_mode =
-    /// CommitHistory` (explicit navigation), then runs the cascade.
-    pub fn set_selection(&mut self, sel: GraphSelection) -> SelectionEffect {
-        self.view_mode = MainViewMode::CommitHistory;
+    /// Write `graph_panel` to `sel` and run the Selection Cascade. Does not
+    /// change `view_mode` — use [`Self::set_selection`] when navigation should
+    /// force commit-history view (clicks / programmatic).
+    pub fn commit_selection(&mut self, sel: GraphSelection) -> SelectionEffect {
         match sel {
             GraphSelection::Commit(idx) => self.graph_panel.select_commit(idx),
             GraphSelection::Uncommitted => self.graph_panel.select_uncommitted(),
@@ -196,11 +195,24 @@ impl RepoSession {
         self.cascade(sel)
     }
 
-    /// Selection entry for keyboard navigation. The graph panel has already
-    /// moved its own selection via `select_prev`/`select_next`, so this reads
-    /// `graph_panel.selection()` and runs the cascade without re-writing the
-    /// graph. Does not touch `view_mode` (the user is already in history view
-    /// when navigating the graph by keyboard).
+    /// Selection entry for clicks and programmatic selection. Writes
+    /// `graph_panel` to the given selection, forces `view_mode =
+    /// CommitHistory` (explicit navigation), then runs the cascade.
+    pub fn set_selection(&mut self, sel: GraphSelection) -> SelectionEffect {
+        self.view_mode = MainViewMode::CommitHistory;
+        self.commit_selection(sel)
+    }
+
+    /// Selection entry for keyboard navigation. Proposes a delta via the pure
+    /// graph model, then commits through [`Self::commit_selection`] so the graph
+    /// has a single write authority (ADR-0003).
+    pub fn navigate_selection_delta(&mut self, delta: isize) -> Option<SelectionEffect> {
+        let sel = self.graph_panel.propose_delta(delta)?;
+        Some(self.commit_selection(sel))
+    }
+
+    /// Read the current graph selection and run the cascade. Prefer
+    /// [`Self::commit_selection`] when the selection is changing.
     pub fn cascade_current(&mut self) -> SelectionEffect {
         let sel = self.graph_panel.selection();
         self.cascade(sel)
@@ -995,6 +1007,21 @@ mod cascade_tests {
             assert_eq!(effect, SelectionEffect::LoadDiffForSelected);
             assert_eq!(s.view_mode, MainViewMode::CommitHistory);
             assert_eq!(s.graph_panel.selection(), GraphSelection::Commit(0));
+        });
+    }
+
+    #[gpui::test]
+    fn navigate_selection_delta_preserves_view_mode(cx: &mut TestAppContext) {
+        cx.update(|app| {
+            let mut s = one_commit_session(app);
+            s.view_mode = MainViewMode::Status;
+
+            let effect = s
+                .navigate_selection_delta(1)
+                .expect("delta should apply with uncommitted row");
+            assert_eq!(effect, SelectionEffect::ClearDiff);
+            assert_eq!(s.view_mode, MainViewMode::Status);
+            assert_eq!(s.graph_panel.selection(), GraphSelection::Uncommitted);
         });
     }
 

@@ -90,6 +90,10 @@ impl GraphPanel {
         self.model.select_delta(1)
     }
 
+    pub fn propose_delta(&self, delta: isize) -> Option<GraphSelection> {
+        self.model.propose_delta(delta)
+    }
+
     pub fn commit_id_at(&self, idx: usize) -> Option<&str> {
         self.model.commit_id_at(idx)
     }

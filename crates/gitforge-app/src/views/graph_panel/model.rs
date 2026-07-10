@@ -212,9 +212,19 @@ impl GraphPanelModel {
         }
     }
 
-    /// Navigate selection by `delta` display rows (+1 = down, -1 = up).
+    /// Navigate selection by `delta` display rows (+1 = down, -1 = up), writing
+    /// the new selection when one exists.
     pub fn select_delta(&mut self, delta: isize) -> bool {
-        let new_selection = if self.use_filtered {
+        let Some(new_selection) = self.propose_delta(delta) else {
+            return false;
+        };
+        self.selection = new_selection;
+        true
+    }
+
+    /// Compute the selection after `delta` without mutating state.
+    pub fn propose_delta(&self, delta: isize) -> Option<GraphSelection> {
+        if self.use_filtered {
             selection_after_delta_filtered(
                 self.selection,
                 delta,
@@ -228,12 +238,7 @@ impl GraphPanelModel {
                 self.has_uncommitted,
                 self.commits.len(),
             )
-        };
-        let Some(new_selection) = new_selection else {
-            return false;
-        };
-        self.selection = new_selection;
-        true
+        }
     }
 
     pub fn commit_id_at(&self, idx: usize) -> Option<&str> {
