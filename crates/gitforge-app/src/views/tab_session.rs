@@ -89,6 +89,25 @@ impl TabSession {
         id
     }
 
+    /// Create a new loading tab for `path` and append it. Returns the new tab id.
+    pub(crate) fn push_loading_tab(&mut self, path: PathBuf) -> u64 {
+        let id = self.alloc_tab_id();
+        let repo = Arc::new(Mutex::new(None));
+        self.open_repo_tabs.push(OpenRepoTab {
+            id,
+            path: Self::normalize_repo_path(&path),
+            repo,
+            repo_state: None,
+            loading: true,
+            last_error: None,
+            panel_snapshot: None,
+            pull_requests: Vec::new(),
+            pull_requests_loading: false,
+            pull_requests_loaded: false,
+        });
+        id
+    }
+
     pub(crate) fn is_active(&self, tab_id: u64) -> bool {
         self.active_repo_tab_id == Some(tab_id)
     }
@@ -387,5 +406,17 @@ mod reorder_tests {
         assert_eq!(drop_caret_index(&t, Some(20), Some((20, false))), None);
         assert_eq!(drop_caret_index(&t, Some(20), Some((10, false))), None);
         assert_eq!(drop_caret_index(&t, Some(20), Some((30, true))), None);
+    }
+
+    #[test]
+    fn push_loading_tab_creates_loading_entry() {
+        let mut session = TabSession::new();
+        let id = session.push_loading_tab(PathBuf::from("/tmp/my-repo"));
+        assert_eq!(session.open_repo_tabs.len(), 1);
+        let tab = &session.open_repo_tabs[0];
+        assert_eq!(tab.id, id);
+        assert!(tab.loading);
+        assert!(tab.repo_state.is_none());
+        assert!(tab.panel_snapshot.is_none());
     }
 }

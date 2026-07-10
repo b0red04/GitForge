@@ -1,14 +1,11 @@
 use gitforge_git::RepoState;
 use gpui::*;
 
-use parking_lot::Mutex;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 use crate::views::app::GitForgeApp;
 use crate::views::ops::pr_ops::{PullRequestRefreshMode, pull_request_refresh_mode_for_tab};
 use crate::views::repo_session::{RefreshReselectPolicy, RepoSession};
-use crate::views::tab_session::OpenRepoTab;
 use crate::views::settings_window::SettingsRepoData;
 
 impl GitForgeApp {
@@ -23,20 +20,10 @@ impl GitForgeApp {
 
         for path in paths {
             let path_buf = PathBuf::from(path);
-            let id = self.repo_session.tabs.alloc_tab_id();
-            let repo = Arc::new(Mutex::new(None));
-            self.repo_session.tabs.open_repo_tabs.push(OpenRepoTab {
-                id,
-                path: RepoSession::normalize_repo_path(&path_buf),
-                repo,
-                repo_state: None,
-                loading: true,
-                last_error: None,
-                panel_snapshot: None,
-                pull_requests: Vec::new(),
-                pull_requests_loading: false,
-                pull_requests_loaded: false,
-            });
+            let id = self
+                .repo_session
+                .tabs
+                .push_loading_tab(path_buf);
             restore_ids.push(id);
         }
 
@@ -69,20 +56,10 @@ impl GitForgeApp {
             return;
         }
 
-        let id = self.repo_session.tabs.alloc_tab_id();
-        let repo = Arc::new(Mutex::new(None));
-        self.repo_session.tabs.open_repo_tabs.push(OpenRepoTab {
-            id,
-            path: normalized,
-            repo,
-            repo_state: None,
-            loading: true,
-            last_error: None,
-            panel_snapshot: None,
-            pull_requests: Vec::new(),
-            pull_requests_loading: false,
-            pull_requests_loaded: false,
-        });
+        let id = self
+            .repo_session
+            .tabs
+            .push_loading_tab(normalized);
         self.repo_session.save_snapshot_to_active_tab();
         self.repo_session.tabs.active_repo_tab_id = Some(id);
         self.repo_session
@@ -175,11 +152,7 @@ impl GitForgeApp {
         if self.repo_session.tabs.is_active(tab_id) {
             return;
         }
-        self.repo_session.save_snapshot_to_active_tab();
-        self.repo_session.tabs.active_repo_tab_id = Some(tab_id);
-        if let Some(effect) = self.repo_session.apply_incoming_tab_after_switch() {
-            self.apply_selection_effect(effect, cx);
-        }
+        self.switch_active_repo_tab(tab_id, cx);
         {
             let repo_state = self
                 .repo_session
@@ -226,14 +199,26 @@ impl GitForgeApp {
 
         if was_active {
             self.repo_session.tabs.select_neighbor_after_close(index);
-            if let Some(effect) = self.repo_session.apply_incoming_tab_after_switch() {
-                self.apply_selection_effect(effect, cx);
-            }
+            self.restore_incoming_tab_after_switch(cx);
         }
 
         self.save_settings();
         cx.notify();
         self.restart_periodic_fetch(cx);
+    }
+
+    /// Save the outgoing tab, switch active id, and restore the incoming tab's
+    /// panel snapshot (shared by activate and close-after-active paths).
+    pub(crate) fn switch_active_repo_tab(&mut self, tab_id: u64, cx: &mut Context<Self>) {
+        self.repo_session.save_snapshot_to_active_tab();
+        self.repo_session.tabs.active_repo_tab_id = Some(tab_id);
+        self.restore_incoming_tab_after_switch(cx);
+    }
+
+    pub(crate) fn restore_incoming_tab_after_switch(&mut self, cx: &mut Context<Self>) {
+        if let Some(effect) = self.repo_session.apply_incoming_tab_after_switch() {
+            self.apply_selection_effect(effect, cx);
+        }
     }
 
     pub(crate) fn record_recent_repo(&mut self, path: &Path) {
