@@ -382,33 +382,8 @@ impl RepoSession {
     }
 
     pub(crate) fn save_snapshot_to_active_tab(&mut self) {
-        let selected_commit_id = match self.graph_panel.selection() {
-            GraphSelection::Commit(idx) => self.graph_panel.commit_id_at(idx).map(String::from),
-            _ => None,
-        };
-        let graph_was_uncommitted = self.graph_panel.is_uncommitted_selected();
-        let diff_state = self.diff_panel.diff_state().cloned();
-        let diff_view_mode = self.diff_panel.view_mode();
-        let diff_code_file = self.diff_panel.code_view_file().map(String::from);
-        let diff_code_content = self.diff_panel.code_view_content().map(String::from);
-        let (commit_message, ai_alternatives) = self.commit_editor.snapshot_data();
-        let view_mode = self.view_mode.clone();
-        let diff_overlay_open = self.diff_overlay_open;
-        let sidebar_expansion = self.sidebar_state.expansion();
-
-        self.tabs.store_active_panel_snapshot(TabSnapshot {
-            selected_commit_id,
-            graph_was_uncommitted,
-            diff_state,
-            diff_view_mode,
-            diff_code_file,
-            diff_code_content,
-            commit_message,
-            ai_alternatives,
-            view_mode,
-            diff_overlay_open,
-            sidebar_expansion,
-        });
+        self.tabs
+            .store_active_panel_snapshot(TabSnapshot::capture(self));
     }
 
     /// Restore per-tab UI state saved by [`Self::save_snapshot_to_active_tab`].
@@ -421,59 +396,8 @@ impl RepoSession {
     /// Selection Cascade re-derives status and diff from the restored graph
     /// selection and returns the async work the caller must spawn.
     pub(crate) fn restore_snapshot_from_tab(&mut self) -> Option<SelectionEffect> {
-        let snapshot = self.tabs.active_panel_snapshot();
-
-        let snap = snapshot?;
-
-        let TabSnapshot {
-            selected_commit_id,
-            graph_was_uncommitted,
-            diff_state,
-            diff_view_mode,
-            diff_code_file,
-            diff_code_content,
-            commit_message,
-            ai_alternatives,
-            view_mode,
-            diff_overlay_open,
-            sidebar_expansion,
-        } = snap;
-
-        self.view_mode = view_mode;
-        self.diff_overlay_open = diff_overlay_open;
-        self.sidebar_state.apply_expansion(&sidebar_expansion);
-
-        self.restore_graph_selection_from_snapshot(
-            selected_commit_id.as_deref(),
-            graph_was_uncommitted,
-        );
-        let sel = self.graph_panel.selection();
-        let commit_id_at = match sel {
-            GraphSelection::Commit(idx) => self.graph_panel.commit_id_at(idx).map(str::to_string),
-            GraphSelection::Uncommitted | GraphSelection::None => None,
-        };
-        let preserved = preserved_tab_diff(
-            diff_state.as_ref(),
-            sel,
-            commit_id_at.as_deref(),
-        );
-
-        self.commit_editor
-            .restore_from_snapshot(commit_message, ai_alternatives);
-
-        if preserved {
-            self.sync_status_for_selection(sel);
-            self.diff_panel.restore_from_snapshot(
-                diff_state,
-                diff_view_mode,
-                diff_code_file,
-                diff_code_content,
-            );
-            self.apply_overlay_file_selection();
-            None
-        } else {
-            Some(self.cascade(sel))
-        }
+        let snap = self.tabs.active_panel_snapshot()?;
+        snap.apply_to(self)
     }
 
     fn restore_graph_selection_from_snapshot(
@@ -502,6 +426,90 @@ impl RepoSession {
             .unwrap_or((None, 0));
         if let Some(file_idx) = normalized_overlay_file_idx(selected_file_idx, file_count) {
             self.diff_panel.select_file(file_idx);
+        }
+    }
+}
+
+impl TabSnapshot {
+    /// Capture the active tab's panel state from a [`RepoSession`].
+    pub(crate) fn capture(session: &RepoSession) -> Self {
+        let selected_commit_id = match session.graph_panel.selection() {
+            GraphSelection::Commit(idx) => session.graph_panel.commit_id_at(idx).map(String::from),
+            _ => None,
+        };
+        let graph_was_uncommitted = session.graph_panel.is_uncommitted_selected();
+        let diff_state = session.diff_panel.diff_state().cloned();
+        let diff_view_mode = session.diff_panel.view_mode();
+        let diff_code_file = session.diff_panel.code_view_file().map(String::from);
+        let diff_code_content = session.diff_panel.code_view_content().map(String::from);
+        let (commit_message, ai_alternatives) = session.commit_editor.snapshot_data();
+        Self {
+            selected_commit_id,
+            graph_was_uncommitted,
+            diff_state,
+            diff_view_mode,
+            diff_code_file,
+            diff_code_content,
+            commit_message,
+            ai_alternatives,
+            view_mode: session.view_mode.clone(),
+            diff_overlay_open: session.diff_overlay_open,
+            sidebar_expansion: session.sidebar_state.expansion(),
+        }
+    }
+
+    /// Restore this snapshot into `session`. Returns a [`SelectionEffect`] when
+    /// the cascade must re-derive diff from the restored graph selection.
+    pub(crate) fn apply_to(self, session: &mut RepoSession) -> Option<SelectionEffect> {
+        let TabSnapshot {
+            selected_commit_id,
+            graph_was_uncommitted,
+            diff_state,
+            diff_view_mode,
+            diff_code_file,
+            diff_code_content,
+            commit_message,
+            ai_alternatives,
+            view_mode,
+            diff_overlay_open,
+            sidebar_expansion,
+        } = self;
+
+        session.view_mode = view_mode;
+        session.diff_overlay_open = diff_overlay_open;
+        session.sidebar_state.apply_expansion(&sidebar_expansion);
+
+        session.restore_graph_selection_from_snapshot(
+            selected_commit_id.as_deref(),
+            graph_was_uncommitted,
+        );
+        let sel = session.graph_panel.selection();
+        let commit_id_at = match sel {
+            GraphSelection::Commit(idx) => session.graph_panel.commit_id_at(idx).map(str::to_string),
+            GraphSelection::Uncommitted | GraphSelection::None => None,
+        };
+        let preserved = preserved_tab_diff(
+            diff_state.as_ref(),
+            sel,
+            commit_id_at.as_deref(),
+        );
+
+        session
+            .commit_editor
+            .restore_from_snapshot(commit_message, ai_alternatives);
+
+        if preserved {
+            session.sync_status_for_selection(sel);
+            session.diff_panel.restore_from_snapshot(
+                diff_state,
+                diff_view_mode,
+                diff_code_file,
+                diff_code_content,
+            );
+            session.apply_overlay_file_selection();
+            None
+        } else {
+            Some(session.cascade(sel))
         }
     }
 }
@@ -1199,6 +1207,81 @@ mod cascade_tests {
             let effect = s.restore_snapshot_from_tab();
             assert_eq!(effect, Some(SelectionEffect::LoadDiffForSelected));
             assert!(s.diff_panel.diff_state().is_none());
+        });
+    }
+
+    #[gpui::test]
+    fn tab_snapshot_capture_apply_round_trip(cx: &mut TestAppContext) {
+        cx.update(|app| {
+            let mut s = one_commit_session(app);
+            s.view_mode = MainViewMode::CommitHistory;
+            s.graph_panel.select_commit(0);
+            s.diff_panel
+                .set_diff(CommitDiffState::new(SAMPLE_COMMIT_ID.into(), vec![], None));
+            s.commit_editor.set_message("round-trip message");
+            s.diff_overlay_open = true;
+
+            let snapshot = TabSnapshot::capture(&s);
+
+            s.graph_panel.clear_selection();
+            s.diff_panel.clear();
+            s.commit_editor.set_message("");
+            s.diff_overlay_open = false;
+            s.view_mode = MainViewMode::Status;
+
+            let effect = snapshot.apply_to(&mut s);
+            assert_eq!(effect, None);
+            assert_eq!(s.graph_panel.selection(), GraphSelection::Commit(0));
+            assert_eq!(
+                s.diff_panel.diff_state().unwrap().commit_id,
+                SAMPLE_COMMIT_ID
+            );
+            assert_eq!(s.commit_editor.message(), "round-trip message");
+            assert!(s.diff_overlay_open);
+            assert_eq!(s.view_mode, MainViewMode::CommitHistory);
+        });
+    }
+
+    #[gpui::test]
+    fn tab_snapshot_save_restore_round_trip(cx: &mut TestAppContext) {
+        use std::sync::Arc;
+        use parking_lot::Mutex;
+
+        cx.update(|app| {
+            let mut s = one_commit_session(app);
+            s.view_mode = MainViewMode::CommitHistory;
+            s.graph_panel.select_commit(0);
+            s.diff_panel
+                .set_diff(CommitDiffState::new(SAMPLE_COMMIT_ID.into(), vec![], None));
+            s.commit_editor.set_message("via save/restore");
+            s.tabs.open_repo_tabs.push(OpenRepoTab {
+                id: 1,
+                path: PathBuf::from("/tmp/test-repo"),
+                repo: Arc::new(Mutex::new(None)),
+                repo_state: None,
+                loading: false,
+                last_error: None,
+                panel_snapshot: None,
+                pull_requests: vec![],
+                pull_requests_loading: false,
+                pull_requests_loaded: false,
+            });
+            s.tabs.active_repo_tab_id = Some(1);
+
+            s.save_snapshot_to_active_tab();
+
+            s.graph_panel.clear_selection();
+            s.diff_panel.clear();
+            s.commit_editor.set_message("");
+
+            let effect = s.restore_snapshot_from_tab();
+            assert_eq!(effect, None);
+            assert_eq!(s.graph_panel.selection(), GraphSelection::Commit(0));
+            assert_eq!(
+                s.diff_panel.diff_state().unwrap().commit_id,
+                SAMPLE_COMMIT_ID
+            );
+            assert_eq!(s.commit_editor.message(), "via save/restore");
         });
     }
 }
