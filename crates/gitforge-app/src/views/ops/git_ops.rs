@@ -7,7 +7,7 @@ use crate::views::diff_panel::CommitDiffState;
 use crate::views::diff_viewer::file_diff_path_or_empty;
 use crate::views::graph_panel::GraphSelection;
 use crate::views::ops::dispatch::{AppError, OpEffects, Surface, plan_dispatch, with_repo_blocking};
-use crate::views::repo_session::{GitOpReadiness, SelectionEffect, normalized_overlay_file_idx};
+use crate::views::repo_session::{GitOpReadiness, SelectionEffect};
 use crate::views::status_panel::StatusFileSection;
 use crate::views::toasts::ToastKind;
 
@@ -55,16 +55,7 @@ impl GitForgeApp {
     }
 
     fn prepare_diff_overlay_state(&mut self) {
-        self.repo_session.diff_panel.set_diff_mode();
-        let (selected_file_idx, file_count) = self
-            .repo_session
-            .diff_panel
-            .diff_state()
-            .map(|d| (d.selected_file_idx, d.file_diffs.len()))
-            .unwrap_or((None, 0));
-        if let Some(file_idx) = normalized_overlay_file_idx(selected_file_idx, file_count) {
-            self.repo_session.diff_panel.select_file(file_idx);
-        }
+        self.repo_session.sync_overlay_file_selection();
     }
 
     /// Toggle the large diff overlay that renders the selected file's line-level
@@ -916,7 +907,7 @@ impl GitForgeApp {
                 // commit. With the overlay closed this preserves the existing
                 // behaviour (no file pre-selected in the right-hand list).
                 if this.repo_session.diff_overlay_open && has_files {
-                    this.repo_session.diff_panel.select_file(0);
+                    this.repo_session.sync_overlay_file_selection();
                 }
                 cx.notify();
             },
