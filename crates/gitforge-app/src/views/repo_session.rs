@@ -31,7 +31,8 @@ pub(crate) struct RepoSession {
     /// list visible to drive file selection. Per-tab (persisted in
     /// [`TabSnapshot`]).
     pub(crate) diff_overlay_open: bool,
-    pub(crate) loading: bool,
+    /// True while an open-repo file dialog is showing and no tab is loading yet.
+    pub(crate) pending_file_dialog: bool,
     pub(crate) last_error: Option<String>,
     /// Transient label (e.g. "Fetching…") shown while a remote op runs; set by
     /// the dispatch shell via `OpEffects::remote_status` and cleared on
@@ -70,7 +71,7 @@ impl RepoSession {
             sidebar_state: SidebarState::new(cx),
             view_mode: MainViewMode::CommitHistory,
             diff_overlay_open: false,
-            loading: false,
+            pending_file_dialog: false,
             last_error: None,
             remote_status: String::new(),
         }
@@ -86,6 +87,12 @@ impl RepoSession {
 
     pub(crate) fn active_repo_state(&self) -> Option<&RepoState> {
         self.active_tab().and_then(|tab| tab.repo_state.as_ref())
+    }
+
+    /// Whether the UI should show a loading state: file dialog pending or the
+    /// active tab is still in discovery.
+    pub(crate) fn is_loading(&self) -> bool {
+        self.pending_file_dialog || self.active_tab().is_some_and(|tab| tab.loading)
     }
 
     /// Whether the active tab has finished discovery and can run git ops.
@@ -125,7 +132,6 @@ impl RepoSession {
     pub(crate) fn clear_active_repo_view(&mut self) {
         self.clear_repo_panels();
         self.last_error = None;
-        self.loading = false;
     }
 
     /// Align `status_panel` graph-staging mode with `sel`, gated on
@@ -326,21 +332,19 @@ impl RepoSession {
     }
 
     pub(crate) fn apply_active_repo_tab_to_view(&mut self, reselect: RefreshReselectPolicy) {
-        let Some((repo_state, loading, last_error)) = self
+        let Some((repo_state, last_error)) = self
             .active_tab()
-            .map(|tab| (tab.repo_state.clone(), tab.loading, tab.last_error.clone()))
+            .map(|tab| (tab.repo_state.clone(), tab.last_error.clone()))
         else {
             self.clear_active_repo_view();
             return;
         };
 
         if let Some(repo_state) = repo_state {
-            self.loading = false;
             self.last_error = None;
             self.apply_repo_state_to_panels(&repo_state, reselect);
         } else {
             self.clear_repo_panels();
-            self.loading = loading;
             self.last_error = last_error;
         }
     }
@@ -733,7 +737,7 @@ mod refresh_selection_tests {
 }
 
 #[cfg(test)]
-mod active_repo_ready_tests {
+mod repo_session_state_tests {
     use std::collections::HashSet;
 
     use super::*;
@@ -849,6 +853,31 @@ mod active_repo_ready_tests {
                 GitOpReadiness::NoRepo => panic!("expected Ready, got NoRepo"),
                 GitOpReadiness::Loading => panic!("expected Ready, got Loading"),
             }
+        });
+    }
+
+    #[gpui::test]
+    fn is_loading_true_when_tab_loading(cx: &mut TestAppContext) {
+        cx.update(|app| {
+            let session = session_with_tab(app, fake_tab(1, true, false));
+            assert!(session.is_loading());
+        });
+    }
+
+    #[gpui::test]
+    fn is_loading_true_when_file_dialog_pending(cx: &mut TestAppContext) {
+        cx.update(|app| {
+            let mut session = RepoSession::new(app);
+            session.pending_file_dialog = true;
+            assert!(session.is_loading());
+        });
+    }
+
+    #[gpui::test]
+    fn is_loading_false_when_loaded(cx: &mut TestAppContext) {
+        cx.update(|app| {
+            let session = session_with_tab(app, fake_tab(1, false, true));
+            assert!(!session.is_loading());
         });
     }
 }

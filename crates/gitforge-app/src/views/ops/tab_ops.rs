@@ -53,6 +53,7 @@ impl GitForgeApp {
     }
 
     pub(crate) fn open_or_activate_repo_tab(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+        self.repo_session.pending_file_dialog = false;
         let normalized = RepoSession::normalize_repo_path(&path);
         if let Some(tab_id) = self.repo_session.tabs.find_tab_by_path(&normalized) {
             self.activate_repo_tab(tab_id, cx);
@@ -101,10 +102,6 @@ impl GitForgeApp {
         let repo_handle = tab.repo.clone();
         tab.loading = true;
         tab.last_error = None;
-        if self.repo_session.tabs.is_active(tab_id) {
-            self.repo_session.loading = true;
-            self.repo_session.last_error = None;
-        }
         cx.notify();
 
         let load_options = self.load_options();
