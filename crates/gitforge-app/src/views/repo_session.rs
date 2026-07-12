@@ -89,18 +89,6 @@ impl RepoSession {
         self.active_tab().and_then(|tab| tab.repo_state.as_ref())
     }
 
-    pub(crate) fn active_repo_handle(&self) -> Option<Arc<Mutex<Option<Repository>>>> {
-        self.active_tab().map(|tab| tab.repo.clone())
-    }
-
-    pub(crate) fn require_active_repo_handle(&mut self) -> Option<Arc<Mutex<Option<Repository>>>> {
-        let handle = self.active_repo_handle();
-        if handle.is_none() {
-            self.last_error = Some("No repository open".into());
-        }
-        handle
-    }
-
     /// Whether the UI should show a loading state: file dialog pending or the
     /// active tab is still in discovery.
     pub(crate) fn is_loading(&self) -> bool {

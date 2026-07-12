@@ -270,7 +270,7 @@ impl GitForgeApp {
         let expect_onto = onto.clone();
         let expect_token = wizard.generation_token;
 
-        let Some(handle) = self.repo_session.require_active_repo_handle() else {
+        let Some(handle) = self.git_op_handle(cx, false) else {
             return;
         };
 

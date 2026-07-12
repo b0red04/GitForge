@@ -485,7 +485,7 @@ impl GitForgeApp {
         let req_head = head_branch.clone();
         let max_diff_chars = self.settings.ai.max_diff_chars;
 
-        let Some(handle) = self.repo_session.require_active_repo_handle() else {
+        let Some(handle) = self.git_op_handle(cx, false) else {
             return;
         };
 

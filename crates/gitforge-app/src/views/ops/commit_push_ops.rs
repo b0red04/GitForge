@@ -117,8 +117,7 @@ impl GitForgeApp {
             .and_then(|state| state.head_branch.clone())
             .unwrap_or_else(|| "HEAD".to_string());
 
-        let Some(handle) = self.repo_session.require_active_repo_handle() else {
-            cx.notify();
+        let Some(handle) = self.git_op_handle(cx, true) else {
             return;
         };
 
