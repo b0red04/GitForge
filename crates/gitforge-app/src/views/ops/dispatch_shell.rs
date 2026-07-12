@@ -161,7 +161,9 @@ impl GitForgeApp {
         {
             handler(self, detail, cx);
         }
-        if let Some(handler) = on_surface {
+        if let Some(value) = action.value {
+            on_success(self, value, cx);
+        } else if let Some(handler) = on_surface {
             handler(self, action.surface, cx);
         } else {
             match action.surface {
@@ -169,9 +171,6 @@ impl GitForgeApp {
                 Surface::Info(msg) => self.push_toast(ToastKind::Info, msg, cx),
                 Surface::Error(msg) => self.push_toast(ToastKind::Error, msg, cx),
             }
-        }
-        if let Some(value) = action.value {
-            on_success(self, value, cx);
         }
         if clear_status {
             self.repo_session.remote_status.clear();
