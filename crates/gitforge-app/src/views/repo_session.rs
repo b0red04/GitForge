@@ -396,8 +396,7 @@ impl RepoSession {
     /// Selection Cascade re-derives status and diff from the restored graph
     /// selection and returns the async work the caller must spawn.
     pub(crate) fn restore_snapshot_from_tab(&mut self) -> Option<SelectionEffect> {
-        let snap = self.tabs.active_panel_snapshot()?;
-        snap.apply_to(self)
+        self.tabs.active_panel_snapshot()?.apply_to(self)
     }
 
     fn restore_graph_selection_from_snapshot(
@@ -405,10 +404,10 @@ impl RepoSession {
         selected_commit_id: Option<&str>,
         graph_was_uncommitted: bool,
     ) {
-        if let Some(commit_id) = selected_commit_id {
-            if let Some(idx) = self.graph_panel.find_commit_idx(commit_id) {
-                self.graph_panel.select_commit(idx);
-            }
+        if let Some(commit_id) = selected_commit_id
+            && let Some(idx) = self.graph_panel.find_commit_idx(commit_id)
+        {
+            self.graph_panel.select_commit(idx);
         } else if graph_was_uncommitted {
             self.graph_panel.select_uncommitted();
         }
@@ -419,37 +418,37 @@ impl RepoSession {
             return;
         }
         self.diff_panel.set_diff_mode();
-        let (selected_file_idx, file_count) = self
-            .diff_panel
-            .diff_state()
-            .map(|d| (d.selected_file_idx, d.file_diffs.len()))
-            .unwrap_or((None, 0));
-        if let Some(file_idx) = normalized_overlay_file_idx(selected_file_idx, file_count) {
+        if let Some(diff) = self.diff_panel.diff_state()
+            && let Some(file_idx) =
+                normalized_overlay_file_idx(diff.selected_file_idx, diff.file_diffs.len())
+        {
             self.diff_panel.select_file(file_idx);
         }
+    }
+}
+
+fn commit_id_for_graph_selection(
+    graph_panel: &GraphPanel,
+    selection: GraphSelection,
+) -> Option<String> {
+    match selection {
+        GraphSelection::Commit(idx) => graph_panel.commit_id_at(idx).map(str::to_string),
+        GraphSelection::Uncommitted | GraphSelection::None => None,
     }
 }
 
 impl TabSnapshot {
     /// Capture the active tab's panel state from a [`RepoSession`].
     pub(crate) fn capture(session: &RepoSession) -> Self {
-        let selected_commit_id = match session.graph_panel.selection() {
-            GraphSelection::Commit(idx) => session.graph_panel.commit_id_at(idx).map(String::from),
-            _ => None,
-        };
-        let graph_was_uncommitted = session.graph_panel.is_uncommitted_selected();
-        let diff_state = session.diff_panel.diff_state().cloned();
-        let diff_view_mode = session.diff_panel.view_mode();
-        let diff_code_file = session.diff_panel.code_view_file().map(String::from);
-        let diff_code_content = session.diff_panel.code_view_content().map(String::from);
+        let selection = session.graph_panel.selection();
         let (commit_message, ai_alternatives) = session.commit_editor.snapshot_data();
         Self {
-            selected_commit_id,
-            graph_was_uncommitted,
-            diff_state,
-            diff_view_mode,
-            diff_code_file,
-            diff_code_content,
+            selected_commit_id: commit_id_for_graph_selection(&session.graph_panel, selection),
+            graph_was_uncommitted: session.graph_panel.is_uncommitted_selected(),
+            diff_state: session.diff_panel.diff_state().cloned(),
+            diff_view_mode: session.diff_panel.view_mode(),
+            diff_code_file: session.diff_panel.code_view_file().map(String::from),
+            diff_code_content: session.diff_panel.code_view_content().map(String::from),
             commit_message,
             ai_alternatives,
             view_mode: session.view_mode.clone(),
@@ -484,14 +483,10 @@ impl TabSnapshot {
             graph_was_uncommitted,
         );
         let sel = session.graph_panel.selection();
-        let commit_id_at = match sel {
-            GraphSelection::Commit(idx) => session.graph_panel.commit_id_at(idx).map(str::to_string),
-            GraphSelection::Uncommitted | GraphSelection::None => None,
-        };
         let preserved = preserved_tab_diff(
             diff_state.as_ref(),
             sel,
-            commit_id_at.as_deref(),
+            commit_id_for_graph_selection(&session.graph_panel, sel).as_deref(),
         );
 
         session
@@ -908,6 +903,41 @@ mod cascade_tests {
         session
     }
 
+    fn session_with_selected_commit(cx: &mut gpui::App, message: &str) -> RepoSession {
+        let mut s = one_commit_session(cx);
+        s.view_mode = MainViewMode::CommitHistory;
+        s.graph_panel.select_commit(0);
+        s.diff_panel
+            .set_diff(CommitDiffState::new(SAMPLE_COMMIT_ID.into(), vec![], None));
+        s.commit_editor.set_message(message);
+        s
+    }
+
+    fn attach_active_tab(s: &mut RepoSession, snapshot: Option<TabSnapshot>) {
+        use std::sync::Arc;
+        use parking_lot::Mutex;
+
+        s.tabs.open_repo_tabs.push(OpenRepoTab {
+            id: 1,
+            path: PathBuf::from("/tmp/test-repo"),
+            repo: Arc::new(Mutex::new(None)),
+            repo_state: None,
+            loading: false,
+            last_error: None,
+            panel_snapshot: snapshot,
+            pull_requests: vec![],
+            pull_requests_loading: false,
+            pull_requests_loaded: false,
+        });
+        s.tabs.active_repo_tab_id = Some(1);
+    }
+
+    fn clear_panel_state(s: &mut RepoSession) {
+        s.graph_panel.clear_selection();
+        s.diff_panel.clear();
+        s.commit_editor.set_message("");
+    }
+
     fn repo_state_with_commits(commits: Vec<CommitInfo>) -> gitforge_git::RepoState {
         use std::collections::HashSet;
         gitforge_git::RepoState {
@@ -1213,19 +1243,12 @@ mod cascade_tests {
     #[gpui::test]
     fn tab_snapshot_capture_apply_round_trip(cx: &mut TestAppContext) {
         cx.update(|app| {
-            let mut s = one_commit_session(app);
-            s.view_mode = MainViewMode::CommitHistory;
-            s.graph_panel.select_commit(0);
-            s.diff_panel
-                .set_diff(CommitDiffState::new(SAMPLE_COMMIT_ID.into(), vec![], None));
-            s.commit_editor.set_message("round-trip message");
+            let mut s = session_with_selected_commit(app, "round-trip message");
             s.diff_overlay_open = true;
 
             let snapshot = TabSnapshot::capture(&s);
 
-            s.graph_panel.clear_selection();
-            s.diff_panel.clear();
-            s.commit_editor.set_message("");
+            clear_panel_state(&mut s);
             s.diff_overlay_open = false;
             s.view_mode = MainViewMode::Status;
 
@@ -1244,35 +1267,12 @@ mod cascade_tests {
 
     #[gpui::test]
     fn tab_snapshot_save_restore_round_trip(cx: &mut TestAppContext) {
-        use std::sync::Arc;
-        use parking_lot::Mutex;
-
         cx.update(|app| {
-            let mut s = one_commit_session(app);
-            s.view_mode = MainViewMode::CommitHistory;
-            s.graph_panel.select_commit(0);
-            s.diff_panel
-                .set_diff(CommitDiffState::new(SAMPLE_COMMIT_ID.into(), vec![], None));
-            s.commit_editor.set_message("via save/restore");
-            s.tabs.open_repo_tabs.push(OpenRepoTab {
-                id: 1,
-                path: PathBuf::from("/tmp/test-repo"),
-                repo: Arc::new(Mutex::new(None)),
-                repo_state: None,
-                loading: false,
-                last_error: None,
-                panel_snapshot: None,
-                pull_requests: vec![],
-                pull_requests_loading: false,
-                pull_requests_loaded: false,
-            });
-            s.tabs.active_repo_tab_id = Some(1);
+            let mut s = session_with_selected_commit(app, "via save/restore");
+            attach_active_tab(&mut s, None);
 
             s.save_snapshot_to_active_tab();
-
-            s.graph_panel.clear_selection();
-            s.diff_panel.clear();
-            s.commit_editor.set_message("");
+            clear_panel_state(&mut s);
 
             let effect = s.restore_snapshot_from_tab();
             assert_eq!(effect, None);
