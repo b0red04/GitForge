@@ -92,10 +92,7 @@ impl RepoSession {
     /// Whether the UI should show a loading state: file dialog pending or the
     /// active tab is still in discovery.
     pub(crate) fn is_loading(&self) -> bool {
-        self.pending_file_dialog
-            || self
-                .active_tab()
-                .is_some_and(|tab| tab.loading)
+        self.pending_file_dialog || self.active_tab().is_some_and(|tab| tab.loading)
     }
 
     /// Whether the active tab has finished discovery and can run git ops.
@@ -740,7 +737,7 @@ mod refresh_selection_tests {
 }
 
 #[cfg(test)]
-mod active_repo_ready_tests {
+mod repo_session_state_tests {
     use std::collections::HashSet;
 
     use super::*;
