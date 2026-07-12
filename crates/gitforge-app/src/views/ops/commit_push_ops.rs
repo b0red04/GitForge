@@ -2,8 +2,8 @@ use gpui::Context;
 
 use crate::views::app::{AppDialog, CommitPushMode, GitForgeApp};
 use crate::views::ops::dispatch::{
-    AppError, ErrorChannel, OpEffects, RemoteError, Surface, SurfaceHandler, plan_dispatch,
-    spawn_blocking_ok, with_repo_blocking,
+    AppError, ErrorChannel, OpEffects, RemoteError, plan_dispatch, spawn_blocking_ok,
+    with_repo_blocking,
 };
 use crate::views::toasts::ToastKind;
 
@@ -126,24 +126,7 @@ impl GitForgeApp {
             "Committing and pushing...".to_string()
         };
         let progress_id = self.push_progress_toast(initial, cx);
-
-        let surface_handler: SurfaceHandler = if progress_id != 0 {
-            Box::new(move |this, surface, cx| match surface {
-                Surface::Info(msg) => {
-                    this.finish_progress_toast(progress_id, ToastKind::Info, msg, cx);
-                }
-                Surface::Error(msg) => {
-                    this.finish_progress_toast(progress_id, ToastKind::Error, msg, cx);
-                }
-                Surface::Silent => this.dismiss_toast(progress_id, cx),
-            })
-        } else {
-            Box::new(move |this, surface, cx| match surface {
-                Surface::Info(msg) => this.push_toast(ToastKind::Info, msg, cx),
-                Surface::Error(msg) => this.push_toast(ToastKind::Error, msg, cx),
-                Surface::Silent => {}
-            })
-        };
+        let surface_handler = Self::surface_handler_for_progress_toast(progress_id);
 
         let fx = OpEffects {
             refresh_repo: true,
@@ -152,18 +135,10 @@ impl GitForgeApp {
             error_channel: ErrorChannel::Toast,
             busy: None,
         };
-        if let Some(status) = fx.remote_status.clone() {
-            self.repo_session.remote_status = status;
-            cx.notify();
-        }
-        let clear_status = fx.remote_status.is_some();
-        let label = "Commit & Push".to_string();
+        let (clear_status, _, label) = self.begin_dispatch_op("Commit & Push", &fx, cx);
 
         cx.spawn(async move |this, cx| {
             let mut update_progress = |msg: String| {
-                if progress_id == 0 {
-                    return;
-                }
                 this.update(cx, |app, cx| {
                     app.update_progress_toast(progress_id, msg, cx);
                 })
@@ -250,20 +225,12 @@ impl GitForgeApp {
                     None,
                     move |this, pushed_branch, cx| {
                         this.repo_session.take_commit_message();
-                        if progress_id != 0 {
-                            this.finish_progress_toast(
-                                progress_id,
-                                ToastKind::Success,
-                                format!("Committed and pushed to origin/{pushed_branch}"),
-                                cx,
-                            );
-                        } else {
-                            this.push_toast(
-                                ToastKind::Success,
-                                format!("Committed and pushed to origin/{pushed_branch}"),
-                                cx,
-                            );
-                        }
+                        this.finish_progress_toast(
+                            progress_id,
+                            ToastKind::Success,
+                            format!("Committed and pushed to origin/{pushed_branch}"),
+                            cx,
+                        );
                     },
                     None,
                     Some(surface_handler),
