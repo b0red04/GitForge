@@ -572,6 +572,28 @@ impl GitForgeApp {
         cx.notify();
     }
 
+    /// Readiness guard for bespoke [`Self::run_op_full`] call sites that need
+    /// async work or custom lifecycle. Returns the repo handle when the active
+    /// tab is loaded; sets `last_error` on NoRepo and optionally notifies.
+    /// Loading is silent.
+    pub(crate) fn git_op_handle(
+        &mut self,
+        cx: &mut Context<Self>,
+        notify_on_no_repo: bool,
+    ) -> Option<Arc<Mutex<Option<Repository>>>> {
+        match self.repo_session.git_op_readiness() {
+            GitOpReadiness::Ready(handle) => Some(handle),
+            GitOpReadiness::NoRepo => {
+                self.repo_session.last_error = Some("No repository open".into());
+                if notify_on_no_repo {
+                    cx.notify();
+                }
+                None
+            }
+            GitOpReadiness::Loading => None,
+        }
+    }
+
     /// Sugar for the common blocking-git op: the single readiness guard
     /// (`RepoSession::git_op_readiness` — handle present AND tab not loading),
     /// wraps the sync `op` in [`with_repo_blocking`], and delegates to
