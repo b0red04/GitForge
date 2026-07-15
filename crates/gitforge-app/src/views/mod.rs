@@ -14,6 +14,7 @@ pub mod ops;
 pub mod panel_resize;
 pub mod path_display;
 pub mod repo_session;
+pub mod tab_snapshot;
 pub mod tab_session;
 pub mod repo_tabs;
 pub mod settings;

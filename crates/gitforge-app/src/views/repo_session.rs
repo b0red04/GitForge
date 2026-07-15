@@ -8,11 +8,12 @@ use parking_lot::Mutex;
 
 use super::app::MainViewMode;
 use super::commit_editor::CommitEditor;
-use super::diff_panel::{CommitDiffState, DiffPanel};
+use super::diff_panel::DiffPanel;
 use super::graph_panel::{GraphPanel, GraphSelection};
 use super::sidebar::SidebarState;
 use super::status_panel::StatusPanel;
-pub(crate) use super::tab_session::{OpenRepoTab, TabSnapshot, TabSession, drop_caret_index};
+pub(crate) use super::tab_snapshot::{TabSnapshot, normalized_overlay_file_idx};
+pub(crate) use super::tab_session::{OpenRepoTab, TabSession, drop_caret_index};
 
 pub(crate) struct RepoSession {
     pub(crate) tabs: TabSession,
@@ -136,7 +137,7 @@ impl RepoSession {
 
     /// Align `status_panel` graph-staging mode with `sel`, gated on
     /// [`MainViewMode::CommitHistory`]. Does not touch `diff_panel`.
-    fn sync_status_for_selection(&mut self, sel: GraphSelection) {
+    pub(crate) fn sync_status_for_selection(&mut self, sel: GraphSelection) {
         match sel {
             GraphSelection::Commit(_) => {
                 if self.view_mode == MainViewMode::CommitHistory {
@@ -163,7 +164,7 @@ impl RepoSession {
     ///
     /// Returns the async work the caller must spawn (none / just notify /
     /// load the diff). See [`SelectionEffect`].
-    fn cascade(&mut self, sel: GraphSelection) -> SelectionEffect {
+    pub(crate) fn cascade(&mut self, sel: GraphSelection) -> SelectionEffect {
         self.sync_status_for_selection(sel);
         match sel {
             GraphSelection::Commit(_) => {
@@ -374,127 +375,21 @@ impl RepoSession {
     }
 
     pub(crate) fn save_snapshot_to_active_tab(&mut self) {
-        let selected_commit_id = match self.graph_panel.selection() {
-            GraphSelection::Commit(idx) => self.graph_panel.commit_id_at(idx).map(String::from),
-            _ => None,
-        };
-        let graph_was_uncommitted = self.graph_panel.is_uncommitted_selected();
-        let diff_state = self.diff_panel.diff_state().cloned();
-        let diff_view_mode = self.diff_panel.view_mode();
-        let diff_code_file = self.diff_panel.code_view_file().map(String::from);
-        let diff_code_content = self.diff_panel.code_view_content().map(String::from);
-        let (commit_message, ai_alternatives) = self.commit_editor.snapshot_data();
-        let view_mode = self.view_mode.clone();
-        let diff_overlay_open = self.diff_overlay_open;
-        let sidebar_expansion = self.sidebar_state.expansion();
-
-        self.tabs.store_active_panel_snapshot(TabSnapshot {
-            selected_commit_id,
-            graph_was_uncommitted,
-            diff_state,
-            diff_view_mode,
-            diff_code_file,
-            diff_code_content,
-            commit_message,
-            ai_alternatives,
-            view_mode,
-            diff_overlay_open,
-            sidebar_expansion,
-        });
+        self.tabs
+            .store_active_panel_snapshot(TabSnapshot::capture(self));
     }
 
     /// Restore per-tab UI state saved by [`Self::save_snapshot_to_active_tab`].
     ///
     /// When the snapshot's cached diff still matches the restored graph
-    /// selection ([`preserved_tab_diff`], the tab-switch analogue of
+    /// selection ([`super::tab_snapshot::preserved_tab_diff`], the tab-switch analogue of
     /// `PreservedCommit`), diff is restored from the snapshot, graph-staging
     /// mode is derived via [`Self::sync_status_for_selection`], and the
     /// cascade is skipped so ADR-0001's diff cache stays valid. Otherwise the
     /// Selection Cascade re-derives status and diff from the restored graph
     /// selection and returns the async work the caller must spawn.
     pub(crate) fn restore_snapshot_from_tab(&mut self) -> Option<SelectionEffect> {
-        let snapshot = self.tabs.active_panel_snapshot();
-
-        let snap = snapshot?;
-
-        let TabSnapshot {
-            selected_commit_id,
-            graph_was_uncommitted,
-            diff_state,
-            diff_view_mode,
-            diff_code_file,
-            diff_code_content,
-            commit_message,
-            ai_alternatives,
-            view_mode,
-            diff_overlay_open,
-            sidebar_expansion,
-        } = snap;
-
-        self.view_mode = view_mode;
-        self.diff_overlay_open = diff_overlay_open;
-        self.sidebar_state.apply_expansion(&sidebar_expansion);
-
-        self.restore_graph_selection_from_snapshot(
-            selected_commit_id.as_deref(),
-            graph_was_uncommitted,
-        );
-        let sel = self.graph_panel.selection();
-        let commit_id_at = match sel {
-            GraphSelection::Commit(idx) => self.graph_panel.commit_id_at(idx).map(str::to_string),
-            GraphSelection::Uncommitted | GraphSelection::None => None,
-        };
-        let preserved = preserved_tab_diff(
-            diff_state.as_ref(),
-            sel,
-            commit_id_at.as_deref(),
-        );
-
-        self.commit_editor
-            .restore_from_snapshot(commit_message, ai_alternatives);
-
-        if preserved {
-            self.sync_status_for_selection(sel);
-            self.diff_panel.restore_from_snapshot(
-                diff_state,
-                diff_view_mode,
-                diff_code_file,
-                diff_code_content,
-            );
-            self.apply_overlay_file_selection();
-            None
-        } else {
-            Some(self.cascade(sel))
-        }
-    }
-
-    fn restore_graph_selection_from_snapshot(
-        &mut self,
-        selected_commit_id: Option<&str>,
-        graph_was_uncommitted: bool,
-    ) {
-        if let Some(commit_id) = selected_commit_id {
-            if let Some(idx) = self.graph_panel.find_commit_idx(commit_id) {
-                self.graph_panel.select_commit(idx);
-            }
-        } else if graph_was_uncommitted {
-            self.graph_panel.select_uncommitted();
-        }
-    }
-
-    fn apply_overlay_file_selection(&mut self) {
-        if !self.diff_overlay_open {
-            return;
-        }
-        self.diff_panel.set_diff_mode();
-        let (selected_file_idx, file_count) = self
-            .diff_panel
-            .diff_state()
-            .map(|d| (d.selected_file_idx, d.file_diffs.len()))
-            .unwrap_or((None, 0));
-        if let Some(file_idx) = normalized_overlay_file_idx(selected_file_idx, file_count) {
-            self.diff_panel.select_file(file_idx);
-        }
+        self.tabs.active_panel_snapshot()?.apply_to(self)
     }
 }
 
@@ -508,37 +403,6 @@ pub(crate) enum RefreshReselectPolicy {
     /// Tab-switch path: rebuild graph data only; selection is restored from
     /// [`TabSnapshot`] by [`RepoSession::restore_snapshot_from_tab`].
     DeferToSnapshot,
-}
-
-/// Tab-switch analogue of `PreservedCommit` (ADR-0003): the snapshot's cached
-/// diff is still valid for the restored graph selection, so restore may skip
-/// the cascade and keep ADR-0001's diff cache intact.
-pub(crate) fn preserved_tab_diff(
-    diff_state: Option<&CommitDiffState>,
-    sel: GraphSelection,
-    selected_commit_id: Option<&str>,
-) -> bool {
-    match sel {
-        GraphSelection::Commit(_) => diff_state
-            .zip(selected_commit_id)
-            .is_some_and(|(diff, id)| diff.commit_id == id),
-        GraphSelection::Uncommitted | GraphSelection::None => false,
-    }
-}
-
-/// Normalize the overlay's selected file index against the current file list.
-pub(crate) fn normalized_overlay_file_idx(
-    selected_file_idx: Option<usize>,
-    file_count: usize,
-) -> Option<usize> {
-    if file_count == 0 {
-        return None;
-    }
-    Some(
-        selected_file_idx
-            .filter(|idx| *idx < file_count)
-            .unwrap_or(0),
-    )
 }
 
 /// What the caller (`GitForgeApp`) must do asynchronously after a
@@ -885,6 +749,7 @@ mod repo_session_state_tests {
 #[cfg(test)]
 mod cascade_tests {
     use super::*;
+    use super::super::diff_panel::CommitDiffState;
     use gitforge_git::CommitInfo;
     use gpui::TestAppContext;
 
@@ -915,6 +780,41 @@ mod cascade_tests {
             .graph_panel
             .set_data(vec![commit], vec![], graph, true, None);
         session
+    }
+
+    fn session_with_selected_commit(cx: &mut gpui::App, message: &str) -> RepoSession {
+        let mut s = one_commit_session(cx);
+        s.view_mode = MainViewMode::CommitHistory;
+        s.graph_panel.select_commit(0);
+        s.diff_panel
+            .set_diff(CommitDiffState::new(SAMPLE_COMMIT_ID.into(), vec![], None));
+        s.commit_editor.set_message(message);
+        s
+    }
+
+    fn attach_active_tab(s: &mut RepoSession, snapshot: Option<TabSnapshot>) {
+        use std::sync::Arc;
+        use parking_lot::Mutex;
+
+        s.tabs.open_repo_tabs.push(OpenRepoTab {
+            id: 1,
+            path: PathBuf::from("/tmp/test-repo"),
+            repo: Arc::new(Mutex::new(None)),
+            repo_state: None,
+            loading: false,
+            last_error: None,
+            panel_snapshot: snapshot,
+            pull_requests: vec![],
+            pull_requests_loading: false,
+            pull_requests_loaded: false,
+        });
+        s.tabs.active_repo_tab_id = Some(1);
+    }
+
+    fn clear_panel_state(s: &mut RepoSession) {
+        s.graph_panel.clear_selection();
+        s.diff_panel.clear();
+        s.commit_editor.set_message("");
     }
 
     fn repo_state_with_commits(commits: Vec<CommitInfo>) -> gitforge_git::RepoState {
@@ -1060,9 +960,6 @@ mod cascade_tests {
 
     #[gpui::test]
     fn tab_restore_preserves_cached_diff_when_preserved(cx: &mut TestAppContext) {
-        use std::sync::Arc;
-        use parking_lot::Mutex;
-
         cx.update(|app| {
             let mut s = one_commit_session(app);
             s.view_mode = MainViewMode::CommitHistory;
@@ -1070,37 +967,13 @@ mod cascade_tests {
             s.diff_panel
                 .set_diff(CommitDiffState::new(SAMPLE_COMMIT_ID.into(), vec![], None));
 
-            let snapshot = TabSnapshot {
-                selected_commit_id: Some(SAMPLE_COMMIT_ID.into()),
-                graph_was_uncommitted: false,
-                diff_state: s.diff_panel.diff_state().cloned(),
-                diff_view_mode: s.diff_panel.view_mode(),
-                diff_code_file: None,
-                diff_code_content: None,
-                commit_message: String::new(),
-                ai_alternatives: vec![],
-                view_mode: MainViewMode::CommitHistory,
-                diff_overlay_open: false,
-                sidebar_expansion: s.sidebar_state.expansion(),
-            };
+            let snapshot = TabSnapshot::capture(&s);
 
             // Simulate defer-reselect leaving panels without selection/diff.
             s.diff_panel.clear();
             s.graph_panel.clear_selection();
 
-            s.tabs.open_repo_tabs.push(OpenRepoTab {
-                id: 1,
-                path: PathBuf::from("/tmp/test-repo"),
-                repo: Arc::new(Mutex::new(None)),
-                repo_state: None,
-                loading: false,
-                last_error: None,
-                panel_snapshot: Some(snapshot),
-                pull_requests: vec![],
-                pull_requests_loading: false,
-                pull_requests_loaded: false,
-            });
-            s.tabs.active_repo_tab_id = Some(1);
+            attach_active_tab(&mut s, Some(snapshot));
             s.tabs.next_repo_tab_id = 2;
 
             let effect = s.restore_snapshot_from_tab();
@@ -1117,38 +990,14 @@ mod cascade_tests {
 
     #[gpui::test]
     fn tab_restore_derives_graph_staging_for_uncommitted(cx: &mut TestAppContext) {
-        use std::sync::Arc;
-        use parking_lot::Mutex;
-
         cx.update(|app| {
             let mut s = one_commit_session(app);
-            let snapshot = TabSnapshot {
-                selected_commit_id: None,
-                graph_was_uncommitted: true,
-                diff_state: None,
-                diff_view_mode: s.diff_panel.view_mode(),
-                diff_code_file: None,
-                diff_code_content: None,
-                commit_message: String::new(),
-                ai_alternatives: vec![],
-                view_mode: MainViewMode::CommitHistory,
-                diff_overlay_open: false,
-                sidebar_expansion: s.sidebar_state.expansion(),
-            };
+            let mut snapshot = TabSnapshot::capture(&s);
+            snapshot.selected_commit_id = None;
+            snapshot.graph_was_uncommitted = true;
+            snapshot.diff_state = None;
 
-            s.tabs.open_repo_tabs.push(OpenRepoTab {
-                id: 1,
-                path: PathBuf::from("/tmp/test-repo"),
-                repo: Arc::new(Mutex::new(None)),
-                repo_state: None,
-                loading: false,
-                last_error: None,
-                panel_snapshot: Some(snapshot),
-                pull_requests: vec![],
-                pull_requests_loading: false,
-                pull_requests_loaded: false,
-            });
-            s.tabs.active_repo_tab_id = Some(1);
+            attach_active_tab(&mut s, Some(snapshot));
 
             let effect = s.restore_snapshot_from_tab();
             assert_eq!(effect, Some(SelectionEffect::ClearDiff));
@@ -1175,9 +1024,6 @@ mod cascade_tests {
 
     #[gpui::test]
     fn tab_restore_cascades_when_diff_not_preserved(cx: &mut TestAppContext) {
-        use std::sync::Arc;
-        use parking_lot::Mutex;
-
         cx.update(|app| {
             let mut s = one_commit_session(app);
             s.view_mode = MainViewMode::CommitHistory;
@@ -1185,124 +1031,59 @@ mod cascade_tests {
             s.diff_panel
                 .set_diff(CommitDiffState::new(SAMPLE_COMMIT_ID.into(), vec![], None));
 
-            let snapshot = TabSnapshot {
-                selected_commit_id: Some(SAMPLE_COMMIT_ID.into()),
-                graph_was_uncommitted: false,
-                diff_state: None,
-                diff_view_mode: s.diff_panel.view_mode(),
-                diff_code_file: None,
-                diff_code_content: None,
-                commit_message: String::new(),
-                ai_alternatives: vec![],
-                view_mode: MainViewMode::CommitHistory,
-                diff_overlay_open: false,
-                sidebar_expansion: s.sidebar_state.expansion(),
-            };
+            let mut snapshot = TabSnapshot::capture(&s);
+            snapshot.diff_state = None;
 
-            s.tabs.open_repo_tabs.push(OpenRepoTab {
-                id: 1,
-                path: PathBuf::from("/tmp/test-repo"),
-                repo: Arc::new(Mutex::new(None)),
-                repo_state: None,
-                loading: false,
-                last_error: None,
-                panel_snapshot: Some(snapshot),
-                pull_requests: vec![],
-                pull_requests_loading: false,
-                pull_requests_loaded: false,
-            });
-            s.tabs.active_repo_tab_id = Some(1);
+            attach_active_tab(&mut s, Some(snapshot));
 
             let effect = s.restore_snapshot_from_tab();
             assert_eq!(effect, Some(SelectionEffect::LoadDiffForSelected));
             assert!(s.diff_panel.diff_state().is_none());
         });
     }
-}
 
-#[cfg(test)]
-mod snapshot_tests {
-    use std::collections::HashSet;
+    #[gpui::test]
+    fn tab_snapshot_capture_apply_round_trip(cx: &mut TestAppContext) {
+        cx.update(|app| {
+            let mut s = session_with_selected_commit(app, "round-trip message");
+            s.diff_overlay_open = true;
 
-    use super::{
-        GraphSelection, TabSnapshot, normalized_overlay_file_idx, preserved_tab_diff,
-    };
-    use super::super::app::MainViewMode;
-    use super::super::diff_panel::CommitDiffState;
-    use super::super::diff_viewer::DiffViewMode;
-    use super::super::sidebar::SidebarExpansion;
+            let snapshot = TabSnapshot::capture(&s);
 
-    fn empty_snapshot(diff_state: Option<CommitDiffState>) -> TabSnapshot {
-        TabSnapshot {
-            selected_commit_id: None,
-            graph_was_uncommitted: false,
-            diff_state,
-            diff_view_mode: DiffViewMode::Diff,
-            diff_code_file: None,
-            diff_code_content: None,
-            commit_message: String::new(),
-            ai_alternatives: vec![],
-            view_mode: MainViewMode::CommitHistory,
-            diff_overlay_open: false,
-            sidebar_expansion: SidebarExpansion {
-                branches: true,
-                remotes: true,
-                tags: true,
-                worktrees: true,
-                pull_requests: true,
-                expanded_remotes: HashSet::new(),
-            },
-        }
+            clear_panel_state(&mut s);
+            s.diff_overlay_open = false;
+            s.view_mode = MainViewMode::Status;
+
+            let effect = snapshot.apply_to(&mut s);
+            assert_eq!(effect, None);
+            assert_eq!(s.graph_panel.selection(), GraphSelection::Commit(0));
+            assert_eq!(
+                s.diff_panel.diff_state().unwrap().commit_id,
+                SAMPLE_COMMIT_ID
+            );
+            assert_eq!(s.commit_editor.message(), "round-trip message");
+            assert!(s.diff_overlay_open);
+            assert_eq!(s.view_mode, MainViewMode::CommitHistory);
+        });
     }
 
-    #[test]
-    fn preserved_tab_diff_true_when_commit_and_diff_match() {
-        let snap = empty_snapshot(Some(CommitDiffState::new(
-            "abc".into(),
-            vec![],
-            None,
-        )));
-        assert!(preserved_tab_diff(
-            snap.diff_state.as_ref(),
-            GraphSelection::Commit(0),
-            Some("abc"),
-        ));
-    }
+    #[gpui::test]
+    fn tab_snapshot_save_restore_round_trip(cx: &mut TestAppContext) {
+        cx.update(|app| {
+            let mut s = session_with_selected_commit(app, "via save/restore");
+            attach_active_tab(&mut s, None);
 
-    #[test]
-    fn preserved_tab_diff_false_when_diff_missing_or_mismatched() {
-        let snap = empty_snapshot(Some(CommitDiffState::new(
-            "abc".into(),
-            vec![],
-            None,
-        )));
-        assert!(!preserved_tab_diff(snap.diff_state.as_ref(), GraphSelection::Commit(0), Some("def")));
-        assert!(!preserved_tab_diff(
-            empty_snapshot(None).diff_state.as_ref(),
-            GraphSelection::Commit(0),
-            Some("abc"),
-        ));
-        assert!(!preserved_tab_diff(
-            snap.diff_state.as_ref(),
-            GraphSelection::Uncommitted,
-            None,
-        ));
-    }
+            s.save_snapshot_to_active_tab();
+            clear_panel_state(&mut s);
 
-    #[test]
-    fn overlay_file_idx_none_when_commit_has_no_files() {
-        assert_eq!(normalized_overlay_file_idx(None, 0), None);
-        assert_eq!(normalized_overlay_file_idx(Some(3), 0), None);
-    }
-
-    #[test]
-    fn overlay_file_idx_keeps_valid_selection() {
-        assert_eq!(normalized_overlay_file_idx(Some(2), 3), Some(2));
-    }
-
-    #[test]
-    fn overlay_file_idx_falls_back_to_first_file() {
-        assert_eq!(normalized_overlay_file_idx(None, 3), Some(0));
-        assert_eq!(normalized_overlay_file_idx(Some(9), 3), Some(0));
+            let effect = s.restore_snapshot_from_tab();
+            assert_eq!(effect, None);
+            assert_eq!(s.graph_panel.selection(), GraphSelection::Commit(0));
+            assert_eq!(
+                s.diff_panel.diff_state().unwrap().commit_id,
+                SAMPLE_COMMIT_ID
+            );
+            assert_eq!(s.commit_editor.message(), "via save/restore");
+        });
     }
 }
