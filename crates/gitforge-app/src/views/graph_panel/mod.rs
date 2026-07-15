@@ -82,14 +82,6 @@ impl GraphPanel {
         self.model.select_commit(idx);
     }
 
-    pub fn select_prev(&mut self) -> bool {
-        self.model.select_delta(-1)
-    }
-
-    pub fn select_next(&mut self) -> bool {
-        self.model.select_delta(1)
-    }
-
     pub fn propose_delta(&self, delta: isize) -> Option<GraphSelection> {
         self.model.propose_delta(delta)
     }

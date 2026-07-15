@@ -22,6 +22,12 @@ impl GitForgeApp {
         self.apply_selection_effect(effect, cx);
     }
 
+    pub(crate) fn navigate_graph_selection_delta(&mut self, delta: isize, cx: &mut Context<Self>) {
+        if let Some(effect) = self.repo_session.navigate_selection_delta(delta) {
+            self.apply_selection_effect(effect, cx);
+        }
+    }
+
     /// Interpret the [`SelectionEffect`] returned by the Selection Cascade
     /// (ADR-0003). `RepoSession` is GPUI-free and cannot spawn, so it
     /// describes the async work needed and this helper performs it.

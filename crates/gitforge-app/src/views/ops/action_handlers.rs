@@ -208,9 +208,7 @@ impl GitForgeApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if let Some(effect) = self.repo_session.navigate_selection_delta(-1) {
-            self.apply_selection_effect(effect, cx);
-        }
+        self.navigate_graph_selection_delta(-1, cx);
     }
 
     pub(crate) fn handle_select_next(
@@ -219,9 +217,7 @@ impl GitForgeApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if let Some(effect) = self.repo_session.navigate_selection_delta(1) {
-            self.apply_selection_effect(effect, cx);
-        }
+        self.navigate_graph_selection_delta(1, cx);
     }
 
     pub(crate) fn handle_view_file(

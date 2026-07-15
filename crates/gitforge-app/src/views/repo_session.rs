@@ -207,15 +207,9 @@ impl RepoSession {
     /// graph model, then commits through [`Self::commit_selection`] so the graph
     /// has a single write authority (ADR-0003).
     pub fn navigate_selection_delta(&mut self, delta: isize) -> Option<SelectionEffect> {
-        let sel = self.graph_panel.propose_delta(delta)?;
-        Some(self.commit_selection(sel))
-    }
-
-    /// Read the current graph selection and run the cascade. Prefer
-    /// [`Self::commit_selection`] when the selection is changing.
-    pub fn cascade_current(&mut self) -> SelectionEffect {
-        let sel = self.graph_panel.selection();
-        self.cascade(sel)
+        self.graph_panel
+            .propose_delta(delta)
+            .map(|sel| self.commit_selection(sel))
     }
 
     pub(crate) fn apply_repo_state_to_panels(
@@ -563,7 +557,7 @@ pub(crate) fn normalized_overlay_file_idx(
 
 /// What the caller (`GitForgeApp`) must do asynchronously after a
 /// selection-driven cascade. Returned by [`RepoSession::cascade`],
-/// [`RepoSession::set_selection`], and [`RepoSession::cascade_current`].
+/// [`RepoSession::set_selection`], and [`RepoSession::navigate_selection_delta`].
 ///
 /// `RepoSession` stays GPUI-free, so it cannot spawn the diff load itself;
 /// instead it tells the caller what async work (if any) is needed, and the
@@ -1022,25 +1016,6 @@ mod cascade_tests {
             assert_eq!(effect, SelectionEffect::ClearDiff);
             assert_eq!(s.view_mode, MainViewMode::Status);
             assert_eq!(s.graph_panel.selection(), GraphSelection::Uncommitted);
-        });
-    }
-
-    #[gpui::test]
-    fn cascade_current_uses_existing_graph_selection(cx: &mut TestAppContext) {
-        cx.update(|app| {
-            let mut s = one_commit_session(app);
-            s.view_mode = MainViewMode::CommitHistory;
-            // Simulate keyboard navigation: the graph panel moved its own
-            // selection, the session has not been told yet.
-            s.graph_panel.select_commit(0);
-
-            let effect = s.cascade_current();
-
-            // cascade_current reads graph_panel.selection() (Commit) and
-            // cascades accordingly, without re-writing the graph.
-            assert_eq!(effect, SelectionEffect::LoadDiffForSelected);
-            assert_eq!(s.graph_panel.selection(), GraphSelection::Commit(0));
-            assert!(!s.status_panel.is_graph_staging());
         });
     }
 
