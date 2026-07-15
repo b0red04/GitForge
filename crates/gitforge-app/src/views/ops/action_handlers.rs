@@ -104,20 +104,20 @@ impl GitForgeApp {
     }
 
     pub(crate) fn spawn_open_dialog(&mut self, cx: &mut Context<Self>) {
+        self.repo_session.pending_file_dialog = true;
+        cx.notify();
+
         cx.spawn(async move |this, cx| {
             let path =
                 cx.update(|_cx| rfd::AsyncFileDialog::new().set_title("Open Git Repository"));
             let folder = match path {
-                Ok(dialog) => {
-                    
-                    dialog.pick_folder().await
-                }
+                Ok(dialog) => dialog.pick_folder().await,
                 Err(_) => None,
             };
 
             let Some(folder) = folder else {
                 this.update(cx, |this, cx| {
-                    this.repo_session.loading = false;
+                    this.repo_session.pending_file_dialog = false;
                     cx.notify();
                 })
                 .ok();
@@ -140,44 +140,7 @@ impl GitForgeApp {
         cx: &mut Context<Self>,
     ) {
         tracing::info!("OpenRepository action fired");
-        self.repo_session.loading = true;
-        cx.notify();
-
-        cx.spawn(async move |this, cx| {
-            let path =
-                cx.update(|_cx| rfd::AsyncFileDialog::new().set_title("Open Git Repository"));
-            let folder = match path {
-                Ok(dialog) => {
-                    tracing::info!("Showing file dialog");
-                    let result = dialog.pick_folder().await;
-                    tracing::info!(
-                        "File dialog returned: {:?}",
-                        result.as_ref().map(|f| f.path())
-                    );
-                    result
-                }
-                Err(e) => {
-                    tracing::warn!("Failed to create file dialog: {:?}", e);
-                    None
-                }
-            };
-
-            let Some(folder) = folder else {
-                this.update(cx, |this, cx| {
-                    this.repo_session.loading = false;
-                    cx.notify();
-                })
-                .ok();
-                return;
-            };
-
-            let path_buf = std::path::PathBuf::from(folder.path());
-            this.update(cx, |this, cx| {
-                this.open_or_activate_repo_tab(path_buf, cx);
-            })
-            .ok();
-        })
-        .detach();
+        self.spawn_open_dialog(cx);
     }
 
     pub(crate) fn handle_close_dialog(
@@ -373,8 +336,6 @@ impl GitForgeApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.repo_session.loading = true;
-        cx.notify();
         self.spawn_open_dialog(cx);
     }
 

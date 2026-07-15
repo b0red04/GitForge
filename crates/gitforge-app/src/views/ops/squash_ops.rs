@@ -4,7 +4,7 @@ use gpui::Context;
 use crate::views::app::{AppDialog, GitForgeApp};
 use crate::views::dialogs::squash_wizard::{SquashWizardEntry, SquashWizardState, SquashWizardStep};
 use crate::views::ops::dispatch::{
-    AppError, BusyFlag, OpEffects, RemoteError, Surface, plan_dispatch, spawn_blocking_ok,
+    AppError, BusyFlag, OpEffects, RemoteError, plan_dispatch, spawn_blocking_ok,
     with_repo_blocking,
 };
 use crate::views::toasts::ToastKind;
@@ -270,7 +270,7 @@ impl GitForgeApp {
         let expect_onto = onto.clone();
         let expect_token = wizard.generation_token;
 
-        let Some(handle) = self.repo_session.require_active_repo_handle() else {
+        let Some(handle) = self.git_op_handle(cx, false) else {
             return;
         };
 
@@ -317,6 +317,7 @@ impl GitForgeApp {
                 }
                 cx.notify();
             },
+            None,
             None,
             None,
         );
@@ -374,41 +375,38 @@ impl GitForgeApp {
             let result = with_repo_blocking(handle, move |repo| repo.rebase_interactive(&plan)).await;
             let action = plan_dispatch("Squash commits", result, &OpEffects::GIT);
             this.update(cx, |this, cx| {
-                if action.refresh_repo {
-                    this.refresh_repository(cx);
-                }
-                if action.value.is_some() {
-                    this.squash_wizard = None;
-                    let success = if needs_force_push {
-                        "Commits squashed — updating remote branch..."
-                    } else {
-                        "Commits squashed successfully"
-                    };
-                    this.finish_progress_toast(
-                        progress_id,
-                        ToastKind::Success,
-                        success,
-                        cx,
-                    );
-                    if needs_force_push {
-                        this.push_current_branch("origin".into(), branch, true, cx);
-                    }
-                } else {
-                    if let Some(wizard) = this.squash_wizard.as_mut() {
-                        wizard.submitting = false;
-                    }
-                    this.active_dialog = AppDialog::SquashWizard;
-                    match action.surface {
-                        Surface::Error(msg) => {
-                            this.finish_progress_toast(progress_id, ToastKind::Error, msg, cx);
+                this.apply_dispatch_action(
+                    action,
+                    false,
+                    None,
+                    move |this, (), cx| {
+                        this.squash_wizard = None;
+                        let success = if needs_force_push {
+                            "Commits squashed — updating remote branch..."
+                        } else {
+                            "Commits squashed successfully"
+                        };
+                        this.finish_progress_toast(
+                            progress_id,
+                            ToastKind::Success,
+                            success,
+                            cx,
+                        );
+                        if needs_force_push {
+                            this.push_current_branch("origin".into(), branch, true, cx);
                         }
-                        Surface::Info(msg) => {
-                            this.finish_progress_toast(progress_id, ToastKind::Info, msg, cx);
+                    },
+                    None,
+                    Some(Box::new(move |this, surface, cx| {
+                        if let Some(wizard) = this.squash_wizard.as_mut() {
+                            wizard.submitting = false;
                         }
-                        Surface::Silent => this.dismiss_toast(progress_id, cx),
-                    }
-                }
-                cx.notify();
+                        this.active_dialog = AppDialog::SquashWizard;
+                        this.apply_surface_to_progress_toast(progress_id, surface, cx);
+                    })),
+                    None,
+                    cx,
+                );
             })
             .ok();
         })

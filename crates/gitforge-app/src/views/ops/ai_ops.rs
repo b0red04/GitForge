@@ -22,8 +22,7 @@ impl GitForgeApp {
             return;
         }
         provider_config.model = model.clone();
-        let Some(handle) = self.repo_session.require_active_repo_handle() else {
-            cx.notify();
+        let Some(handle) = self.git_op_handle(cx, true) else {
             return;
         };
 
@@ -65,6 +64,7 @@ impl GitForgeApp {
                 }
                 cx.notify();
             },
+            None,
             None,
             None,
         );
