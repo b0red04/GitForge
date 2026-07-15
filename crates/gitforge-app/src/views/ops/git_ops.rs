@@ -22,9 +22,10 @@ impl GitForgeApp {
         self.apply_selection_effect(effect, cx);
     }
 
-    pub(crate) fn on_graph_selection_changed(&mut self, cx: &mut Context<Self>) {
-        let effect = self.repo_session.cascade_current();
-        self.apply_selection_effect(effect, cx);
+    pub(crate) fn navigate_graph_selection_delta(&mut self, delta: isize, cx: &mut Context<Self>) {
+        if let Some(effect) = self.repo_session.navigate_selection_delta(delta) {
+            self.apply_selection_effect(effect, cx);
+        }
     }
 
     /// Interpret the [`SelectionEffect`] returned by the Selection Cascade

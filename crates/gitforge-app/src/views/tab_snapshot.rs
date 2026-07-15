@@ -62,8 +62,7 @@ impl TabSnapshot {
         session.diff_overlay_open = diff_overlay_open;
         session.sidebar_state.apply_expansion(&sidebar_expansion);
 
-        restore_graph_selection(
-            &mut session.graph_panel,
+        session.restore_graph_selection_from_snapshot(
             selected_commit_id.as_deref(),
             graph_was_uncommitted,
         );
@@ -101,20 +100,6 @@ fn commit_id_for_graph_selection(
     match selection {
         GraphSelection::Commit(idx) => graph_panel.commit_id_at(idx).map(str::to_string),
         GraphSelection::Uncommitted | GraphSelection::None => None,
-    }
-}
-
-fn restore_graph_selection(
-    graph_panel: &mut GraphPanel,
-    selected_commit_id: Option<&str>,
-    graph_was_uncommitted: bool,
-) {
-    if let Some(commit_id) = selected_commit_id
-        && let Some(idx) = graph_panel.find_commit_idx(commit_id)
-    {
-        graph_panel.select_commit(idx);
-    } else if graph_was_uncommitted {
-        graph_panel.select_uncommitted();
     }
 }
 

@@ -172,9 +172,7 @@ impl GitForgeApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.repo_session.graph_panel.select_prev() {
-            self.on_graph_selection_changed(cx);
-        }
+        self.navigate_graph_selection_delta(-1, cx);
     }
 
     pub(crate) fn handle_select_next(
@@ -183,9 +181,7 @@ impl GitForgeApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.repo_session.graph_panel.select_next() {
-            self.on_graph_selection_changed(cx);
-        }
+        self.navigate_graph_selection_delta(1, cx);
     }
 
     pub(crate) fn handle_view_file(

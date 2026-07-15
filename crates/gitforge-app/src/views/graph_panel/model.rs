@@ -212,9 +212,9 @@ impl GraphPanelModel {
         }
     }
 
-    /// Navigate selection by `delta` display rows (+1 = down, -1 = up).
-    pub fn select_delta(&mut self, delta: isize) -> bool {
-        let new_selection = if self.use_filtered {
+    /// Compute the selection after `delta` without mutating state.
+    pub fn propose_delta(&self, delta: isize) -> Option<GraphSelection> {
+        if self.use_filtered {
             selection_after_delta_filtered(
                 self.selection,
                 delta,
@@ -228,12 +228,7 @@ impl GraphPanelModel {
                 self.has_uncommitted,
                 self.commits.len(),
             )
-        };
-        let Some(new_selection) = new_selection else {
-            return false;
-        };
-        self.selection = new_selection;
-        true
+        }
     }
 
     pub fn commit_id_at(&self, idx: usize) -> Option<&str> {
@@ -596,7 +591,7 @@ mod tests {
     }
 
     #[test]
-    fn model_select_delta_respects_branch_filter() {
+    fn model_propose_delta_respects_branch_filter() {
         let c0 = sample_commit("aaa", vec![]);
         let c1 = sample_commit("bbb", vec![]);
         let commits = vec![c0, c1];
@@ -617,7 +612,7 @@ mod tests {
         assert_eq!(model.visible_commit_count(), 1);
 
         model.select_commit(0);
-        assert!(!model.select_delta(1));
-        assert!(!model.select_delta(-1));
+        assert!(model.propose_delta(1).is_none());
+        assert!(model.propose_delta(-1).is_none());
     }
 }

@@ -70,24 +70,20 @@ impl GraphPanel {
         self.model.selected_commit_idx()
     }
 
-    pub fn clear_selection(&mut self) {
+    pub(crate) fn clear_selection(&mut self) {
         self.model.clear_selection();
     }
 
-    pub fn select_uncommitted(&mut self) {
+    pub(crate) fn select_uncommitted(&mut self) {
         self.model.select_uncommitted();
     }
 
-    pub fn select_commit(&mut self, idx: usize) {
+    pub(crate) fn select_commit(&mut self, idx: usize) {
         self.model.select_commit(idx);
     }
 
-    pub fn select_prev(&mut self) -> bool {
-        self.model.select_delta(-1)
-    }
-
-    pub fn select_next(&mut self) -> bool {
-        self.model.select_delta(1)
+    pub fn propose_delta(&self, delta: isize) -> Option<GraphSelection> {
+        self.model.propose_delta(delta)
     }
 
     pub fn commit_id_at(&self, idx: usize) -> Option<&str> {
