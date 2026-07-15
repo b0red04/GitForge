@@ -26,6 +26,27 @@ pub(crate) struct OpenRepoTab {
     pub(crate) pull_requests_loaded: bool,
 }
 
+impl OpenRepoTab {
+    fn shell(id: u64, path: PathBuf, loading: bool) -> Self {
+        Self {
+            id,
+            path,
+            repo: Arc::new(Mutex::new(None)),
+            repo_state: None,
+            loading,
+            last_error: None,
+            panel_snapshot: None,
+            pull_requests: Vec::new(),
+            pull_requests_loading: false,
+            pull_requests_loaded: false,
+        }
+    }
+
+    pub(crate) fn loading(id: u64, path: PathBuf) -> Self {
+        Self::shell(id, path, true)
+    }
+}
+
 /// Per-tab UI state saved when switching away from a repository tab.
 #[derive(Debug, Clone)]
 pub(crate) struct TabSnapshot {
@@ -92,19 +113,8 @@ impl TabSession {
     /// Create a new loading tab for `path` and append it. Returns the new tab id.
     pub(crate) fn push_loading_tab(&mut self, path: PathBuf) -> u64 {
         let id = self.alloc_tab_id();
-        let repo = Arc::new(Mutex::new(None));
-        self.open_repo_tabs.push(OpenRepoTab {
-            id,
-            path: Self::normalize_repo_path(&path),
-            repo,
-            repo_state: None,
-            loading: true,
-            last_error: None,
-            panel_snapshot: None,
-            pull_requests: Vec::new(),
-            pull_requests_loading: false,
-            pull_requests_loaded: false,
-        });
+        let path = Self::normalize_repo_path(&path);
+        self.open_repo_tabs.push(OpenRepoTab::loading(id, path));
         id
     }
 
@@ -248,18 +258,7 @@ mod reorder_tests {
     use super::*;
 
     fn fake_tab(id: u64) -> OpenRepoTab {
-        OpenRepoTab {
-            id,
-            path: PathBuf::from(format!("/repo/{id}")),
-            repo: Arc::new(Mutex::new(None)),
-            repo_state: None,
-            loading: false,
-            last_error: None,
-            panel_snapshot: None,
-            pull_requests: Vec::new(),
-            pull_requests_loading: false,
-            pull_requests_loaded: false,
-        }
+        OpenRepoTab::shell(id, PathBuf::from(format!("/repo/{id}")), false)
     }
 
     fn ids(tabs: &[OpenRepoTab]) -> Vec<u64> {

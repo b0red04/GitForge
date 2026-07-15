@@ -19,11 +19,10 @@ impl GitForgeApp {
         let mut restore_ids = Vec::new();
 
         for path in paths {
-            let path_buf = PathBuf::from(path);
             let id = self
                 .repo_session
                 .tabs
-                .push_loading_tab(path_buf);
+                .push_loading_tab(PathBuf::from(path));
             restore_ids.push(id);
         }
 
@@ -56,12 +55,8 @@ impl GitForgeApp {
             return;
         }
 
-        let id = self
-            .repo_session
-            .tabs
-            .push_loading_tab(normalized);
-        self.repo_session.save_snapshot_to_active_tab();
-        self.repo_session.tabs.active_repo_tab_id = Some(id);
+        let id = self.repo_session.tabs.push_loading_tab(normalized);
+        self.handoff_active_repo_tab(id);
         self.repo_session
             .apply_active_repo_tab_to_view(RefreshReselectPolicy::Reselect);
         self.save_settings();
@@ -153,16 +148,14 @@ impl GitForgeApp {
             return;
         }
         self.switch_active_repo_tab(tab_id, cx);
+        if let Some(repo_state) = self
+            .repo_session
+            .active_tab()
+            .and_then(|tab| tab.repo_state.clone())
         {
-            let repo_state = self
-                .repo_session
-                .active_tab()
-                .and_then(|tab| tab.repo_state.clone());
-            if let Some(ref repo_state) = repo_state {
-                self.repo_session
-                    .sidebar_state
-                    .seed_expanded_remotes(repo_state);
-            }
+            self.repo_session
+                .sidebar_state
+                .seed_expanded_remotes(&repo_state);
         }
 
         self.save_settings();
@@ -207,11 +200,16 @@ impl GitForgeApp {
         self.restart_periodic_fetch(cx);
     }
 
-    /// Save the outgoing tab, switch active id, and restore the incoming tab's
-    /// panel snapshot (shared by activate and close-after-active paths).
-    pub(crate) fn switch_active_repo_tab(&mut self, tab_id: u64, cx: &mut Context<Self>) {
+    /// Save the outgoing tab snapshot and make `tab_id` active.
+    pub(crate) fn handoff_active_repo_tab(&mut self, tab_id: u64) {
         self.repo_session.save_snapshot_to_active_tab();
         self.repo_session.tabs.active_repo_tab_id = Some(tab_id);
+    }
+
+    /// Hand off to `tab_id` and restore the incoming tab's panel snapshot
+    /// (shared by activate and close-after-active paths).
+    pub(crate) fn switch_active_repo_tab(&mut self, tab_id: u64, cx: &mut Context<Self>) {
+        self.handoff_active_repo_tab(tab_id);
         self.restore_incoming_tab_after_switch(cx);
     }
 
