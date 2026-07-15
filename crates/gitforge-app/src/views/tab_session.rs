@@ -27,13 +27,13 @@ pub(crate) struct OpenRepoTab {
 }
 
 impl OpenRepoTab {
-    fn shell(id: u64, path: PathBuf, loading: bool) -> Self {
+    pub(crate) fn new(id: u64, path: PathBuf) -> Self {
         Self {
             id,
             path,
             repo: Arc::new(Mutex::new(None)),
             repo_state: None,
-            loading,
+            loading: false,
             last_error: None,
             panel_snapshot: None,
             pull_requests: Vec::new(),
@@ -43,7 +43,9 @@ impl OpenRepoTab {
     }
 
     pub(crate) fn loading(id: u64, path: PathBuf) -> Self {
-        Self::shell(id, path, true)
+        let mut tab = Self::new(id, path);
+        tab.loading = true;
+        tab
     }
 }
 
@@ -258,7 +260,7 @@ mod reorder_tests {
     use super::*;
 
     fn fake_tab(id: u64) -> OpenRepoTab {
-        OpenRepoTab::shell(id, PathBuf::from(format!("/repo/{id}")), false)
+        OpenRepoTab::new(id, PathBuf::from(format!("/repo/{id}")))
     }
 
     fn ids(tabs: &[OpenRepoTab]) -> Vec<u64> {

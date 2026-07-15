@@ -5,8 +5,22 @@ use std::path::{Path, PathBuf};
 
 use crate::views::app::GitForgeApp;
 use crate::views::ops::pr_ops::{PullRequestRefreshMode, pull_request_refresh_mode_for_tab};
-use crate::views::repo_session::{RefreshReselectPolicy, RepoSession};
+use crate::views::repo_session::RefreshReselectPolicy;
 use crate::views::settings_window::SettingsRepoData;
+
+/// Panel handoff when the active repository tab changes.
+enum RepoTabTransition {
+    /// Switch to an existing tab: defer reselect and restore snapshot (ADR-0006).
+    ActivateExisting(u64),
+    /// New empty loading tab: reselect immediately; no snapshot to restore.
+    OpenNewLoading(u64),
+}
+
+/// Side effects to run after the active tab id changes.
+enum ActiveTabChangeKind {
+    SwitchedExisting,
+    OpenedNew { tab_id: u64 },
+}
 
 impl GitForgeApp {
     pub fn restore_open_repo_tabs(&mut self, cx: &mut Context<Self>) {
@@ -39,8 +53,7 @@ impl GitForgeApp {
     }
 
     pub(crate) fn open_or_activate_repo_tab(&mut self, path: PathBuf, cx: &mut Context<Self>) {
-        let normalized = RepoSession::normalize_repo_path(&path);
-        if let Some(tab_id) = self.repo_session.tabs.find_tab_by_path(&normalized) {
+        if let Some(tab_id) = self.repo_session.tabs.find_tab_by_path(&path) {
             self.activate_repo_tab(tab_id, cx);
             let should_retry = self
                 .repo_session
@@ -55,14 +68,9 @@ impl GitForgeApp {
             return;
         }
 
-        let id = self.repo_session.tabs.push_loading_tab(normalized);
-        self.handoff_active_repo_tab(id);
-        self.repo_session
-            .apply_active_repo_tab_to_view(RefreshReselectPolicy::Reselect);
-        self.save_settings();
-        cx.notify();
-        self.start_loading_repo_tab(id, cx);
-        self.restart_periodic_fetch(cx);
+        let id = self.repo_session.tabs.push_loading_tab(path);
+        self.perform_repo_tab_transition(RepoTabTransition::OpenNewLoading(id), cx);
+        self.on_active_repo_tab_changed(ActiveTabChangeKind::OpenedNew { tab_id: id }, cx);
     }
 
     pub(crate) fn start_loading_repo_tab(&mut self, tab_id: u64, cx: &mut Context<Self>) {
@@ -147,27 +155,8 @@ impl GitForgeApp {
         if self.repo_session.tabs.is_active(tab_id) {
             return;
         }
-        self.switch_active_repo_tab(tab_id, cx);
-        if let Some(repo_state) = self
-            .repo_session
-            .active_tab()
-            .and_then(|tab| tab.repo_state.clone())
-        {
-            self.repo_session
-                .sidebar_state
-                .seed_expanded_remotes(&repo_state);
-        }
-
-        self.save_settings();
-        cx.notify();
-        self.restart_periodic_fetch(cx);
-        self.fetch_on_activate(cx);
-        let pr_mode = self
-            .repo_session
-            .active_tab()
-            .map(pull_request_refresh_mode_for_tab)
-            .unwrap_or(PullRequestRefreshMode::Initial);
-        self.refresh_pull_requests(cx, pr_mode);
+        self.perform_repo_tab_transition(RepoTabTransition::ActivateExisting(tab_id), cx);
+        self.on_active_repo_tab_changed(ActiveTabChangeKind::SwitchedExisting, cx);
     }
 
     pub fn close_repo_tab(&mut self, tab_id: u64, cx: &mut Context<Self>) {
@@ -191,32 +180,78 @@ impl GitForgeApp {
         self.repo_session.push_closed_tab(closed_path);
 
         if was_active {
-            self.repo_session.tabs.select_neighbor_after_close(index);
-            self.restore_incoming_tab_after_switch(cx);
+            self.restore_neighbor_after_close_active_tab(index, cx);
         }
 
-        self.save_settings();
-        cx.notify();
-        self.restart_periodic_fetch(cx);
+        self.persist_active_tab_ui(cx);
     }
 
-    /// Save the outgoing tab snapshot and make `tab_id` active.
-    pub(crate) fn handoff_active_repo_tab(&mut self, tab_id: u64) {
-        self.repo_session.save_snapshot_to_active_tab();
-        self.repo_session.tabs.active_repo_tab_id = Some(tab_id);
+    fn perform_repo_tab_transition(
+        &mut self,
+        transition: RepoTabTransition,
+        cx: &mut Context<Self>,
+    ) {
+        let tab_id = match transition {
+            RepoTabTransition::ActivateExisting(id) | RepoTabTransition::OpenNewLoading(id) => id,
+        };
+        self.repo_session.handoff_to_tab(tab_id);
+        match transition {
+            RepoTabTransition::ActivateExisting(_) => {
+                if let Some(effect) = self.repo_session.apply_incoming_tab_after_switch() {
+                    self.apply_selection_effect(effect, cx);
+                }
+            }
+            RepoTabTransition::OpenNewLoading(_) => {
+                self.repo_session
+                    .apply_active_repo_tab_to_view(RefreshReselectPolicy::Reselect);
+            }
+        }
     }
 
-    /// Hand off to `tab_id` and restore the incoming tab's panel snapshot
-    /// (shared by activate and close-after-active paths).
-    pub(crate) fn switch_active_repo_tab(&mut self, tab_id: u64, cx: &mut Context<Self>) {
-        self.handoff_active_repo_tab(tab_id);
-        self.restore_incoming_tab_after_switch(cx);
-    }
-
-    pub(crate) fn restore_incoming_tab_after_switch(&mut self, cx: &mut Context<Self>) {
+    /// After removing the active tab at `removed_index`, select a neighbor and
+    /// restore its panel snapshot.
+    fn restore_neighbor_after_close_active_tab(
+        &mut self,
+        removed_index: usize,
+        cx: &mut Context<Self>,
+    ) {
+        self.repo_session.tabs.select_neighbor_after_close(removed_index);
         if let Some(effect) = self.repo_session.apply_incoming_tab_after_switch() {
             self.apply_selection_effect(effect, cx);
         }
+    }
+
+    fn on_active_repo_tab_changed(&mut self, kind: ActiveTabChangeKind, cx: &mut Context<Self>) {
+        match kind {
+            ActiveTabChangeKind::SwitchedExisting => {
+                if let Some(repo_state) = self
+                    .repo_session
+                    .active_tab()
+                    .and_then(|tab| tab.repo_state.clone())
+                {
+                    self.repo_session
+                        .sidebar_state
+                        .seed_expanded_remotes(&repo_state);
+                }
+                self.fetch_on_activate(cx);
+                let pr_mode = self
+                    .repo_session
+                    .active_tab()
+                    .map(pull_request_refresh_mode_for_tab)
+                    .unwrap_or(PullRequestRefreshMode::Initial);
+                self.refresh_pull_requests(cx, pr_mode);
+            }
+            ActiveTabChangeKind::OpenedNew { tab_id } => {
+                self.start_loading_repo_tab(tab_id, cx);
+            }
+        }
+        self.persist_active_tab_ui(cx);
+    }
+
+    fn persist_active_tab_ui(&mut self, cx: &mut Context<Self>) {
+        self.save_settings();
+        cx.notify();
+        self.restart_periodic_fetch(cx);
     }
 
     pub(crate) fn record_recent_repo(&mut self, path: &Path) {

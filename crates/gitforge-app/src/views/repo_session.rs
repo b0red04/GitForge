@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use gitforge_git::{RepoState, Repository};
@@ -121,10 +121,6 @@ impl RepoSession {
 
     pub(crate) fn repo_tab_views(&self) -> Vec<super::repo_tabs::RepoTabView> {
         self.tabs.repo_tab_views()
-    }
-
-    pub(crate) fn normalize_repo_path(path: &Path) -> PathBuf {
-        TabSession::normalize_repo_path(path)
     }
 
     pub(crate) fn clear_repo_panels(&mut self) {
@@ -355,6 +351,12 @@ impl RepoSession {
             self.loading = loading;
             self.last_error = last_error;
         }
+    }
+
+    /// Save the outgoing tab's panel snapshot and make `tab_id` active.
+    pub(crate) fn handoff_to_tab(&mut self, tab_id: u64) {
+        self.save_snapshot_to_active_tab();
+        self.tabs.active_repo_tab_id = Some(tab_id);
     }
 
     /// Tab-switch path: rebuild the incoming tab's graph/status data without
@@ -768,18 +770,10 @@ mod active_repo_ready_tests {
     }
 
     fn fake_tab(id: u64, loading: bool, has_state: bool) -> OpenRepoTab {
-        OpenRepoTab {
-            id,
-            path: PathBuf::from(format!("/repo/{id}")),
-            repo: Arc::new(Mutex::new(None)),
-            repo_state: has_state.then(minimal_repo_state),
-            loading,
-            last_error: None,
-            panel_snapshot: None,
-            pull_requests: Vec::new(),
-            pull_requests_loading: false,
-            pull_requests_loaded: false,
-        }
+        let mut tab = OpenRepoTab::new(id, PathBuf::from(format!("/repo/{id}")));
+        tab.loading = loading;
+        tab.repo_state = has_state.then(minimal_repo_state);
+        tab
     }
 
     fn session_with_tab(cx: &mut gpui::App, tab: OpenRepoTab) -> RepoSession {
@@ -1071,18 +1065,9 @@ mod cascade_tests {
             s.diff_panel.clear();
             s.graph_panel.clear_selection();
 
-            s.tabs.open_repo_tabs.push(OpenRepoTab {
-                id: 1,
-                path: PathBuf::from("/tmp/test-repo"),
-                repo: Arc::new(Mutex::new(None)),
-                repo_state: None,
-                loading: false,
-                last_error: None,
-                panel_snapshot: Some(snapshot),
-                pull_requests: vec![],
-                pull_requests_loading: false,
-                pull_requests_loaded: false,
-            });
+            let mut tab = OpenRepoTab::new(1, PathBuf::from("/tmp/test-repo"));
+            tab.panel_snapshot = Some(snapshot);
+            s.tabs.open_repo_tabs.push(tab);
             s.tabs.active_repo_tab_id = Some(1);
             s.tabs.next_repo_tab_id = 2;
 
@@ -1100,9 +1085,6 @@ mod cascade_tests {
 
     #[gpui::test]
     fn tab_restore_derives_graph_staging_for_uncommitted(cx: &mut TestAppContext) {
-        use std::sync::Arc;
-        use parking_lot::Mutex;
-
         cx.update(|app| {
             let mut s = one_commit_session(app);
             let snapshot = TabSnapshot {
@@ -1119,18 +1101,9 @@ mod cascade_tests {
                 sidebar_expansion: s.sidebar_state.expansion(),
             };
 
-            s.tabs.open_repo_tabs.push(OpenRepoTab {
-                id: 1,
-                path: PathBuf::from("/tmp/test-repo"),
-                repo: Arc::new(Mutex::new(None)),
-                repo_state: None,
-                loading: false,
-                last_error: None,
-                panel_snapshot: Some(snapshot),
-                pull_requests: vec![],
-                pull_requests_loading: false,
-                pull_requests_loaded: false,
-            });
+            let mut tab = OpenRepoTab::new(1, PathBuf::from("/tmp/test-repo"));
+            tab.panel_snapshot = Some(snapshot);
+            s.tabs.open_repo_tabs.push(tab);
             s.tabs.active_repo_tab_id = Some(1);
 
             let effect = s.restore_snapshot_from_tab();
@@ -1158,9 +1131,6 @@ mod cascade_tests {
 
     #[gpui::test]
     fn tab_restore_cascades_when_diff_not_preserved(cx: &mut TestAppContext) {
-        use std::sync::Arc;
-        use parking_lot::Mutex;
-
         cx.update(|app| {
             let mut s = one_commit_session(app);
             s.view_mode = MainViewMode::CommitHistory;
@@ -1182,18 +1152,9 @@ mod cascade_tests {
                 sidebar_expansion: s.sidebar_state.expansion(),
             };
 
-            s.tabs.open_repo_tabs.push(OpenRepoTab {
-                id: 1,
-                path: PathBuf::from("/tmp/test-repo"),
-                repo: Arc::new(Mutex::new(None)),
-                repo_state: None,
-                loading: false,
-                last_error: None,
-                panel_snapshot: Some(snapshot),
-                pull_requests: vec![],
-                pull_requests_loading: false,
-                pull_requests_loaded: false,
-            });
+            let mut tab = OpenRepoTab::new(1, PathBuf::from("/tmp/test-repo"));
+            tab.panel_snapshot = Some(snapshot);
+            s.tabs.open_repo_tabs.push(tab);
             s.tabs.active_repo_tab_id = Some(1);
 
             let effect = s.restore_snapshot_from_tab();

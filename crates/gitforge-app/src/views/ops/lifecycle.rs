@@ -219,18 +219,9 @@ mod tests {
             let mut git_app = GitForgeApp::new(app);
             let path = PathBuf::from("/tmp/repo");
             git_app.repo_session.tabs.active_repo_tab_id = Some(42);
-            git_app.repo_session.tabs.open_repo_tabs.push(crate::views::tab_session::OpenRepoTab {
-                id: 42,
-                path: path.clone(),
-                repo: std::sync::Arc::new(parking_lot::Mutex::new(None)),
-                repo_state: None,
-                loading: false,
-                last_error: None,
-                panel_snapshot: None,
-                pull_requests: Vec::new(),
-                pull_requests_loading: false,
-                pull_requests_loaded: false,
-            });
+            git_app.repo_session.tabs.open_repo_tabs.push(
+                crate::views::tab_session::OpenRepoTab::new(42, path.clone()),
+            );
 
             let flag = BusyFlag::PullRequests {
                 tab_id: 42,
@@ -249,18 +240,9 @@ mod tests {
             let mut git_app = GitForgeApp::new(app);
             let path = PathBuf::from("/tmp/repo");
             git_app.repo_session.tabs.active_repo_tab_id = Some(42);
-            git_app.repo_session.tabs.open_repo_tabs.push(crate::views::tab_session::OpenRepoTab {
-                id: 42,
-                path: path.clone(),
-                repo: std::sync::Arc::new(parking_lot::Mutex::new(None)),
-                repo_state: None,
-                loading: false,
-                last_error: None,
-                panel_snapshot: None,
-                pull_requests: Vec::new(),
-                pull_requests_loading: true, // spinner on for tab 42
-                pull_requests_loaded: false,
-            });
+            let mut tab = crate::views::tab_session::OpenRepoTab::new(42, path.clone());
+            tab.pull_requests_loading = true; // spinner on for tab 42
+            git_app.repo_session.tabs.open_repo_tabs.push(tab);
 
             let flag = BusyFlag::PullRequests {
                 tab_id: 42,
