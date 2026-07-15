@@ -7,7 +7,7 @@ use crate::views::diff_panel::CommitDiffState;
 use crate::views::diff_viewer::file_diff_path_or_empty;
 use crate::views::graph_panel::GraphSelection;
 use crate::views::ops::dispatch::{AppError, OpEffects, Surface, plan_dispatch, with_repo_blocking};
-use crate::views::repo_session::{GitOpReadiness, SelectionEffect, normalized_overlay_file_idx};
+use crate::views::repo_session::{GitOpReadiness, SelectionEffect};
 use crate::views::status_panel::StatusFileSection;
 use crate::views::toasts::ToastKind;
 
@@ -47,25 +47,8 @@ impl GitForgeApp {
     }
 
     pub fn open_diff_overlay_for_file(&mut self, file_idx: usize, cx: &mut Context<Self>) {
-        self.repo_session.diff_panel.select_file(file_idx);
-        self.prepare_diff_overlay_state();
-        if !self.repo_session.diff_overlay_open {
-            self.repo_session.diff_overlay_open = true;
-        }
+        self.repo_session.open_overlay_for_file(file_idx);
         cx.notify();
-    }
-
-    fn prepare_diff_overlay_state(&mut self) {
-        self.repo_session.diff_panel.set_diff_mode();
-        let (selected_file_idx, file_count) = self
-            .repo_session
-            .diff_panel
-            .diff_state()
-            .map(|d| (d.selected_file_idx, d.file_diffs.len()))
-            .unwrap_or((None, 0));
-        if let Some(file_idx) = normalized_overlay_file_idx(selected_file_idx, file_count) {
-            self.repo_session.diff_panel.select_file(file_idx);
-        }
     }
 
     /// Toggle the large diff overlay that renders the selected file's line-level
@@ -73,11 +56,7 @@ impl GitForgeApp {
     /// visible to drive file selection; everything beneath the overlay is
     /// occluded (disabled) while open.
     pub fn toggle_diff_overlay(&mut self, cx: &mut Context<Self>) {
-        let opening = !self.repo_session.diff_overlay_open;
-        if opening {
-            self.prepare_diff_overlay_state();
-        }
-        self.repo_session.diff_overlay_open = opening;
+        self.repo_session.toggle_overlay();
         cx.notify();
     }
 
@@ -906,7 +885,6 @@ impl GitForgeApp {
             move |repo| repo.unified_diff_for_commit(&commit_id),
             move |this, diff_text, cx| {
                 let file_diffs = gitforge_diff::parser::parse_unified_diff(&diff_text);
-                let has_files = !file_diffs.is_empty();
                 this.repo_session.diff_panel.set_diff(CommitDiffState::new(
                     id_for_state,
                     file_diffs,
@@ -916,9 +894,7 @@ impl GitForgeApp {
                 // via keyboard: auto-select the first file of each newly-loaded
                 // commit. With the overlay closed this preserves the existing
                 // behaviour (no file pre-selected in the right-hand list).
-                if this.repo_session.diff_overlay_open && has_files {
-                    this.repo_session.diff_panel.select_file(0);
-                }
+                this.repo_session.sync_overlay_after_diff_load();
                 cx.notify();
             },
         );

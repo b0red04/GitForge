@@ -295,7 +295,7 @@ impl GitForgeApp {
         app: WeakEntity<Self>,
         cx: &mut Context<Self>,
     ) {
-        let loading = self.repo_session.loading;
+        let loading = self.repo_session.is_loading();
         let sel_idx = self.repo_session.graph_panel.selected_commit_idx();
         let selected_commit = repo_state
             .and_then(|rs| sel_idx.and_then(|i| rs.commits.get(i)))
@@ -306,7 +306,7 @@ impl GitForgeApp {
             self.settings.theme.clone(),
             loading,
             selected_commit_id,
-            self.repo_session.diff_overlay_open,
+            self.repo_session.overlay_eligible(),
         );
 
         if self.repo_session.diff_view.read(cx).key() == &key {
@@ -318,7 +318,7 @@ impl GitForgeApp {
             self.colors.clone(),
             loading,
             selected_commit,
-            self.repo_session.diff_overlay_open,
+            self.repo_session.overlay_eligible(),
             app,
         );
         let diff_view = self.repo_session.diff_view.clone();
@@ -336,14 +336,7 @@ impl GitForgeApp {
     /// working-tree status view is active). The overlay uses `.occlude()` so
     /// everything beneath it is disabled while it is open.
     fn render_diff_overlay(&self, entity: WeakEntity<Self>) -> Option<Stateful<Div>> {
-        if !self.repo_session.diff_overlay_open {
-            return None;
-        }
-        // The overlay only makes sense for committed diffs in the history view.
-        if self.repo_session.view_mode != MainViewMode::CommitHistory {
-            return None;
-        }
-        if self.repo_session.graph_panel.is_uncommitted_selected() {
+        if !self.repo_session.overlay_eligible() {
             return None;
         }
 
@@ -684,7 +677,7 @@ impl Render for GitForgeApp {
             super::sidebar::render_sidebar(
                 active_repo_state,
                 &self.colors,
-                self.repo_session.loading,
+                self.repo_session.is_loading(),
                 &self.repo_session.sidebar_state,
                 self.sidebar_width,
                 entity.clone(),
