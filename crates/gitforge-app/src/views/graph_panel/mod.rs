@@ -70,15 +70,15 @@ impl GraphPanel {
         self.model.selected_commit_idx()
     }
 
-    pub fn clear_selection(&mut self) {
+    pub(crate) fn clear_selection(&mut self) {
         self.model.clear_selection();
     }
 
-    pub fn select_uncommitted(&mut self) {
+    pub(crate) fn select_uncommitted(&mut self) {
         self.model.select_uncommitted();
     }
 
-    pub fn select_commit(&mut self, idx: usize) {
+    pub(crate) fn select_commit(&mut self, idx: usize) {
         self.model.select_commit(idx);
     }
 

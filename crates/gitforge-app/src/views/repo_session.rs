@@ -163,9 +163,14 @@ impl RepoSession {
     /// `view_mode`) and `diff_panel` (clear) consistent with it.
     ///
     /// Does **not** write `graph_panel` — the selection is the cascade's
-    /// input, not its output. The caller must have set `graph_panel.selection`
-    /// before calling this (or in the same atomic update via
-    /// [`Self::set_selection`]).
+    /// input, not its output. Callers must write the graph first via
+    /// [`Self::write_graph_selection`] or [`Self::apply_graph_selection`].
+    ///
+    /// Entry-point matrix (ADR-0003):
+    /// - [`Self::set_selection`] — write + force history view + cascade
+    /// - [`Self::navigate_selection_delta`] — write + cascade (preserves view)
+    /// - [`Self::apply_graph_selection`] — write + cascade (no view change)
+    /// - Refresh `PreservedCommit` / snapshot restore — [`Self::write_graph_selection`] only
     ///
     /// Returns the async work the caller must spawn (none / just notify /
     /// load the diff). See [`SelectionEffect`].
@@ -183,15 +188,22 @@ impl RepoSession {
         }
     }
 
-    /// Write `graph_panel` to `sel` and run the Selection Cascade. Does not
-    /// change `view_mode` — use [`Self::set_selection`] when navigation should
-    /// force commit-history view (clicks / programmatic).
-    pub fn commit_selection(&mut self, sel: GraphSelection) -> SelectionEffect {
+    /// Write `graph_panel.selection` to `sel` without cascading. Used when the
+    /// cascade must be skipped (ADR-0001 cache on `PreservedCommit`) or
+    /// deferred (tab snapshot restore).
+    fn write_graph_selection(&mut self, sel: GraphSelection) {
         match sel {
             GraphSelection::Commit(idx) => self.graph_panel.select_commit(idx),
             GraphSelection::Uncommitted => self.graph_panel.select_uncommitted(),
             GraphSelection::None => self.graph_panel.clear_selection(),
         }
+    }
+
+    /// Write `graph_panel` to `sel` and run the Selection Cascade. Does not
+    /// change `view_mode` — use [`Self::set_selection`] when navigation should
+    /// force commit-history view (clicks / programmatic).
+    pub fn apply_graph_selection(&mut self, sel: GraphSelection) -> SelectionEffect {
+        self.write_graph_selection(sel);
         self.cascade(sel)
     }
 
@@ -200,16 +212,16 @@ impl RepoSession {
     /// CommitHistory` (explicit navigation), then runs the cascade.
     pub fn set_selection(&mut self, sel: GraphSelection) -> SelectionEffect {
         self.view_mode = MainViewMode::CommitHistory;
-        self.commit_selection(sel)
+        self.apply_graph_selection(sel)
     }
 
     /// Selection entry for keyboard navigation. Proposes a delta via the pure
-    /// graph model, then commits through [`Self::commit_selection`] so the graph
-    /// has a single write authority (ADR-0003).
+    /// graph model, then applies through [`Self::apply_graph_selection`] so the
+    /// graph has a single write authority (ADR-0003).
     pub fn navigate_selection_delta(&mut self, delta: isize) -> Option<SelectionEffect> {
         self.graph_panel
             .propose_delta(delta)
-            .map(|sel| self.commit_selection(sel))
+            .map(|sel| self.apply_graph_selection(sel))
     }
 
     pub(crate) fn apply_repo_state_to_panels(
@@ -315,19 +327,16 @@ impl RepoSession {
             .collect();
         match reselect_after_refresh(prev_selection, has_uncommitted, &new_commit_ids) {
             RefreshSelection::PreservedCommit(idx) => {
-                self.graph_panel.select_commit(idx);
+                self.write_graph_selection(GraphSelection::Commit(idx));
             }
             RefreshSelection::PreservedUncommitted => {
-                self.graph_panel.select_uncommitted();
-                let _ = self.cascade(GraphSelection::Uncommitted);
+                let _ = self.apply_graph_selection(GraphSelection::Uncommitted);
             }
             RefreshSelection::Fallback => {
                 if has_uncommitted {
-                    self.graph_panel.select_uncommitted();
-                    let _ = self.cascade(GraphSelection::Uncommitted);
+                    let _ = self.apply_graph_selection(GraphSelection::Uncommitted);
                 } else {
-                    self.graph_panel.clear_selection();
-                    let _ = self.cascade(GraphSelection::None);
+                    let _ = self.apply_graph_selection(GraphSelection::None);
                 }
             }
         }
@@ -489,10 +498,10 @@ impl RepoSession {
     ) {
         if let Some(commit_id) = selected_commit_id {
             if let Some(idx) = self.graph_panel.find_commit_idx(commit_id) {
-                self.graph_panel.select_commit(idx);
+                self.write_graph_selection(GraphSelection::Commit(idx));
             }
         } else if graph_was_uncommitted {
-            self.graph_panel.select_uncommitted();
+            self.write_graph_selection(GraphSelection::Uncommitted);
         }
     }
 
@@ -556,7 +565,7 @@ pub(crate) fn normalized_overlay_file_idx(
 }
 
 /// What the caller (`GitForgeApp`) must do asynchronously after a
-/// selection-driven cascade. Returned by [`RepoSession::cascade`],
+/// selection-driven cascade. Returned by [`RepoSession::apply_graph_selection`],
 /// [`RepoSession::set_selection`], and [`RepoSession::navigate_selection_delta`].
 ///
 /// `RepoSession` stays GPUI-free, so it cannot spawn the diff load itself;

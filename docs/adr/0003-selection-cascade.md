@@ -35,25 +35,42 @@ Promote one private method, `RepoSession::cascade`, to be the single home for
 the selection invariant. It takes a `GraphSelection` and makes `status_panel`
 (enter/exit graph-staging, gated on `view_mode`) and `diff_panel` (clear)
 consistent with it. The cascade does **not** write `graph_panel` — the
-selection is its input, not its output, so whoever calls the cascade is
-responsible for having set `graph_panel.selection` first (or in the same
-atomic update).
+selection is its input, not its output.
 
-Two public entry methods funnel through `cascade`:
+Graph selection writes funnel through one private method,
+`RepoSession::write_graph_selection`, which is the only place that calls
+`graph_panel.select_*`. Public entry methods compose writes and cascades:
 
+| Entry | Writes graph | Forces history view | Cascades |
+|-------|--------------|---------------------|----------|
+| `set_selection(sel)` | via `apply_graph_selection` | yes | yes |
+| `navigate_selection_delta(delta)` | via `apply_graph_selection` | no | yes |
+| `apply_graph_selection(sel)` | yes | no | yes |
+| Refresh `PreservedCommit` | `write_graph_selection` only | no | **no** (cache) |
+| Tab snapshot restore | `write_graph_selection` only | no | maybe later |
+
+- `RepoSession::write_graph_selection(sel)` — graph write only. Used when the
+  cascade must be skipped (`PreservedCommit`, ADR-0001 cache) or deferred
+  (tab snapshot restore before the caller decides whether to cascade).
+- `RepoSession::apply_graph_selection(sel)` — writes the graph, then calls
+  `cascade(sel)`. Does not touch `view_mode`.
 - `RepoSession::set_selection(sel)` — for clicks and programmatic selection.
-  Writes `graph_panel`, forces `view_mode = CommitHistory` (explicit
-  navigation), then calls `cascade(sel)`.
-- `RepoSession::cascade_current()` — for keyboard navigation. The graph panel
-  has already moved its own selection via `select_prev`/`select_next`, so this
-  reads `graph_panel.selection()` and calls `cascade(sel)` without re-writing
-  the graph.
+  Forces `view_mode = CommitHistory` (explicit navigation), then calls
+  `apply_graph_selection(sel)`.
+- `RepoSession::navigate_selection_delta(delta)` — for keyboard navigation.
+  Proposes the next selection via the pure `GraphPanelModel::propose_delta`
+  (no mutation), then applies through `apply_graph_selection`. Does not touch
+  `view_mode` (the user may be in Status view while arrowing the graph).
 
-The snapshot path (`apply_repo_state_to_panels`) keeps its rebuild +
-preservation responsibilities, but after `reselect_after_refresh` decides the
-post-refresh selection it writes `graph_panel` in its match arms and calls
-`cascade(sel)` directly. It does **not** force `view_mode` — a refresh while
-the user is in Status view must not yank them back to CommitHistory.
+`GraphPanel`'s mutating `select_*` methods are `pub(crate)` so only
+`RepoSession` can write graph selection.
+
+The refresh path (`apply_repo_state_to_panels`) keeps its rebuild +
+preservation responsibilities. After `reselect_after_refresh` decides the
+post-refresh selection it routes through `write_graph_selection` or
+`apply_graph_selection` as appropriate. It does **not** force `view_mode` — a
+refresh while the user is in Status view must not yank them back to
+CommitHistory.
 
 The public entries return a `SelectionEffect`:
 
@@ -81,10 +98,10 @@ disproportionate plumbing for a value that only ever means "notify."
 `reselect_after_refresh` returns `RefreshSelection::PreservedCommit(idx)`
 when the user's previously-selected commit is still present after a fetch.
 Because commits are immutable, that commit's cached diff is still valid, so
-the snapshot path:
+the refresh path:
 
-1. Calls `graph_panel.select_commit(idx)` (re-selects at the possibly-shifted
-   index).
+1. Calls `write_graph_selection(Commit(idx))` (re-selects at the possibly-
+   shifted index).
 2. Does **not** call `cascade` — the invariant already held before the
    refresh and still holds. Calling `cascade` would `diff_panel.clear()` and
    force a reload, defeating ADR-0001's cache.
@@ -93,13 +110,12 @@ the snapshot path:
 ### `view_mode` is read by the cascade, written by entries
 
 `view_mode` is written by three different policies: `set_selection` forces
-`CommitHistory` (explicit navigation); the snapshot path never writes it
-(refresh respects the user's current view); the status-view action handler
-writes `Status` orthogonally. The cascade **reads** `view_mode` to gate
-`enter_graph_staging` (only enter staging when in history view) but never
-writes it. The invariant the cascade enforces is therefore "given the current
-`view_mode`, the panels are consistent" — not "`view_mode` is always
-CommitHistory."
+`CommitHistory` (explicit navigation); the refresh and keyboard paths never
+write it; the status-view action handler writes `Status` orthogonally. The
+cascade **reads** `view_mode` to gate `enter_graph_staging` (only enter
+staging when in history view) but never writes it. The invariant the cascade
+enforces is therefore "given the current `view_mode`, the panels are
+consistent" — not "`view_mode` is always CommitHistory."
 
 ## Scope boundary (explicit non-goals)
 
@@ -109,13 +125,6 @@ CommitHistory."
   home for the *selection invariant*, not a full panel façade. Wrapping every
   panel mutation would turn `RepoSession` into a shallow pass-through
   namespace — the opposite of deepening.
-- The two-writers issue (`graph_panel` writes its own selection on keyboard
-  navigation; the app writes it on clicks) is **acknowledged, not fixed**.
-  Both paths now route the *cascade* part through one private method, which is
-  where the invariant lives. Unifying `select_prev`/`select_next` to
-  compute-without-writing would give a single graph-selection writer, but
-  that is a larger change to `GraphPanel`'s API for modest gain over the
-  cascade-as-invariant-home outcome.
 
 ## Behaviour changes
 
@@ -128,8 +137,8 @@ CommitHistory."
    always enters/exits staging exactly as `select_commit` /
    `select_uncommitted` did pre-ADR. The cascade's `view_mode` gating is
    therefore never exercised here; it only matters on the keyboard path
-   (`cascade_current`) and the snapshot path (`apply_repo_state_to_panels`),
-   where `view_mode` is not forced.
+   (`navigate_selection_delta`) and the refresh path
+   (`apply_repo_state_to_panels`), where `view_mode` is not forced.
 
 ## Consequences
 
@@ -138,6 +147,8 @@ CommitHistory."
 - The four-step selection dance lives in exactly one tested private method
   (`cascade`). Adding a new entry path means writing a thin wrapper, not
   re-implementing the invariant.
+- Graph selection has a single write authority (`write_graph_selection`).
+  Keyboard navigation no longer mutates the graph panel before cascading.
 - The "panels are private, behaviour goes through methods" claim in
   `CONTEXT.md` becomes true end-to-end for selection, not just at the render
   seam.
@@ -151,14 +162,11 @@ CommitHistory."
 
 ### Negative / deferred
 
-- Two public entry methods (`set_selection`, `cascade_current`) rather than
-  one. This reads honestly — the click and keyboard paths really do differ
-  (who writes the graph) — but it is one more method to learn than a single
-  entry point would be.
-- The two-writers issue for `graph_panel.selection` is documented here, not
-  resolved. A future change that makes `select_prev`/`select_next`
-  compute-and-return would let everything route through `set_selection`,
-  but that is deferred.
+- Three public entry methods (`set_selection`, `apply_graph_selection`,
+  `navigate_selection_delta`) plus one write-only helper
+  (`write_graph_selection`). The matrix reads honestly — click, keyboard,
+  refresh, and cache-bypass paths really do differ — but it is more surface
+  area than a single entry point would be.
 - `view_mode` remains a `pub(crate)` field on `RepoSession` rather than being
   fully encapsulated behind the cascade. This is deliberate (the status-view
   action handler is an orthogonal writer), but means the cascade's gating
