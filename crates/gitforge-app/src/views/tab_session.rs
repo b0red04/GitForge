@@ -23,6 +23,29 @@ pub(crate) struct OpenRepoTab {
     pub(crate) pull_requests_loaded: bool,
 }
 
+impl OpenRepoTab {
+    pub(crate) fn new(id: u64, path: PathBuf) -> Self {
+        Self {
+            id,
+            path,
+            repo: Arc::new(Mutex::new(None)),
+            repo_state: None,
+            loading: false,
+            last_error: None,
+            panel_snapshot: None,
+            pull_requests: Vec::new(),
+            pull_requests_loading: false,
+            pull_requests_loaded: false,
+        }
+    }
+
+    pub(crate) fn loading(id: u64, path: PathBuf) -> Self {
+        let mut tab = Self::new(id, path);
+        tab.loading = true;
+        tab
+    }
+}
+
 /// Open repository tabs, active tab selection, drag/reorder state, and
 /// recently-closed tab paths. Panel rendering and the Selection Cascade live on
 /// [`super::repo_session::RepoSession`].
@@ -67,6 +90,14 @@ impl TabSession {
     pub(crate) fn alloc_tab_id(&mut self) -> u64 {
         let id = self.next_repo_tab_id;
         self.next_repo_tab_id += 1;
+        id
+    }
+
+    /// Create a new loading tab for `path` and append it. Returns the new tab id.
+    pub(crate) fn push_loading_tab(&mut self, path: PathBuf) -> u64 {
+        let id = self.alloc_tab_id();
+        let path = Self::normalize_repo_path(&path);
+        self.open_repo_tabs.push(OpenRepoTab::loading(id, path));
         id
     }
 
@@ -210,18 +241,7 @@ mod reorder_tests {
     use super::*;
 
     fn fake_tab(id: u64) -> OpenRepoTab {
-        OpenRepoTab {
-            id,
-            path: PathBuf::from(format!("/repo/{id}")),
-            repo: Arc::new(Mutex::new(None)),
-            repo_state: None,
-            loading: false,
-            last_error: None,
-            panel_snapshot: None,
-            pull_requests: Vec::new(),
-            pull_requests_loading: false,
-            pull_requests_loaded: false,
-        }
+        OpenRepoTab::new(id, PathBuf::from(format!("/repo/{id}")))
     }
 
     fn ids(tabs: &[OpenRepoTab]) -> Vec<u64> {
@@ -368,5 +388,17 @@ mod reorder_tests {
         assert_eq!(drop_caret_index(&t, Some(20), Some((20, false))), None);
         assert_eq!(drop_caret_index(&t, Some(20), Some((10, false))), None);
         assert_eq!(drop_caret_index(&t, Some(20), Some((30, true))), None);
+    }
+
+    #[test]
+    fn push_loading_tab_creates_loading_entry() {
+        let mut session = TabSession::new();
+        let id = session.push_loading_tab(PathBuf::from("/tmp/my-repo"));
+        assert_eq!(session.open_repo_tabs.len(), 1);
+        let tab = &session.open_repo_tabs[0];
+        assert_eq!(tab.id, id);
+        assert!(tab.loading);
+        assert!(tab.repo_state.is_none());
+        assert!(tab.panel_snapshot.is_none());
     }
 }

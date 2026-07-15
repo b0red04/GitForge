@@ -96,6 +96,10 @@ impl RepoSession {
         self.pending_file_dialog || self.active_tab().is_some_and(|tab| tab.loading)
     }
 
+    pub(crate) fn normalize_repo_path(path: &Path) -> PathBuf {
+        TabSession::normalize_repo_path(path)
+    }
+
     /// Whether the active tab has finished discovery and can run git ops.
     pub(crate) fn active_repo_ready(&self) -> bool {
         self.active_tab()
@@ -117,10 +121,6 @@ impl RepoSession {
 
     pub(crate) fn repo_tab_views(&self) -> Vec<super::repo_tabs::RepoTabView> {
         self.tabs.repo_tab_views()
-    }
-
-    pub(crate) fn normalize_repo_path(path: &Path) -> PathBuf {
-        TabSession::normalize_repo_path(path)
     }
 
     pub(crate) fn clear_repo_panels(&mut self) {
@@ -348,6 +348,12 @@ impl RepoSession {
             self.clear_repo_panels();
             self.last_error = last_error;
         }
+    }
+
+    /// Save the outgoing tab's panel snapshot and make `tab_id` active.
+    pub(crate) fn handoff_to_tab(&mut self, tab_id: u64) {
+        self.save_snapshot_to_active_tab();
+        self.tabs.active_repo_tab_id = Some(tab_id);
     }
 
     /// Tab-switch path: rebuild the incoming tab's graph/status data without
@@ -624,18 +630,10 @@ mod repo_session_state_tests {
     }
 
     fn fake_tab(id: u64, loading: bool, has_state: bool) -> OpenRepoTab {
-        OpenRepoTab {
-            id,
-            path: PathBuf::from(format!("/repo/{id}")),
-            repo: Arc::new(Mutex::new(None)),
-            repo_state: has_state.then(minimal_repo_state),
-            loading,
-            last_error: None,
-            panel_snapshot: None,
-            pull_requests: Vec::new(),
-            pull_requests_loading: false,
-            pull_requests_loaded: false,
-        }
+        let mut tab = OpenRepoTab::new(id, PathBuf::from(format!("/repo/{id}")));
+        tab.loading = loading;
+        tab.repo_state = has_state.then(minimal_repo_state);
+        tab
     }
 
     fn session_with_tab(cx: &mut gpui::App, tab: OpenRepoTab) -> RepoSession {
@@ -793,21 +791,9 @@ mod cascade_tests {
     }
 
     fn attach_active_tab(s: &mut RepoSession, snapshot: Option<TabSnapshot>) {
-        use std::sync::Arc;
-        use parking_lot::Mutex;
-
-        s.tabs.open_repo_tabs.push(OpenRepoTab {
-            id: 1,
-            path: PathBuf::from("/tmp/test-repo"),
-            repo: Arc::new(Mutex::new(None)),
-            repo_state: None,
-            loading: false,
-            last_error: None,
-            panel_snapshot: snapshot,
-            pull_requests: vec![],
-            pull_requests_loading: false,
-            pull_requests_loaded: false,
-        });
+        let mut tab = OpenRepoTab::new(1, PathBuf::from("/tmp/test-repo"));
+        tab.panel_snapshot = snapshot;
+        s.tabs.open_repo_tabs.push(tab);
         s.tabs.active_repo_tab_id = Some(1);
     }
 

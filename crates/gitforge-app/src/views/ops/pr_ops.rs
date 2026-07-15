@@ -713,27 +713,15 @@ mod tests {
 
     #[test]
     fn refresh_mode_uses_loaded_flag_not_list_len() {
-        let tab = OpenRepoTab {
-            id: 1,
-            path: PathBuf::from("/tmp/repo"),
-            repo: Arc::new(Mutex::new(None)),
-            repo_state: None,
-            loading: false,
-            last_error: None,
-            panel_snapshot: None,
-            pull_requests: Vec::new(),
-            pull_requests_loading: false,
-            pull_requests_loaded: true,
-        };
+        let mut tab = OpenRepoTab::new(1, PathBuf::from("/tmp/repo"));
+        tab.pull_requests_loaded = true;
         assert_eq!(
             pull_request_refresh_mode_for_tab(&tab),
             PullRequestRefreshMode::Background
         );
+        tab.pull_requests_loaded = false;
         assert_eq!(
-            pull_request_refresh_mode_for_tab(&OpenRepoTab {
-                pull_requests_loaded: false,
-                ..tab
-            }),
+            pull_request_refresh_mode_for_tab(&tab),
             PullRequestRefreshMode::Initial
         );
     }
