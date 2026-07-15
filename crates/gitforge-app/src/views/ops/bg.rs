@@ -54,6 +54,7 @@ impl GitForgeApp {
             on_success,
             Some(Box::new(on_error)),
             None,
+            None,
         );
     }
 }
