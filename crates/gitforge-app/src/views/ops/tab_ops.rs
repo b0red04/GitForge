@@ -179,9 +179,10 @@ impl GitForgeApp {
 
         if was_active {
             self.restore_neighbor_after_close_active_tab(index, cx);
+            self.on_active_repo_tab_changed(ActiveTabChangeKind::SwitchedExisting, cx);
+        } else {
+            self.persist_active_tab_ui(cx);
         }
-
-        self.persist_active_tab_ui(cx);
     }
 
     fn perform_repo_tab_transition(
