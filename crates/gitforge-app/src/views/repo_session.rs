@@ -391,27 +391,6 @@ impl RepoSession {
     pub(crate) fn restore_snapshot_from_tab(&mut self) -> Option<SelectionEffect> {
         self.tabs.active_panel_snapshot()?.apply_to(self)
     }
-
-    /// Whether the large diff overlay should render for the current panel state.
-    pub(crate) fn overlay_eligible(&self) -> bool {
-        self.diff_overlay_open
-            && self.view_mode == MainViewMode::CommitHistory
-            && !self.graph_panel.is_uncommitted_selected()
-    }
-
-    /// Align diff-panel file selection for the overlay (diff mode + normalized idx).
-    pub(crate) fn sync_overlay_file_selection(&mut self) {
-        self.diff_panel.set_diff_mode();
-        if let Some(diff) = self.diff_panel.diff_state()
-            && let Some(file_idx) =
-                super::tab_snapshot::normalized_overlay_file_idx(
-                    diff.selected_file_idx,
-                    diff.file_diffs.len(),
-                )
-        {
-            self.diff_panel.select_file(file_idx);
-        }
-    }
 }
 
 /// Whether [`RepoSession::apply_repo_state_to_panels`] should re-select the

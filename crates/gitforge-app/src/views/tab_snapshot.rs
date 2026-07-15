@@ -86,9 +86,7 @@ impl TabSnapshot {
                 diff_code_file,
                 diff_code_content,
             );
-            if session.diff_overlay_open {
-                session.sync_overlay_file_selection();
-            }
+            session.sync_overlay_file_selection();
             None
         } else {
             Some(session.cascade(sel))
@@ -134,21 +132,6 @@ pub(crate) fn preserved_tab_diff(
             .is_some_and(|(diff, id)| diff.commit_id == id),
         GraphSelection::Uncommitted | GraphSelection::None => false,
     }
-}
-
-/// Normalize the overlay's selected file index against the current file list.
-pub(crate) fn normalized_overlay_file_idx(
-    selected_file_idx: Option<usize>,
-    file_count: usize,
-) -> Option<usize> {
-    if file_count == 0 {
-        return None;
-    }
-    Some(
-        selected_file_idx
-            .filter(|idx| *idx < file_count)
-            .unwrap_or(0),
-    )
 }
 
 #[cfg(test)]
@@ -219,20 +202,4 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn overlay_file_idx_none_when_commit_has_no_files() {
-        assert_eq!(normalized_overlay_file_idx(None, 0), None);
-        assert_eq!(normalized_overlay_file_idx(Some(3), 0), None);
-    }
-
-    #[test]
-    fn overlay_file_idx_keeps_valid_selection() {
-        assert_eq!(normalized_overlay_file_idx(Some(2), 3), Some(2));
-    }
-
-    #[test]
-    fn overlay_file_idx_falls_back_to_first_file() {
-        assert_eq!(normalized_overlay_file_idx(None, 3), Some(0));
-        assert_eq!(normalized_overlay_file_idx(Some(9), 3), Some(0));
-    }
 }

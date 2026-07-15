@@ -306,7 +306,7 @@ impl GitForgeApp {
             self.settings.theme.clone(),
             loading,
             selected_commit_id,
-            self.repo_session.diff_overlay_open,
+            self.repo_session.overlay_eligible(),
         );
 
         if self.repo_session.diff_view.read(cx).key() == &key {
@@ -318,7 +318,7 @@ impl GitForgeApp {
             self.colors.clone(),
             loading,
             selected_commit,
-            self.repo_session.diff_overlay_open,
+            self.repo_session.overlay_eligible(),
             app,
         );
         let diff_view = self.repo_session.diff_view.clone();

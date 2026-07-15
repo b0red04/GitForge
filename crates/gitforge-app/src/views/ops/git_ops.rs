@@ -46,9 +46,7 @@ impl GitForgeApp {
     }
 
     pub fn open_diff_overlay_for_file(&mut self, file_idx: usize, cx: &mut Context<Self>) {
-        self.repo_session.diff_panel.select_file(file_idx);
-        self.repo_session.sync_overlay_file_selection();
-        self.repo_session.diff_overlay_open = true;
+        self.repo_session.open_overlay_for_file(file_idx);
         cx.notify();
     }
 
@@ -57,11 +55,7 @@ impl GitForgeApp {
     /// visible to drive file selection; everything beneath the overlay is
     /// occluded (disabled) while open.
     pub fn toggle_diff_overlay(&mut self, cx: &mut Context<Self>) {
-        let opening = !self.repo_session.diff_overlay_open;
-        if opening {
-            self.repo_session.sync_overlay_file_selection();
-        }
-        self.repo_session.diff_overlay_open = opening;
+        self.repo_session.toggle_overlay();
         cx.notify();
     }
 
@@ -899,9 +893,7 @@ impl GitForgeApp {
                 // via keyboard: auto-select the first file of each newly-loaded
                 // commit. With the overlay closed this preserves the existing
                 // behaviour (no file pre-selected in the right-hand list).
-                if this.repo_session.diff_overlay_open {
-                    this.repo_session.sync_overlay_file_selection();
-                }
+                this.repo_session.sync_overlay_after_diff_load();
                 cx.notify();
             },
         );
