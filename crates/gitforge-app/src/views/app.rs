@@ -306,7 +306,7 @@ impl GitForgeApp {
             self.settings.theme.clone(),
             loading,
             selected_commit_id,
-            self.repo_session.diff_overlay_open,
+            self.repo_session.overlay_eligible(),
         );
 
         if self.repo_session.diff_view.read(cx).key() == &key {
@@ -318,7 +318,7 @@ impl GitForgeApp {
             self.colors.clone(),
             loading,
             selected_commit,
-            self.repo_session.diff_overlay_open,
+            self.repo_session.overlay_eligible(),
             app,
         );
         let diff_view = self.repo_session.diff_view.clone();
@@ -336,14 +336,7 @@ impl GitForgeApp {
     /// working-tree status view is active). The overlay uses `.occlude()` so
     /// everything beneath it is disabled while it is open.
     fn render_diff_overlay(&self, entity: WeakEntity<Self>) -> Option<Stateful<Div>> {
-        if !self.repo_session.diff_overlay_open {
-            return None;
-        }
-        // The overlay only makes sense for committed diffs in the history view.
-        if self.repo_session.view_mode != MainViewMode::CommitHistory {
-            return None;
-        }
-        if self.repo_session.graph_panel.is_uncommitted_selected() {
+        if !self.repo_session.overlay_eligible() {
             return None;
         }
 

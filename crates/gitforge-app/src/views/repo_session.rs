@@ -12,7 +12,7 @@ use super::diff_panel::DiffPanel;
 use super::graph_panel::{GraphPanel, GraphSelection};
 use super::sidebar::SidebarState;
 use super::status_panel::StatusPanel;
-pub(crate) use super::tab_snapshot::{TabSnapshot, normalized_overlay_file_idx};
+pub(crate) use super::tab_snapshot::TabSnapshot;
 pub(crate) use super::tab_session::{OpenRepoTab, TabSession, drop_caret_index};
 
 pub(crate) struct RepoSession {

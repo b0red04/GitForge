@@ -5,6 +5,7 @@ pub mod command_palette;
 pub mod commands;
 pub mod commit_editor;
 pub mod dialogs;
+pub mod diff_overlay;
 pub mod diff_panel;
 pub mod diff_view;
 pub mod diff_viewer;
