@@ -6,6 +6,7 @@ pub mod commit_push_ops;
 pub mod dialog_ops;
 pub mod dialog_render;
 pub mod dispatch;
+mod dispatch_shell;
 pub mod lifecycle;
 pub mod external_tools;
 pub mod git_ops;

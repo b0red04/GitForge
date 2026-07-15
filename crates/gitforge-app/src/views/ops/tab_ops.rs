@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use crate::views::app::GitForgeApp;
 use crate::views::ops::pr_ops::{PullRequestRefreshMode, pull_request_refresh_mode_for_tab};
-use crate::views::repo_session::RefreshReselectPolicy;
+use crate::views::repo_session::{RefreshReselectPolicy, RepoSession};
 use crate::views::settings_window::SettingsRepoData;
 
 /// Panel handoff when the active repository tab changes.
@@ -53,7 +53,9 @@ impl GitForgeApp {
     }
 
     pub(crate) fn open_or_activate_repo_tab(&mut self, path: PathBuf, cx: &mut Context<Self>) {
-        if let Some(tab_id) = self.repo_session.tabs.find_tab_by_path(&path) {
+        self.repo_session.pending_file_dialog = false;
+        let normalized = RepoSession::normalize_repo_path(&path);
+        if let Some(tab_id) = self.repo_session.tabs.find_tab_by_path(&normalized) {
             self.activate_repo_tab(tab_id, cx);
             let should_retry = self
                 .repo_session
@@ -81,10 +83,6 @@ impl GitForgeApp {
         let repo_handle = tab.repo.clone();
         tab.loading = true;
         tab.last_error = None;
-        if self.repo_session.tabs.is_active(tab_id) {
-            self.repo_session.loading = true;
-            self.repo_session.last_error = None;
-        }
         cx.notify();
 
         let load_options = self.load_options();

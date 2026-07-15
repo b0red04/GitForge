@@ -4,11 +4,8 @@ use std::sync::Arc;
 use gitforge_git::{RepoState, Repository};
 use parking_lot::Mutex;
 
-use super::app::MainViewMode;
-use super::diff_panel::CommitDiffState;
-use super::diff_viewer::DiffViewMode;
 use super::repo_tabs::RepoTabView;
-use super::sidebar::SidebarExpansion;
+use super::tab_snapshot::TabSnapshot;
 
 pub(crate) const MAX_CLOSED_TABS: usize = 20;
 
@@ -47,22 +44,6 @@ impl OpenRepoTab {
         tab.loading = true;
         tab
     }
-}
-
-/// Per-tab UI state saved when switching away from a repository tab.
-#[derive(Debug, Clone)]
-pub(crate) struct TabSnapshot {
-    pub selected_commit_id: Option<String>,
-    pub graph_was_uncommitted: bool,
-    pub diff_state: Option<CommitDiffState>,
-    pub diff_view_mode: DiffViewMode,
-    pub diff_code_file: Option<String>,
-    pub diff_code_content: Option<String>,
-    pub commit_message: String,
-    pub ai_alternatives: Vec<String>,
-    pub view_mode: MainViewMode,
-    pub diff_overlay_open: bool,
-    pub sidebar_expansion: SidebarExpansion,
 }
 
 /// Open repository tabs, active tab selection, drag/reorder state, and
