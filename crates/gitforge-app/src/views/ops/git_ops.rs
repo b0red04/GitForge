@@ -47,15 +47,9 @@ impl GitForgeApp {
 
     pub fn open_diff_overlay_for_file(&mut self, file_idx: usize, cx: &mut Context<Self>) {
         self.repo_session.diff_panel.select_file(file_idx);
-        self.prepare_diff_overlay_state();
-        if !self.repo_session.diff_overlay_open {
-            self.repo_session.diff_overlay_open = true;
-        }
-        cx.notify();
-    }
-
-    fn prepare_diff_overlay_state(&mut self) {
         self.repo_session.sync_overlay_file_selection();
+        self.repo_session.diff_overlay_open = true;
+        cx.notify();
     }
 
     /// Toggle the large diff overlay that renders the selected file's line-level
@@ -65,7 +59,7 @@ impl GitForgeApp {
     pub fn toggle_diff_overlay(&mut self, cx: &mut Context<Self>) {
         let opening = !self.repo_session.diff_overlay_open;
         if opening {
-            self.prepare_diff_overlay_state();
+            self.repo_session.sync_overlay_file_selection();
         }
         self.repo_session.diff_overlay_open = opening;
         cx.notify();
@@ -896,7 +890,6 @@ impl GitForgeApp {
             move |repo| repo.unified_diff_for_commit(&commit_id),
             move |this, diff_text, cx| {
                 let file_diffs = gitforge_diff::parser::parse_unified_diff(&diff_text);
-                let has_files = !file_diffs.is_empty();
                 this.repo_session.diff_panel.set_diff(CommitDiffState::new(
                     id_for_state,
                     file_diffs,
@@ -906,7 +899,7 @@ impl GitForgeApp {
                 // via keyboard: auto-select the first file of each newly-loaded
                 // commit. With the overlay closed this preserves the existing
                 // behaviour (no file pre-selected in the right-hand list).
-                if this.repo_session.diff_overlay_open && has_files {
+                if this.repo_session.diff_overlay_open {
                     this.repo_session.sync_overlay_file_selection();
                 }
                 cx.notify();

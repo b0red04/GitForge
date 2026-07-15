@@ -12,7 +12,7 @@ use super::diff_panel::DiffPanel;
 use super::graph_panel::{GraphPanel, GraphSelection};
 use super::sidebar::SidebarState;
 use super::status_panel::StatusPanel;
-pub(crate) use super::tab_snapshot::{TabSnapshot, normalized_overlay_file_idx};
+pub(crate) use super::tab_snapshot::TabSnapshot;
 pub(crate) use super::tab_session::{OpenRepoTab, TabSession, drop_caret_index};
 
 pub(crate) struct RepoSession {
@@ -402,12 +402,13 @@ impl RepoSession {
     /// Align diff-panel file selection for the overlay (diff mode + normalized idx).
     pub(crate) fn sync_overlay_file_selection(&mut self) {
         self.diff_panel.set_diff_mode();
-        let (selected_file_idx, file_count) = self
-            .diff_panel
-            .diff_state()
-            .map(|d| (d.selected_file_idx, d.file_diffs.len()))
-            .unwrap_or((None, 0));
-        if let Some(file_idx) = normalized_overlay_file_idx(selected_file_idx, file_count) {
+        if let Some(diff) = self.diff_panel.diff_state()
+            && let Some(file_idx) =
+                super::tab_snapshot::normalized_overlay_file_idx(
+                    diff.selected_file_idx,
+                    diff.file_diffs.len(),
+                )
+        {
             self.diff_panel.select_file(file_idx);
         }
     }

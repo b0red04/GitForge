@@ -86,7 +86,9 @@ impl TabSnapshot {
                 diff_code_file,
                 diff_code_content,
             );
-            apply_overlay_file_selection(session);
+            if session.diff_overlay_open {
+                session.sync_overlay_file_selection();
+            }
             None
         } else {
             Some(session.cascade(sel))
@@ -115,19 +117,6 @@ fn restore_graph_selection(
         graph_panel.select_commit(idx);
     } else if graph_was_uncommitted {
         graph_panel.select_uncommitted();
-    }
-}
-
-fn apply_overlay_file_selection(session: &mut RepoSession) {
-    if !session.diff_overlay_open {
-        return;
-    }
-    session.diff_panel.set_diff_mode();
-    if let Some(diff) = session.diff_panel.diff_state()
-        && let Some(file_idx) =
-            normalized_overlay_file_idx(diff.selected_file_idx, diff.file_diffs.len())
-    {
-        session.diff_panel.select_file(file_idx);
     }
 }
 
