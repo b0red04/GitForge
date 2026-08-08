@@ -150,8 +150,8 @@ cargo run -p gitforge-app
 After building, create an update tarball and install it without GitHub:
 
 ```bash
-./scripts/build-update-tarball.sh 0.2.3
-GITFORGE_BUNDLE_PATH="$(pwd)/GitForge-0.2.3-$(uname -m).tar.gz" bash scripts/install.sh
+./scripts/build-update-tarball.sh 0.3.0
+GITFORGE_BUNDLE_PATH="$(pwd)/GitForge-0.3.0-$(uname -m).tar.gz" bash scripts/install.sh
 ```
 
 ## Releasing (maintainers)
@@ -163,7 +163,7 @@ GitForge is distributed via GitHub Releases. Each release must include:
 | `GitForge-{version}-x86_64.tar.gz`        | Install script and auto-updater payload |
 | `GitForge-{version}-x86_64.tar.gz.sha256` | Checksum verification for the updater   |
 
-The version in `Cargo.toml`, the git tag (`v0.2.3`), and the tarball filename must all match.
+The version in `Cargo.toml`, the git tag (`v0.3.0`), and the tarball filename must all match.
 
 ### Publish a release
 
@@ -189,7 +189,7 @@ The tag pins the exact commit that gets built. If CI fails, fix the issue on `ma
 
 ```bash
 cargo build -p gitforge-app --release
-./scripts/build-update-tarball.sh 0.2.3
+./scripts/build-update-tarball.sh 0.3.0
 ```
 
 Legacy packaging (AppImage, `.deb`, Flatpak, AUR) lives in `packaging/` but is not the supported install path.
