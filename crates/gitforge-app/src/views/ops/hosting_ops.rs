@@ -27,9 +27,10 @@ impl GitForgeApp {
 
         if path.exists()
             && let Ok(data) = std::fs::read_to_string(&path)
-                && let Ok(accounts) = serde_json::from_str(&data) {
-                    self.hosting_accounts = accounts;
-                }
+            && let Ok(accounts) = serde_json::from_str(&data)
+        {
+            self.hosting_accounts = accounts;
+        }
     }
 
     pub(crate) fn backfill_avatar_caches(&mut self, cx: &mut Context<Self>) {
@@ -333,6 +334,19 @@ impl GitForgeApp {
         repo_name: String,
         cx: &mut Context<Self>,
     ) {
+        // Capture the selected account before closing the dialog or awaiting
+        // the folder picker; neither operation should change clone identity.
+        let account = self
+            .active_hosting_repo_provider()
+            .and_then(|provider| self.find_hosting_account(provider));
+        let Some(account) = account else {
+            self.push_toast(
+                crate::views::toasts::ToastKind::Warning,
+                "Select a hosting account before cloning.",
+                cx,
+            );
+            return;
+        };
         self.active_dialog = super::super::app::AppDialog::None;
         cx.notify();
 
@@ -372,7 +386,32 @@ impl GitForgeApp {
                     "Clone",
                     cx,
                     super::dispatch::OpEffects::QUIET,
-                    move || gitforge_git::Repository::clone_repo(&url, &dest, false, None),
+                    move || {
+                        let host = match account.provider.as_str() {
+                            "github" => "github.com",
+                            "gitlab" => "gitlab.com",
+                            "codeberg" => "codeberg.org",
+                            _ => {
+                                return Err(gitforge_git::GitError::OperationFailed(
+                                    "Unknown hosting provider".into(),
+                                ));
+                            }
+                        };
+                        if !url.starts_with(&format!("https://{host}/")) {
+                            return Err(gitforge_git::GitError::OperationFailed(
+                                "Clone URL does not match the selected hosting account".into(),
+                            ));
+                        }
+                        let token = account
+                            .token()
+                            .map_err(|e| gitforge_git::GitError::OperationFailed(e.to_string()))?;
+                        gitforge_git::Repository::clone_repo_authenticated(
+                            &url,
+                            &dest,
+                            &account.username,
+                            &token,
+                        )
+                    },
                     move |this, _output, cx| {
                         this.open_repo_from_path(open_path, cx);
                     },

@@ -86,10 +86,19 @@ impl GitError {
                 )
             }
             GitError::AuthenticationFailed { remote, stderr } => {
+                let diagnostic = stderr
+                    .lines()
+                    .map(str::trim)
+                    .find(|line| {
+                        line.starts_with("fatal:")
+                            || line.starts_with("remote:")
+                            || line.starts_with("error:")
+                    })
+                    .unwrap_or_else(|| stderr.lines().next().unwrap_or_default());
                 format!(
                     "Authentication failed for {}: {}",
                     redact_credentials(remote),
-                    redact_credentials(&first_line(stderr))
+                    redact_credentials(diagnostic)
                 )
             }
             GitError::NetworkError { detail } => {
@@ -113,8 +122,7 @@ impl GitError {
                 "Your branch and the remote have different histories. If you combined commits \
                  locally, update the remote with Push instead of Pull."
                     .to_string()
-            }
-            // Note: `reason` is omitted from toast (kept in full Display).
+            } // Note: `reason` is omitted from toast (kept in full Display).
         }
     }
 
@@ -561,10 +569,18 @@ mod tests {
     #[test]
     fn extract_push_branch_handles_upstream_and_refspec_forms() {
         // `["push", remote, branch]`
-        assert_eq!(extract_push_branch(&["push", "origin", "main"]), Some("main".into()));
+        assert_eq!(
+            extract_push_branch(&["push", "origin", "main"]),
+            Some("main".into())
+        );
         // `["push", "-u", remote, refspec]` — must not return the remote.
         assert_eq!(
-            extract_push_branch(&["push", "-u", "origin", "refs/heads/feature:refs/heads/feature"]),
+            extract_push_branch(&[
+                "push",
+                "-u",
+                "origin",
+                "refs/heads/feature:refs/heads/feature"
+            ]),
             Some("feature".into())
         );
         // `["push", "--force", remote, refspec]`
@@ -596,7 +612,10 @@ mod tests {
             stderr: String::new(),
         };
         let msg = e.toast_message();
-        assert!(msg.contains("squash") || msg.contains("combined"), "toast: {msg}");
+        assert!(
+            msg.contains("squash") || msg.contains("combined"),
+            "toast: {msg}"
+        );
     }
 
     #[test]
@@ -733,6 +752,18 @@ mod tests {
             "password leaked in toast: {msg}"
         );
         assert!(msg.contains("***@"), "expected redaction marker: {msg}");
+    }
+
+    #[test]
+    fn clone_auth_toast_shows_failure_instead_of_progress() {
+        let error = GitError::AuthenticationFailed {
+            remote: "https://github.com/owner/private.git".into(),
+            stderr: "Cloning into '/tmp/private'...\nfatal: Authentication failed for 'https://user:secret@github.com/owner/private.git'\n".into(),
+        };
+        let message = error.toast_message();
+        assert!(message.contains("fatal: Authentication failed"));
+        assert!(!message.contains("Cloning into"));
+        assert!(!message.contains("secret"));
     }
 
     #[test]

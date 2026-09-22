@@ -37,9 +37,10 @@ impl Repository {
         for line in text.lines() {
             if let Some((name, rest)) = line.split_once('\t')
                 && let Some(url) = rest.split_whitespace().next()
-                    && seen.insert(name.to_string()) {
-                        remotes.push((name.to_string(), url.to_string()));
-                    }
+                && seen.insert(name.to_string())
+            {
+                remotes.push((name.to_string(), url.to_string()));
+            }
         }
         Ok(remotes)
     }
@@ -168,6 +169,28 @@ impl Repository {
         bare: bool,
         depth: Option<usize>,
     ) -> GitResult<String> {
+        Self::clone_with_command(Command::new("git"), url, path, bare, depth)
+    }
+
+    /// Clone with a selected hosting account, without persisting its token.
+    pub fn clone_repo_authenticated(
+        url: &str,
+        path: &Path,
+        username: &str,
+        token: &str,
+    ) -> GitResult<String> {
+        let mut command = Command::new("git");
+        crate::clone_auth::configure(&mut command, url, username, token)?;
+        Self::clone_with_command(command, url, path, false, None)
+    }
+
+    fn clone_with_command(
+        mut command: Command,
+        url: &str,
+        path: &Path,
+        bare: bool,
+        depth: Option<usize>,
+    ) -> GitResult<String> {
         let mut args: Vec<String> = vec!["clone".into()];
         if bare {
             args.push("--bare".into());
@@ -179,7 +202,7 @@ impl Repository {
         args.push(url.into());
         args.push(path.to_str().unwrap_or(".").into());
 
-        let output = Command::new("git")
+        let output = command
             .args(&args)
             .output()
             .map_err(|e| GitError::OperationFailed(format!("Failed to run git clone: {}", e)))?;

@@ -1,4 +1,5 @@
 pub mod blame;
+mod clone_auth;
 pub mod commit;
 pub mod credential;
 pub mod diff;
