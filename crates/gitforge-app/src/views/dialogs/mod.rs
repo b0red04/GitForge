@@ -2,6 +2,7 @@ pub mod add_repo;
 pub mod commit_and_push;
 pub mod create_pr;
 pub mod credential_add;
+pub mod discard_all_changes;
 pub mod delete_branch;
 pub mod delete_remote_branch;
 pub mod fork_confirm;
@@ -32,6 +33,9 @@ pub fn confirm(
 ) {
     match &dialog {
         AppDialog::None | AppDialog::CreatePullRequest | AppDialog::AddRepo | AppDialog::SquashWizard => {}
+        AppDialog::DiscardAllChanges { tracked_paths, untracked_paths } => {
+            app.discard_all_changes(tracked_paths.clone(), untracked_paths.clone(), cx)
+        }
         AppDialog::CloneFromHosting { .. } => {}
         d if simple_input::is_simple(d) => simple_input::confirm(app, dialog, input, input_2, cx),
         AppDialog::CredentialAdd => credential_add::confirm(app, input, input_2, cx),
@@ -75,6 +79,9 @@ pub fn render(
     squash_wizard: Option<&SquashWizardState>,
 ) -> Stateful<Div> {
     match dialog {
+        AppDialog::DiscardAllChanges { tracked_paths, untracked_paths } => {
+            discard_all_changes::render(tracked_paths.len(), untracked_paths.len(), colors, entity)
+        }
         AppDialog::CommitAndPush {
             current_branch,
             detached,

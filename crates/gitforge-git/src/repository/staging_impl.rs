@@ -98,6 +98,12 @@ impl Repository {
         Ok(())
     }
 
+    /// Restores tracked worktree changes and removes the listed untracked files.
+    pub fn discard_changes(&self, tracked: &[&Path], untracked: &[&Path]) -> GitResult<()> {
+        self.discard_worktree_changes(tracked)?;
+        self.remove_untracked(untracked)
+    }
+
     /// Performs filesystem I/O to remove files directly.
     pub fn remove_untracked(&self, paths: &[&Path]) -> GitResult<()> {
         if paths.is_empty() {
@@ -150,5 +156,50 @@ impl Repository {
         let arg = format!("HEAD~{}", commits);
         self.run_git(&["reset", "--soft", &arg])?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn discard_changes_keeps_index_and_removes_untracked_files() {
+        let tmp = TempDir::new().unwrap();
+        Command::new("git")
+            .arg("init")
+            .current_dir(tmp.path())
+            .output()
+            .unwrap();
+        let repo = Repository::open(tmp.path()).unwrap();
+
+        std::fs::write(tmp.path().join("tracked.txt"), "committed").unwrap();
+        repo.stage_paths(&[Path::new("tracked.txt")]).unwrap();
+        repo.run_git(&[
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "-m",
+            "init",
+        ])
+        .unwrap();
+
+        std::fs::write(tmp.path().join("tracked.txt"), "staged").unwrap();
+        repo.stage_paths(&[Path::new("tracked.txt")]).unwrap();
+        std::fs::write(tmp.path().join("tracked.txt"), "unstaged").unwrap();
+        std::fs::write(tmp.path().join("new.txt"), "untracked").unwrap();
+
+        repo.discard_changes(&[Path::new("tracked.txt")], &[Path::new("new.txt")])
+            .unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(tmp.path().join("tracked.txt")).unwrap(),
+            "staged"
+        );
+        assert!(!tmp.path().join("new.txt").exists());
+        assert!(!repo.status().unwrap().staged.is_empty());
     }
 }

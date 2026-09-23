@@ -70,6 +70,10 @@ pub enum MainViewMode {
 #[allow(dead_code)]
 pub enum AppDialog {
     None,
+    DiscardAllChanges {
+        tracked_paths: Vec<String>,
+        untracked_paths: Vec<String>,
+    },
     CreateBranch {
         start_point: Option<String>,
     },

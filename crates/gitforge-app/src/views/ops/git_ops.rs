@@ -318,6 +318,38 @@ impl GitForgeApp {
         });
     }
 
+    pub fn open_discard_all_changes_dialog(
+        &mut self,
+        tracked_paths: Vec<String>,
+        untracked_paths: Vec<String>,
+        cx: &mut Context<Self>,
+    ) {
+        self.active_dialog = AppDialog::DiscardAllChanges {
+            tracked_paths,
+            untracked_paths,
+        };
+        cx.notify();
+    }
+
+    pub fn discard_all_changes(
+        &mut self,
+        tracked_paths: Vec<String>,
+        untracked_paths: Vec<String>,
+        cx: &mut Context<Self>,
+    ) {
+        self.run_git_op("Discard all changes", cx, move |repo| {
+            let tracked: Vec<std::path::PathBuf> =
+                tracked_paths.into_iter().map(Into::into).collect();
+            let tracked_refs: Vec<&std::path::Path> =
+                tracked.iter().map(|path| path.as_path()).collect();
+            let untracked: Vec<std::path::PathBuf> =
+                untracked_paths.into_iter().map(Into::into).collect();
+            let untracked_refs: Vec<&std::path::Path> =
+                untracked.iter().map(|path| path.as_path()).collect();
+            repo.discard_changes(&tracked_refs, &untracked_refs)
+        });
+    }
+
     pub fn remove_untracked_file(&mut self, path: String, cx: &mut Context<Self>) {
         self.run_git_op("Remove untracked", cx, move |repo| {
             let p = std::path::PathBuf::from(&path);
