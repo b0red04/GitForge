@@ -92,8 +92,14 @@ impl Repository {
         if paths.is_empty() {
             return Ok(());
         }
+        // Pass each path as a `:(literal)` pathspec so pathspec characters in
+        // a filename (wildcards, brackets, ...) cannot match additional files.
+        let pathspecs: Vec<String> = paths
+            .iter()
+            .map(|p| format!(":(literal){}", p.to_str().unwrap_or("")))
+            .collect();
         let mut args = vec!["checkout", "--"];
-        args.extend(paths.iter().map(|p| p.to_str().unwrap_or("")));
+        args.extend(pathspecs.iter().map(String::as_str));
         self.run_git(&args)?;
         Ok(())
     }
@@ -111,7 +117,10 @@ impl Repository {
         }
         for path in paths {
             let full_path = self.path.join(path);
-            if full_path.exists() {
+            // `exists()` follows symlinks, so a dangling symlink would report
+            // false and be skipped; detect the link itself so it is removed
+            // too.
+            if full_path.symlink_metadata().is_ok() {
                 std::fs::remove_file(&full_path).map_err(|e| {
                     GitError::OperationFailed(format!("Failed to remove {}: {}", path.display(), e))
                 })?;
@@ -201,5 +210,65 @@ mod tests {
         );
         assert!(!tmp.path().join("new.txt").exists());
         assert!(!repo.status().unwrap().staged.is_empty());
+    }
+
+    #[test]
+    fn discard_worktree_changes_treats_paths_as_literal_pathspecs() {
+        let tmp = TempDir::new().unwrap();
+        Command::new("git")
+            .arg("init")
+            .current_dir(tmp.path())
+            .output()
+            .unwrap();
+        let repo = Repository::open(tmp.path()).unwrap();
+
+        std::fs::write(tmp.path().join("report[1].txt"), "committed").unwrap();
+        std::fs::write(tmp.path().join("report1.txt"), "committed").unwrap();
+        repo.stage_paths(&[Path::new("report[1].txt"), Path::new("report1.txt")])
+            .unwrap();
+        repo.run_git(&[
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "-m",
+            "init",
+        ])
+        .unwrap();
+
+        std::fs::write(tmp.path().join("report[1].txt"), "modified").unwrap();
+        std::fs::write(tmp.path().join("report1.txt"), "modified").unwrap();
+
+        repo.discard_worktree_changes(&[Path::new("report[1].txt")])
+            .unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(tmp.path().join("report[1].txt")).unwrap(),
+            "committed"
+        );
+        assert_eq!(
+            std::fs::read_to_string(tmp.path().join("report1.txt")).unwrap(),
+            "modified",
+            "pathspec characters in a filename must not discard lookalike files"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn remove_untracked_removes_dangling_symlink() {
+        let tmp = TempDir::new().unwrap();
+        Command::new("git")
+            .arg("init")
+            .current_dir(tmp.path())
+            .output()
+            .unwrap();
+        let repo = Repository::open(tmp.path()).unwrap();
+
+        std::os::unix::fs::symlink("missing-target", tmp.path().join("dangling.lnk")).unwrap();
+
+        repo.remove_untracked(&[Path::new("dangling.lnk")]).unwrap();
+
+        assert!(!tmp.path().join("dangling.lnk").symlink_metadata().is_ok());
     }
 }

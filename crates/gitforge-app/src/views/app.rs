@@ -73,6 +73,10 @@ pub enum AppDialog {
     DiscardAllChanges {
         tracked_paths: Vec<String>,
         untracked_paths: Vec<String>,
+        /// Repository the discard was requested from. Confirming runs against
+        /// the active tab, so the operation is rejected if the active
+        /// repository no longer matches.
+        repo_path: PathBuf,
     },
     CreateBranch {
         start_point: Option<String>,

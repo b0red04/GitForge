@@ -324,9 +324,16 @@ impl GitForgeApp {
         untracked_paths: Vec<String>,
         cx: &mut Context<Self>,
     ) {
+        // Record which repository this confirmation belongs to. Confirming
+        // runs against the active tab, so the dialog must be rejected if the
+        // user switches repositories before confirming.
+        let Some(repo_path) = self.repo_session.active_tab().map(|tab| tab.path.clone()) else {
+            return;
+        };
         self.active_dialog = AppDialog::DiscardAllChanges {
             tracked_paths,
             untracked_paths,
+            repo_path,
         };
         cx.notify();
     }

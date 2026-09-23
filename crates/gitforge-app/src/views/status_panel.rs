@@ -405,16 +405,21 @@ impl StatusPanel {
         if changes_count > 0 {
             let discard_ent = entity.clone();
             let stage_ent = entity.clone();
-            let tracked_paths: Vec<String> = status
-                .unstaged
-                .iter()
-                .map(|entry| entry.path.clone())
-                .collect();
-            let untracked_paths: Vec<String> = status
-                .untracked
-                .iter()
-                .map(|entry| entry.path.clone())
-                .collect();
+            // A rewrite (rename/copy) leaves its source in the index while the
+            // destination is an extra worktree file: restore the source and
+            // remove the destination.
+            let mut tracked_paths: Vec<String> = Vec::new();
+            let mut untracked_paths: Vec<String> = Vec::new();
+            for entry in &status.unstaged {
+                if matches!(entry.status, FileStatus::Renamed | FileStatus::Copied) {
+                    tracked_paths
+                        .push(entry.old_path.clone().unwrap_or_else(|| entry.path.clone()));
+                    untracked_paths.push(entry.path.clone());
+                } else {
+                    tracked_paths.push(entry.path.clone());
+                }
+            }
+            untracked_paths.extend(status.untracked.iter().map(|entry| entry.path.clone()));
             let discard_colors = colors.clone();
             let stage_colors = colors.clone();
             list = list.child(
