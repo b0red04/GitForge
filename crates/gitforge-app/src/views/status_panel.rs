@@ -401,83 +401,97 @@ impl StatusPanel {
             }
         }
 
-        if !status.unstaged.is_empty() {
+        let changes_count = status.unstaged.len() + status.untracked.len();
+        if changes_count > 0 {
+            let discard_ent = entity.clone();
             let stage_ent = entity.clone();
-            list = list.child(
-                section_header(
-                    "unstaged-section",
-                    "UNSTAGED CHANGES",
-                    HeaderPadding::Compact,
-                    HeaderBorder::Bottom,
-                    Some(status.unstaged.len()),
-                    wc,
-                )
-                .mt_1()
-                .child(div().flex_1())
-                .child(action_button(
-                    "stage-all-unstaged-btn",
-                    "+All",
-                    ButtonKind::Accent,
-                    ButtonSize::Compact,
-                    false,
-                    entity_on_click(stage_ent, |this, cx| this.stage_all(cx)),
-                    wc,
-                )),
-            );
-            for (i, entry) in status.unstaged.iter().enumerate() {
-                let is_sel = self
-                    .selection
-                    .as_ref()
-                    .is_some_and(|s| s.section == StatusFileSection::Unstaged && s.file_idx == i);
-                list = list.child(render_status_file_entry(
-                    entry,
-                    is_sel,
-                    StatusFileSection::Unstaged,
-                    i,
-                    colors,
-                    entity.clone(),
-                    open_diff_on_click,
-                ));
+            // A rewrite (rename/copy) leaves its source in the index while the
+            // destination is an extra worktree file: restore the source and
+            // remove the destination.
+            let mut tracked_paths: Vec<String> = Vec::new();
+            let mut untracked_paths: Vec<String> = Vec::new();
+            for entry in &status.unstaged {
+                if matches!(entry.status, FileStatus::Renamed | FileStatus::Copied) {
+                    tracked_paths
+                        .push(entry.old_path.clone().unwrap_or_else(|| entry.path.clone()));
+                    untracked_paths.push(entry.path.clone());
+                } else {
+                    tracked_paths.push(entry.path.clone());
+                }
             }
-        }
-
-        if !status.untracked.is_empty() {
-            let stage_ent = entity.clone();
+            untracked_paths.extend(status.untracked.iter().map(|entry| entry.path.clone()));
+            let discard_colors = colors.clone();
+            let stage_colors = colors.clone();
             list = list.child(
                 section_header(
-                    "untracked-section",
-                    "Untracked",
+                    "changes-section",
+                    "CHANGES",
                     HeaderPadding::Compact,
                     HeaderBorder::Bottom,
-                    Some(status.untracked.len()),
+                    Some(changes_count),
                     wc,
                 )
                 .mt_1()
                 .child(div().flex_1())
-                .child(action_button(
-                    "stage-all-untracked-btn",
-                    "+All",
-                    ButtonKind::Accent,
-                    ButtonSize::Compact,
-                    false,
-                    entity_on_click(stage_ent, |this, cx| this.stage_all(cx)),
-                    wc,
-                )),
+                .child(
+                    icon_button(
+                        "discard-all-changes-btn",
+                        ButtonKind::Danger,
+                        IconSize::Small,
+                        "↶",
+                        entity_on_click(discard_ent, move |this, cx| {
+                            this.open_discard_all_changes_dialog(
+                                tracked_paths.clone(),
+                                untracked_paths.clone(),
+                                cx,
+                            )
+                        }),
+                        wc,
+                    )
+                    .tooltip(move |_window, cx| {
+                        cx.new(|_cx| StatusActionTooltip {
+                            text: "Discard All Changes",
+                            colors: discard_colors.clone(),
+                        })
+                        .into()
+                    }),
+                )
+                .child(
+                    icon_button(
+                        "stage-all-changes-btn",
+                        ButtonKind::Accent,
+                        IconSize::Small,
+                        "+",
+                        entity_on_click(stage_ent, |this, cx| this.stage_all(cx)),
+                        wc,
+                    )
+                    .tooltip(move |_window, cx| {
+                        cx.new(|_cx| StatusActionTooltip {
+                            text: "Stage All Changes",
+                            colors: stage_colors.clone(),
+                        })
+                        .into()
+                    }),
+                ),
             );
-            for (i, entry) in status.untracked.iter().enumerate() {
-                let is_sel = self
-                    .selection
-                    .as_ref()
-                    .is_some_and(|s| s.section == StatusFileSection::Untracked && s.file_idx == i);
-                list = list.child(render_status_file_entry(
-                    entry,
-                    is_sel,
-                    StatusFileSection::Untracked,
-                    i,
-                    colors,
-                    entity.clone(),
-                    open_diff_on_click,
-                ));
+            for (section, entries) in [
+                (StatusFileSection::Unstaged, &status.unstaged),
+                (StatusFileSection::Untracked, &status.untracked),
+            ] {
+                for (i, entry) in entries.iter().enumerate() {
+                    let is_sel = self.selection.as_ref().is_some_and(|s| {
+                        s.section == section && s.file_idx == i
+                    });
+                    list = list.child(render_status_file_entry(
+                        entry,
+                        is_sel,
+                        section,
+                        i,
+                        colors,
+                        entity.clone(),
+                        open_diff_on_click,
+                    ));
+                }
             }
         }
 
@@ -645,6 +659,26 @@ fn status_panel_shell(surface: Hsla) -> Div {
     )
 }
 
+struct StatusActionTooltip {
+    text: &'static str,
+    colors: AppColors,
+}
+
+impl Render for StatusActionTooltip {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .px_2()
+            .py_1()
+            .text_xs()
+            .text_color(rgba_to_hsla(self.colors.text))
+            .bg(rgba_to_hsla(self.colors.background))
+            .border_1()
+            .border_color(rgba_to_hsla(self.colors.border))
+            .rounded(px(4.0))
+            .child(self.text)
+    }
+}
+
 fn render_status_file_entry(
     entry: &FileEntry,
     is_selected: bool,
@@ -738,12 +772,9 @@ fn render_status_file_entry(
         .items_center()
         .gap_2()
         .min_w(px(0.0))
-        .child(render_git_status_icon(&entry.status, colors))
         .child(path_label)
         .child(render_line_diff_stat(entry.diff_stat, colors));
 
-    let border = rgba_to_hsla(colors.border);
-    let accent = rgba_to_hsla(colors.accent);
     let wc = WidgetColors::from_app(colors);
 
     if show_discard {
@@ -778,34 +809,21 @@ fn render_status_file_entry(
         ));
     }
 
-    let checkbox_bg = if is_staged_row { accent } else { surface };
-    inner_row = inner_row.child(
-        div()
-            .id(ElementId::Name(
-                format!("stage-checkbox-{:?}-{}", section, idx).into(),
-            ))
-            .w(px(14.0))
-            .h(px(14.0))
-            .flex_shrink_0()
-            .flex()
-            .items_center()
-            .justify_center()
-            .rounded(px(2.0))
-            .border_1()
-            .border_color(if is_staged_row { accent } else { border })
-            .bg(checkbox_bg)
-            .cursor_pointer()
-            .on_click(move |_ev, _window, cx| {
-                if let Some(e) = action_ent.upgrade() {
-                    let p = action_path.clone();
-                    e.update(cx, |this, cx| match action_section {
-                        StatusFileSection::Staged => this.unstage_file(p, cx),
-                        StatusFileSection::Conflicted => this.stage_file(p, cx),
-                        _ => this.stage_file(p, cx),
-                    });
-                }
-            }),
-    );
+    inner_row = inner_row.child(icon_button(
+        ElementId::Name(format!("stage-file-{:?}-{}", section, idx).into()),
+        ButtonKind::Accent,
+        IconSize::Small,
+        if is_staged_row { "−" } else { "+" },
+        entity_on_click(action_ent, move |this, cx| {
+            let path = action_path.clone();
+            match action_section {
+                StatusFileSection::Staged => this.unstage_file(path, cx),
+                _ => this.stage_file(path, cx),
+            }
+        }),
+        wc,
+    ));
+    inner_row = inner_row.child(render_git_status_icon(&entry.status, colors));
 
     entry_row = entry_row.child(inner_row);
 
@@ -849,14 +867,15 @@ fn render_status_file_entry(
     entry_row
 }
 
-/// Zed-style status glyph: modified = amber M, new/untracked = green +, etc.
+/// Git status letter shown at the end of each file row.
 fn render_git_status_icon(status: &FileStatus, colors: &AppColors) -> Div {
-    let (label, bg) = match status {
-        FileStatus::Untracked | FileStatus::Added => ("+", rgba_to_hsla(colors.diff_added)),
-        FileStatus::Modified | FileStatus::Renamed | FileStatus::Copied => {
-            ("M", rgba_to_hsla(colors.warning))
-        }
-        FileStatus::Deleted => ("−", rgba_to_hsla(colors.diff_removed)),
+    let (label, color) = match status {
+        FileStatus::Untracked => ("U", rgba_to_hsla(colors.diff_added)),
+        FileStatus::Added => ("A", rgba_to_hsla(colors.diff_added)),
+        FileStatus::Modified => ("M", rgba_to_hsla(colors.warning)),
+        FileStatus::Renamed => ("R", rgba_to_hsla(colors.warning)),
+        FileStatus::Copied => ("C", rgba_to_hsla(colors.warning)),
+        FileStatus::Deleted => ("D", rgba_to_hsla(colors.diff_removed)),
         FileStatus::Conflicted => ("!", rgba_to_hsla(colors.error)),
     };
 
@@ -867,11 +886,9 @@ fn render_git_status_icon(status: &FileStatus, colors: &AppColors) -> Div {
         .flex()
         .items_center()
         .justify_center()
-        .rounded(px(2.0))
-        .bg(bg)
         .text_xs()
         .font_weight(FontWeight::BOLD)
-        .text_color(rgba_to_hsla(colors.background))
+        .text_color(color)
         .child(label.to_string())
 }
 
